@@ -439,19 +439,17 @@ body.grasp-dragging .module__title {
   inset: 0;
   overflow: visible;
   pointer-events: none;
-  z-index: 2;
+  z-index: 0;
 }
 .connectors .edge {
   fill: none;
   stroke: var(--edge-color, var(--border));
   stroke-width: 2;
-  stroke-opacity: 0.85;
   pointer-events: visibleStroke;
   cursor: pointer;
 }
 .connectors .arrow {
   fill: var(--edge-color, var(--border));
-  fill-opacity: 0.85;
 }
 .connectors .edge[data-kind=route],
 .connectors .edge[data-kind=enqueue] {
@@ -486,7 +484,7 @@ body.grasp-dragging .module__title {
 .flows {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 2;
   pointer-events: none;
 }
 .flow {

@@ -135,14 +135,11 @@ body.grasp-space .canvas, body.grasp-space .card { cursor: grab; }
    pointerdown that starts the drag, which stops :active from ever matching. */
 body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, body.grasp-dragging .flow__title, body.grasp-dragging .module__title { cursor: grabbing; }
 .stage { position: absolute; inset-block-start: 0; inset-inline-start: 0; transform-origin: 0 0; }
-/* The connector layer covers the stage over the cards, so an edge crossing a card is never
-   hidden behind it, and under the frame headers, so a group's title stays readable. */
-.connectors { position: absolute; inset: 0; overflow: visible; pointer-events: none; z-index: 2; }
+.connectors { position: absolute; inset: 0; overflow: visible; pointer-events: none; z-index: 0; }
 /* The layer itself takes no pointer, but a stroke does, so a double click on an edge can
-   travel along it; the hit area is the drawn stroke, not the path's bounding box. A stroke
-   is drawn a little transparent, so the line of code it crosses reads through it. */
-.connectors .edge { fill: none; stroke: var(--edge-color, var(--border)); stroke-width: 2; stroke-opacity: 0.85; pointer-events: visibleStroke; cursor: pointer; }
-.connectors .arrow { fill: var(--edge-color, var(--border)); fill-opacity: 0.85; }
+   travel along it; the hit area is the drawn stroke, not the path's bounding box. */
+.connectors .edge { fill: none; stroke: var(--edge-color, var(--border)); stroke-width: 2; pointer-events: visibleStroke; cursor: pointer; }
+.connectors .arrow { fill: var(--edge-color, var(--border)); }
 /* An edge that is not a function call — an HTTP request the router resolved, a job put on
    a queue — does not hand control straight from one end to the other: the browser leaves the
    page, or a worker picks the job up on its own time. The broken line says so. */
@@ -167,7 +164,7 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
    the header itself takes its own, being the handle the group is dragged and renamed by. A
    section is as wide as its header asks for: the layer it sits in has no width of its own to
    wrap the title against. */
-.flows { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.flows { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .flow { position: absolute; inset-block-start: 0; inset-inline-start: 0; width: max-content; }
 .flow__title { pointer-events: auto; }
 /* A frame's header is counter-scaled by --zoom, which the canvas hook writes on #stage beside

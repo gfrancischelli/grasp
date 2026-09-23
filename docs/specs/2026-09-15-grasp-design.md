@@ -709,10 +709,8 @@ with several callers says which of its edges comes from where and the calls in t
 which line is theirs. An edge leaves towards the callee and arrives on the side it comes
 from, so a caller opened to the right of the card it calls is joined round the outside rather
 than through it, and a callee sharing the caller's columns is joined through the edges that
-face one another. The overlay is stacked over the cards and under the frame headers, so an
-edge crossing a card is never hidden behind it while a group's title stays readable, and its
-strokes are drawn a little transparent so the code they cross reads through them. The overlay
-sits inside a `phx-update="ignore"` element — the server renders only the arrowhead markers,
+face one another. The overlay is stacked under the cards, so a line between two cards never
+covers the code of a third it passes. The overlay sits inside a `phx-update="ignore"` element — the server renders only the arrowhead markers,
 which a path cannot carry inline — and its strokes are non-scaling, so they stay visible at
 the smallest zoom.
 
