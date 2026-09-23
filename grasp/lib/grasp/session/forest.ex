@@ -208,6 +208,10 @@ defmodule Grasp.Session.Forest do
   A card created here takes the parent's group, so a callee opened from inside a frame is
   laid out one column right of its parent in that frame. A card already on screen keeps the
   group it has.
+
+  A collapsed parent is expanded: a call clicked in it asks for the callee, and a callee
+  reached only through the parent is exactly what its collapse hides, so focusing the card
+  that already shows it would show nothing.
   """
   @spec open_child(t(), id(), String.t(), String.t() | nil) :: {t(), id() | nil}
   def open_child(%__MODULE__{} = forest, parent_id, function_id, opened_by \\ nil) do
@@ -216,6 +220,7 @@ defmodule Grasp.Session.Forest do
         {forest, nil}
 
       parent ->
+        forest = put_card(forest, %{parent | collapsed: false})
         {forest, id} = find_or_add(forest, function_id, parent.group)
         forest = add_edge(forest, parent_id, id, opened_by || function_id)
         {%{forest | focus: id}, id}

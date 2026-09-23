@@ -182,6 +182,23 @@ defmodule Grasp.Session.ForestTest do
     assert Forest.toggle_collapse(alone, b) |> Forest.hidden() == MapSet.new()
   end
 
+  # Clicking a call means "show me the callee". From a collapsed card, reusing the callee's
+  # card is not enough: it is the collapse that hides it, so focusing it shows nothing.
+  test "opening a call from a collapsed card expands it, so the callee is on screen" do
+    {forest, a} = Forest.open_root(Forest.new(), "A.f/1")
+    {forest, b} = Forest.open_child(forest, a, "B.g/0")
+    {forest, c} = Forest.open_child(forest, b, "C.h/2")
+
+    collapsed = Forest.toggle_collapse(forest, b)
+    assert Forest.hidden(collapsed) == MapSet.new([c])
+
+    {reopened, ^c} = Forest.open_child(collapsed, b, "C.h/2")
+
+    refute Forest.card(reopened, b).collapsed
+    assert Forest.hidden(reopened) == MapSet.new()
+    assert reopened.focus == c
+  end
+
   test "a collapse hides a card on both ends of its edges" do
     %{forest: forest, hidden: hidden, callee: callee} = collapsed_detour()
 
