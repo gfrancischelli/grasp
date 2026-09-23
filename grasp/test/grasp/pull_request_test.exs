@@ -318,6 +318,53 @@ defmodule Grasp.PullRequestTest do
            ]
   end
 
+  test "open/2 builds the index against the reader's mix.lock and puts the pull request's back",
+       %{root: root, worktree: worktree} do
+    write(root, "mix.lock", "%{\"mint\" => \"1.10.0\"}\n")
+    commit!(root, "the base lock")
+    git!(["push", "origin", "main"], root)
+    git!(["checkout", "feature"], root)
+    git!(["merge", "--no-edit", "main"], root)
+    write(root, "mix.lock", "%{\"mint\" => \"1.10.1\"}\n")
+    commit!(root, "the pull request's lock")
+    git!(["push", "origin", "feature"], root)
+    git!(["checkout", "main"], root)
+
+    test = self()
+
+    runner = fn
+      ["mix" | _rest], cwd, _opts ->
+        send(test, {:lock_at_build, File.read!(Path.join(cwd, "mix.lock"))})
+        {"Grasp index written\n", 0}
+
+      [command | args], cwd, opts ->
+        System.cmd(command, args, cd: cwd, stderr_to_stdout: true, env: opts[:env] || [])
+    end
+
+    assert {:ok, _pull_request} = PullRequest.open(7, Keyword.put(opts(root), :runner, runner))
+
+    assert_received {:lock_at_build, "%{\"mint\" => \"1.10.0\"}\n"}
+    assert File.read!(Path.join(worktree, "mix.lock")) == "%{\"mint\" => \"1.10.1\"}\n"
+    assert git!(["status", "--porcelain", "--", "mix.lock"], worktree) == ""
+  end
+
+  test "open/2 puts the pull request's mix.lock back when the index build fails", context do
+    %{root: root, worktree: worktree} = context
+    write(root, "mix.lock", "%{\"host\" => 1}\n")
+
+    runner = fn
+      ["mix" | _rest], _cwd, _opts ->
+        {"** (CompileError) it does not compile\n", 1}
+
+      [command | args], cwd, opts ->
+        System.cmd(command, args, cd: cwd, stderr_to_stdout: true, env: opts[:env] || [])
+    end
+
+    assert {:error, message} = PullRequest.open(7, Keyword.put(opts(root), :runner, runner))
+    assert message =~ "it does not compile"
+    refute File.exists?(Path.join(worktree, "mix.lock"))
+  end
+
   test "close/2 on a pull request that was never opened is a prune", %{root: root} do
     assert PullRequest.close(7, opts(root)) == :ok
   end

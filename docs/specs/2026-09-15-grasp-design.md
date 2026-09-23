@@ -1599,9 +1599,12 @@ request switches the working tree" is closed.
   directory) is how a canvas begins.
 - **One host, one Grasp.** Two dev servers of the same project share `.grasp/` and would
   fight over the index file; run one.
-- **The worktree's dependencies are the host's.** A pull request that changes `mix.lock`
-  compiles against the host's `deps/`; its index may miss or mis-resolve calls into the
-  changed dependency until the reader runs `mix deps.get` in the worktree.
+- **The worktree's dependencies are the host's.** The index build runs with the host's
+  `mix.lock` in place of the pull request's, since Mix refuses a lock pinning versions the
+  lent `deps/` does not hold, and puts the pull request's back when the build ends,
+  succeeded or not. An upgraded dependency is compiled at the host's version, so the index
+  may miss or mis-resolve calls into what the upgrade changed; a dependency the host does not
+  have stops the build with Mix's message.
 - **Version coupling.** Grasp's Phoenix, LiveView and Lumis requirements are the host's
   to satisfy.
 - **The build seed goes stale.** `_build/grasp` is copied from `_build/dev` once. A

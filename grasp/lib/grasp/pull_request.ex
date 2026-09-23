@@ -21,7 +21,11 @@ defmodule Grasp.PullRequest do
   in starts as a copy of the host's `_build/dev`. That is what makes the second pull
   request of an afternoon a compile of the project rather than of every dependency it
   carries. The lending is also the limit — a pull request that changes `mix.lock` is
-  indexed against the host's dependencies until `mix deps.get` is run in the worktree.
+  indexed against the host's dependencies. Mix refuses a build whose lock pins versions its
+  `deps/` does not hold, so the build runs with the host's `mix.lock` in place of the pull
+  request's, and the pull request's is put back as it was once the build ends, whether it
+  succeeded or not: the worktree is left holding the pull request's own files, and a later
+  re-open finds nothing uncommitted in it to stop at.
 
   The index is written to the file the reader's viewer watches — `:grasp, :index_path` when
   that names one, `.grasp/index.json` under the root otherwise — and names the worktree as
@@ -116,7 +120,8 @@ defmodule Grasp.PullRequest do
          :ok <- lend_deps(root, project, log),
          {:ok, build} <- lend_build(root, project, log),
          :ok <- log.("Indexing #{Path.relative_to(project, root)} against origin/#{base}"),
-         :ok <- index(project, base, index, build, runner) do
+         :ok <-
+           with_host_lock(root, project, fn -> index(project, base, index, build, runner) end) do
       {:ok,
        %{
          worktree: worktree,
@@ -365,6 +370,29 @@ defmodule Grasp.PullRequest do
       end
     end
   end
+
+  defp with_host_lock(root, project, build) do
+    host = Path.join(root, "mix.lock")
+    lock = Path.join(project, "mix.lock")
+
+    case File.read(host) do
+      {:ok, host_lock} ->
+        original = File.read(lock)
+        File.write!(lock, host_lock)
+
+        try do
+          build.()
+        after
+          restore(lock, original)
+        end
+
+      {:error, _no_lock} ->
+        build.()
+    end
+  end
+
+  defp restore(lock, {:ok, contents}), do: File.write!(lock, contents)
+  defp restore(lock, {:error, _absent}), do: File.rm!(lock)
 
   defp index(project, base, out, build, runner) do
     argv = [

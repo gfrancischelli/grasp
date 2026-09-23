@@ -109,9 +109,13 @@ is on.
 - **The seeded build goes stale.** A worktree's build directory is copied from `_build/dev`
   once. A dependency rebuilt afterwards is not copied again; delete the directory to take a
   fresh seed.
-- **The worktree's dependencies are the host's.** A pull request that changes `mix.lock`
-  compiles against your `deps/`; its index may miss or mis-resolve calls into the changed
-  dependency until you run `mix deps.get` in the worktree.
+- **The worktree's dependencies are the host's.** The index is built with your `mix.lock`
+  in place of the pull request's — Mix refuses a lock whose versions `deps/` does not hold —
+  and the pull request's lock is put back when the build ends. A pull request that upgrades
+  a dependency is therefore compiled against the version you have, and its index may miss or
+  mis-resolve calls into what the upgrade changed. One that adds a dependency you do not
+  have stops the build with Mix's own message. Since `deps/` is a link to yours, running
+  `mix deps.get` in the worktree writes into your own dependencies.
 - **`origin` is assumed.** The pull request has to be on that remote.
 - **Live reindexing pauses** while a worktree's index is loaded: the index is rooted in the
   worktree, your dev server compiles a different tree, so Grasp says so once and waits for an
