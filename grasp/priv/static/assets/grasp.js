@@ -964,9 +964,13 @@
       const [x, y] = (el.style.translate || "").split(" ").filter((v) => v !== "");
       return { x: parseFloat(x) || 0, y: parseFloat(y) || 0 };
     },
-    // One path per open call site: `[data-edge-to]` names the callee's card, `data-color` the
-    // palette slot the call site is already painted with, so the line and the text it leaves
-    // agree without the hook knowing what the colours are.
+    // One path per caller and callee: every open call site names the callee's card in
+    // `[data-edge-to]` and its palette slot in `data-color`, and a card that calls the same
+    // function from several places is still joined to its card once, in the colour of the first
+    // of those calls, so the line and the calls it stands for agree without the hook knowing
+    // what the colours are. The path leaves the caller's card rather than the call itself: a
+    // card with a dozen open calls has a dozen coloured calls in its body and one line to each
+    // card they reach, not a fan of lines across its own code.
     drawConnectors() {
       if (!this.edges?.isConnected) this.edges = this.svg?.querySelector("#edges");
       if (!this.edges) return;
@@ -979,43 +983,51 @@
         return box;
       };
       const within = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+      const drawn = /* @__PURE__ */ new Set();
       const paths = [];
       for (const site of this.el.querySelectorAll("[data-edge-to]")) {
         const card = site.closest(".card");
         if (!card) continue;
-        const callee = document.getElementById(`card-${site.dataset.edgeTo}`);
+        const from = card.id.replace("card-", "");
+        const to = site.dataset.edgeTo;
+        const pair = `${from}|${to}`;
+        if (drawn.has(pair)) continue;
+        const callee = document.getElementById(`card-${to}`);
         if (!callee) continue;
         if (this.unplaced(card) || this.unplaced(callee)) continue;
         const b = boxOf(callee);
         if (!b.width && !b.height) continue;
+        drawn.add(pair);
         const c = boxOf(card);
-        const anchor = site.getBoundingClientRect();
-        const anchored = anchor.width > 0 || anchor.height > 0;
-        const left = ((anchored ? within(anchor.left, c.left, c.right) : c.right) - s.left) / scale;
-        const right = ((anchored ? within(anchor.right, c.left, c.right) : c.right) - s.left) / scale;
-        const calleeLeft = (b.left - s.left) / scale;
-        const calleeRight = (b.right - s.left) / scale;
+        const callerLeft = (c.left - s.left) / scale;
+        const callerRight = (c.right - s.left) / scale;
         const callerTop = (c.top - s.top) / scale;
         const callerBottom = (c.bottom - s.top) / scale;
+        const calleeLeft = (b.left - s.left) / scale;
+        const calleeRight = (b.right - s.left) / scale;
         const calleeTop = (b.top - s.top) / scale;
         const calleeBottom = (b.bottom - s.top) / scale;
-        const rightward = calleeLeft > right;
-        const leftward = calleeRight < left;
+        const rightward = calleeLeft > callerRight;
+        const leftward = calleeRight < callerLeft;
         const below = !rightward && !leftward && calleeTop >= callerBottom;
         const above = !rightward && !leftward && calleeBottom <= callerTop;
         let d;
         if (below || above) {
-          const siteX = anchored ? within((anchor.left + anchor.right) / 2, c.left, c.right) : c.right;
-          const x1 = (siteX - s.left) / scale;
+          const callerInset = Math.min(PORT_Y, (callerRight - callerLeft) / 2);
+          const calleeInset = Math.min(PORT_Y, (calleeRight - calleeLeft) / 2);
+          const x1 = within(
+            (calleeLeft + calleeRight) / 2,
+            callerLeft + callerInset,
+            callerRight - callerInset
+          );
           const y1 = below ? callerBottom : callerTop;
-          const inset = Math.min(PORT_Y, (calleeRight - calleeLeft) / 2);
-          const x2 = within(x1, calleeLeft + inset, calleeRight - inset);
+          const x2 = within(x1, calleeLeft + calleeInset, calleeRight - calleeInset);
           const y2 = below ? calleeTop : calleeBottom;
           const mid = (y1 + y2) / 2;
           d = `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`;
         } else {
-          const x1 = rightward ? right : left;
-          const y1 = anchored ? (within(anchor.top + anchor.height / 2, c.top, c.bottom) - s.top) / scale : callerTop + PORT_Y;
+          const x1 = rightward ? callerRight : callerLeft;
+          const y1 = callerTop + PORT_Y;
           const x2 = rightward ? calleeLeft : calleeRight;
           const y2 = calleeTop + PORT_Y;
           const mid = (x1 + x2) / 2;
@@ -1023,9 +1035,8 @@
         }
         const color = /^[0-7]$/.test(site.dataset.color || "") ? site.dataset.color : null;
         const kind = site.dataset.kind;
-        const from = card.id.replace("card-", "");
         paths.push(
-          `<path class="edge" vector-effect="non-scaling-stroke" data-from="${attr(from)}" data-to="${attr(site.dataset.edgeTo)}"` + (color === null ? "" : ` data-color="${color}" marker-end="url(#arrow-${color})"`) + (kind ? ` data-kind="${attr(kind)}"` : "") + ` d="${d}" />`
+          `<path class="edge" vector-effect="non-scaling-stroke" data-from="${attr(from)}" data-to="${attr(to)}"` + (color === null ? "" : ` data-color="${color}" marker-end="url(#arrow-${color})"`) + (kind ? ` data-kind="${attr(kind)}"` : "") + ` d="${d}" />`
         );
       }
       this.svg.setAttribute("width", String(this.extent.width));

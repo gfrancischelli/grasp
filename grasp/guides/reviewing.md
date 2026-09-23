@@ -134,8 +134,10 @@ a route reads through its action and its page into the contexts underneath.
 
 ## Edges
 
-An edge runs from a call site to the card it reaches, takes that call site's colour and
-arrows into the callee, drawn over the cards and under the frame headers so an edge on its way
+An edge runs from a card to each card its open calls reach, one line per callee however many
+times the card calls it, leaving from the card's header rather than from the call. It takes
+the colour the calls to that callee are painted in, so the calls in the body say which line
+is theirs, and arrows into the callee, drawn over the cards and under the frame headers so an edge on its way
 across a card stays in sight. Double-click an arrow to jump to the card at its far end — the
 caller or the callee that is out of sight — which takes focus and pans into view.
 

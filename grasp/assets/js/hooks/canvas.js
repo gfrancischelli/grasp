@@ -1145,9 +1145,13 @@ const Canvas = {
     return {x: parseFloat(x) || 0, y: parseFloat(y) || 0}
   },
 
-  // One path per open call site: `[data-edge-to]` names the callee's card, `data-color` the
-  // palette slot the call site is already painted with, so the line and the text it leaves
-  // agree without the hook knowing what the colours are.
+  // One path per caller and callee: every open call site names the callee's card in
+  // `[data-edge-to]` and its palette slot in `data-color`, and a card that calls the same
+  // function from several places is still joined to its card once, in the colour of the first
+  // of those calls, so the line and the calls it stands for agree without the hook knowing
+  // what the colours are. The path leaves the caller's card rather than the call itself: a
+  // card with a dozen open calls has a dozen coloured calls in its body and one line to each
+  // card they reach, not a fan of lines across its own code.
   drawConnectors() {
     // The group lives in a phx-update="ignore" subtree and so normally outlives every patch;
     // were one ever to replace it, a cached node would go on collecting paths nothing renders.
@@ -1164,11 +1168,16 @@ const Canvas = {
       return box
     }
     const within = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
+    const drawn = new Set()
     const paths = []
     for (const site of this.el.querySelectorAll("[data-edge-to]")) {
       const card = site.closest(".card")
       if (!card) continue
-      const callee = document.getElementById(`card-${site.dataset.edgeTo}`)
+      const from = card.id.replace("card-", "")
+      const to = site.dataset.edgeTo
+      const pair = `${from}|${to}`
+      if (drawn.has(pair)) continue
+      const callee = document.getElementById(`card-${to}`)
       // A collapse takes the callee off the canvas without touching the call site's own
       // markup, so an edge is as likely to be hanging as attached.
       if (!callee) continue
@@ -1177,53 +1186,45 @@ const Canvas = {
       if (this.unplaced(card) || this.unplaced(callee)) continue
       const b = boxOf(callee)
       if (!b.width && !b.height) continue
+      drawn.add(pair)
 
-      // A call site is measured through the card that clips it: the body scrolls sideways and
-      // is capped in width, so a call on a long line can be laid out well outside the card.
-      // Left unclamped, its edge would start in the gutter, or far enough out to decide the
-      // callee lies to the left and take the long way round to its far side.
       const c = boxOf(card)
-      // A call site the browser gives no box — laid out away, or inside a subtree that is not
-      // displayed — cannot say where on the card its edge starts, so the edge leaves the card
-      // at the same port it arrives at rather than being dropped.
-      const anchor = site.getBoundingClientRect()
-      const anchored = anchor.width > 0 || anchor.height > 0
-
-      const left = ((anchored ? within(anchor.left, c.left, c.right) : c.right) - s.left) / scale
-      const right = ((anchored ? within(anchor.right, c.left, c.right) : c.right) - s.left) / scale
-      const calleeLeft = (b.left - s.left) / scale
-      const calleeRight = (b.right - s.left) / scale
+      const callerLeft = (c.left - s.left) / scale
+      const callerRight = (c.right - s.left) / scale
       const callerTop = (c.top - s.top) / scale
       const callerBottom = (c.bottom - s.top) / scale
+      const calleeLeft = (b.left - s.left) / scale
+      const calleeRight = (b.right - s.left) / scale
       const calleeTop = (b.top - s.top) / scale
       const calleeBottom = (b.bottom - s.top) / scale
       // An edge leaves towards the callee and arrives on the side it comes from, so a card
       // opened to the left of its caller is joined round the outside rather than through it.
-      const rightward = calleeLeft > right
-      const leftward = calleeRight < left
+      const rightward = calleeLeft > callerRight
+      const leftward = calleeRight < callerLeft
       // A callee that shares the caller's columns has no free side to arrive at: a line drawn
-      // to its left or right port would cross the card and end under it, and the cards paint
-      // over this layer, so the arrowhead would never show. Such a callee is joined through the
-      // edge that faces the caller, above or below, at the point nearest the call site.
+      // to its left or right port would cross the card and end on it. Such a callee is joined
+      // through the edges that face one another, above or below, at the point of each nearest
+      // the other card's middle, kept off the corners by the port offset — or by half the card
+      // when a signature-mode card is narrower than two of them.
       const below = !rightward && !leftward && calleeTop >= callerBottom
       const above = !rightward && !leftward && calleeBottom <= callerTop
       let d
       if (below || above) {
-        const siteX = anchored ? within((anchor.left + anchor.right) / 2, c.left, c.right) : c.right
-        const x1 = (siteX - s.left) / scale
+        const callerInset = Math.min(PORT_Y, (callerRight - callerLeft) / 2)
+        const calleeInset = Math.min(PORT_Y, (calleeRight - calleeLeft) / 2)
+        const x1 = within(
+          (calleeLeft + calleeRight) / 2,
+          callerLeft + callerInset,
+          callerRight - callerInset,
+        )
         const y1 = below ? callerBottom : callerTop
-        // The arrival point keeps off the callee's corners by the port offset, or by half the
-        // card when a signature-mode card is narrower than two of them.
-        const inset = Math.min(PORT_Y, (calleeRight - calleeLeft) / 2)
-        const x2 = within(x1, calleeLeft + inset, calleeRight - inset)
+        const x2 = within(x1, calleeLeft + calleeInset, calleeRight - calleeInset)
         const y2 = below ? calleeTop : calleeBottom
         const mid = (y1 + y2) / 2
         d = `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`
       } else {
-        const x1 = rightward ? right : left
-        const y1 = anchored
-          ? (within(anchor.top + anchor.height / 2, c.top, c.bottom) - s.top) / scale
-          : callerTop + PORT_Y
+        const x1 = rightward ? callerRight : callerLeft
+        const y1 = callerTop + PORT_Y
         const x2 = rightward ? calleeLeft : calleeRight
         const y2 = calleeTop + PORT_Y
         const mid = (x1 + x2) / 2
@@ -1236,9 +1237,8 @@ const Canvas = {
       const kind = site.dataset.kind
       // The path is drawn in stage units, which the zoom scales; `vector-effect` is what keeps
       // its stroke 2 screen pixels instead of thinning to under half a one at MIN_SCALE.
-      const from = card.id.replace("card-", "")
       paths.push(
-        `<path class="edge" vector-effect="non-scaling-stroke" data-from="${attr(from)}" data-to="${attr(site.dataset.edgeTo)}"` +
+        `<path class="edge" vector-effect="non-scaling-stroke" data-from="${attr(from)}" data-to="${attr(to)}"` +
           (color === null ? "" : ` data-color="${color}" marker-end="url(#arrow-${color})"`) +
           (kind ? ` data-kind="${attr(kind)}"` : "") +
           ` d="${d}" />`,

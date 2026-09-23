@@ -8,7 +8,7 @@ sense of where they sit in the program's flow. As agents write more code than hu
 read this way, review becomes the bottleneck.
 
 Grasp renders a function as a card. Clicking any call inside it opens the callee as a card
-to the right, joined to the call site by a coloured edge, so a long chain reads left to
+to the right, joined to its caller by an edge in the colour of the call, so a long chain reads left to
 right and several branches can be open at once. One card stands for one function, so a
 helper several of them call is read once. Cards show the function's diff against a base
 branch. The top level lists the codebase's entry points, and Cmd+K finds any function. An
@@ -460,7 +460,7 @@ a tab showing it is sent to the default session.
 
 ### Card graph
 
-- Clicking a call opens the callee to the right and adds an edge from the call site. A
+- Clicking a call opens the callee to the right and adds an edge from the caller's card. A
   card may call many others, so several branches are visible at once.
 - A function already on screen is focused and scrolled to rather than opened again, and
   the click leaves an edge from the new caller behind it. A helper three cards call is one
@@ -697,14 +697,19 @@ is the rename click — moves the group as one: the hook pushes `move_group` wit
 and `Forest.shift_group/3` adds them to every placed member's position, so the cards keep
 their places relative to one another and the frame travels unchanged.
 
-Edges are an SVG overlay, not CSS: the hook walks the open call sites, measures each one
-and the callee's card, and draws a cubic path between them, so a line follows a card that
-has been dragged. A path takes the call site's palette colour and ends in an arrowhead of
-the same colour at the callee, so a card with several callers says which of its edges comes
-from where. An edge leaves towards the callee and arrives on the side it comes from, so a
-caller opened to the right of the card it calls is joined round the outside rather than
-through it; a call site scrolled out of the card's clipped body has its start clamped to
-the card's border. The overlay is stacked over the cards and under the frame headers, so an
+Edges are an SVG overlay, not CSS: the hook walks the open call sites, and for each pair of
+caller card and callee card it measures the two cards and draws one cubic path between them,
+so a line follows a card that has been dragged. The path leaves the caller's card at the
+header's port on the side facing the callee, not at the call: a card with many open calls
+carries one line to each card they reach rather than a fan of lines out of its own code, and
+a function called from three places in one card is still one line. A path takes the palette
+colour of the first call site naming its callee, the colour every call to that callee in the
+card is painted with, and ends in an arrowhead of the same colour at the callee, so a card
+with several callers says which of its edges comes from where and the calls in the body say
+which line is theirs. An edge leaves towards the callee and arrives on the side it comes
+from, so a caller opened to the right of the card it calls is joined round the outside rather
+than through it, and a callee sharing the caller's columns is joined through the edges that
+face one another. The overlay is stacked over the cards and under the frame headers, so an
 edge crossing a card is never hidden behind it while a group's title stays readable, and its
 strokes are drawn a little transparent so the code they cross reads through them. The overlay
 sits inside a `phx-update="ignore"` element — the server renders only the arrowhead markers,
@@ -992,8 +997,8 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
 - **No tours.** The agent can open, close, focus and highlight cards, which is enough to
   walk a chain, but it cannot author an ordered tour a reviewer steps through. Tours were
   dropped from the roadmap: groups and `set_cards` cover what they were for.
-- **An edge leaving a stub card is not drawn.** An edge is anchored to the call site in
-  the caller's rendered source, and a stub card — one standing for a function the index
+- **An edge leaving a stub card is not drawn.** An edge is named by a call site in the
+  caller's rendered source, and a stub card — one standing for a function the index
   does not hold — has no source, so there is nothing for an edge to leave from. A card
   opened from a stub therefore arrives with no line joining it. Both cards are in the graph
   and laid out in columns as usual; only the line is missing.
