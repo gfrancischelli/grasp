@@ -67,6 +67,7 @@ defmodule Grasp.PullRequestTest do
     assert pull_request.title == "Add greeting"
     assert pull_request.url == "https://github.com/acme/sample_app/pull/7"
     assert pull_request.worktree == worktree
+    assert pull_request.project == worktree
     assert pull_request.index == Path.join(root, ".grasp/index.json")
 
     assert File.read!(Path.join(worktree, "lib/greeter.ex")) =~ "def shout"
@@ -265,6 +266,56 @@ defmodule Grasp.PullRequestTest do
     assert head(worktree) == rev(root, "origin/feature")
     assert detached?(worktree)
     refute File.exists?(Path.join(worktree, "left-behind.txt"))
+  end
+
+  test "open/2 works in the project's own directory when it is not the repository's top", %{
+    tmp_dir: tmp_dir
+  } do
+    origin = Path.join(tmp_dir, "monorepo.git")
+    repository = Path.join(tmp_dir, "monorepo")
+    git!(["init", "--bare", "--initial-branch=main", origin], tmp_dir)
+    git!(["clone", origin, repository], tmp_dir)
+    write(repository, "mix.exs", "# the workspace project at the top\n")
+    write(repository, "apps/app/lib/greeter.ex", "defmodule Greeter do\nend\n")
+    commit!(repository, "the base")
+    git!(["push", "origin", "main"], repository)
+    git!(["checkout", "-b", "feature"], repository)
+
+    write(
+      repository,
+      "apps/app/lib/greeter.ex",
+      "defmodule Greeter do\n  def shout, do: 1\nend\n"
+    )
+
+    commit!(repository, "the change")
+    git!(["push", "origin", "feature"], repository)
+    git!(["checkout", "main"], repository)
+
+    root = Path.join(repository, "apps/app")
+    File.mkdir_p!(Path.join(root, "deps/phoenix"))
+    write(root, "_build/dev/lib/app/ebin/marker", "a beam would be here")
+    worktree = PullRequest.worktree(root, 7)
+    project = Path.join(worktree, "apps/app")
+
+    assert {:ok, pull_request} = PullRequest.open(7, opts(root))
+
+    assert pull_request.worktree == worktree
+    assert pull_request.project == project
+    assert File.read!(Path.join(project, "lib/greeter.ex")) =~ "def shout"
+    assert File.read_link(Path.join(project, "deps")) == {:ok, Path.join(root, "deps")}
+    assert File.read!(Path.join(project, "_build/grasp/lib/app/ebin/marker")) =~ "a beam"
+    refute File.exists?(Path.join(worktree, "deps"))
+
+    assert_received {:ran, ["mix", "grasp.index" | args], ^project, _run_opts}
+
+    assert args == [
+             "--base",
+             "origin/main",
+             "--out",
+             Path.join(root, ".grasp/index.json"),
+             "--build-path",
+             Path.join(project, "_build/grasp")
+           ]
   end
 
   test "close/2 on a pull request that was never opened is a prune", %{root: root} do

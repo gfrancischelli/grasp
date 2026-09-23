@@ -7,11 +7,14 @@ defmodule Mix.Tasks.Grasp.Pr do
       mix grasp.pr N [--close] [--base REF] [--root PATH]
 
   The working tree this is run from is left alone: the pull request's head is checked out
-  under `.grasp/worktrees/pr-N`, `deps/` and a copy of `_build/dev` are lent to it, and the
-  index is built inside it and written to the file the viewer watches — `.grasp/index.json`
-  here, or whatever `:grasp, :index_path` names. It works on the project it is run from, or
-  the one `--root` names; a root that is itself one of these worktrees is refused. The viewer reloads it within a second or two and the cards read the pull
-  request's code, from the worktree.
+  under `.grasp/worktrees/pr-N`, `deps/` and a copy of `_build/dev` are lent to the
+  worktree's copy of the project, and the index is built there and written to the file the
+  viewer watches — `.grasp/index.json` here, or whatever `:grasp, :index_path` names. It
+  works on the project it is run from, or the one `--root` names, which may be one directory
+  of a larger repository: the worktree holds the whole repository and the index is built in
+  the same directory of it. A root that is itself one of these worktrees is refused. The
+  viewer reloads the index within a second or two and the cards read the pull request's
+  code, from the worktree.
 
   Review comments and saved sessions are not in the worktree; they stay under the
   directory the dev server was started in, so they survive `--close`.

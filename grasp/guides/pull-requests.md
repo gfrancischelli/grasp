@@ -29,10 +29,12 @@ Run it from the project you started Grasp in. The task:
 - checks the head out under `.grasp/worktrees/pr-1212`, detached, or moves a worktree
   already there to the head just fetched, so a pull request pushed to since the last review
   is re-read rather than left where it was;
-- symlinks the project's `deps/` into the worktree and seeds its build path from a copy of
+- works in the worktree's copy of your project — the worktree itself, or the same directory
+  inside it when your project is one directory of a larger repository, such as `apps/web`;
+- symlinks the project's `deps/` into that copy and seeds its build path from a copy of
   `_build/dev`;
-- builds the index inside the worktree against the pull request's base, writing it to the
-  file the viewer watches — `.grasp/index.json`, or whatever `:grasp, :index_path` names.
+- builds the index there against the pull request's base, writing it to the file the viewer
+  watches — `.grasp/index.json`, or whatever `:grasp, :index_path` names.
 
 Your own checkout stays on the branch you were on and your dev server keeps running the code
 it started with; the cards are the pull request's code, read from the worktree. The viewer

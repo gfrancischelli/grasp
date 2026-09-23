@@ -1559,9 +1559,12 @@ whole recipe deterministically: reads the pull request with `gh pr view` (base b
 head branch, title, URL), fetches both branches, adds a worktree at
 `.grasp/worktrees/pr-N` detached at the fetched head — or detaches the one already there at
 it, so a pull request pushed to since the last review is re-read rather than left where it
-was — symlinks the host's `deps/` into it, seeds its build path from the host's `_build/dev`
-when missing, and runs the index build inside it against `origin/<base>`, writing the index
-to the host's `.grasp/index.json` with the worktree as `project.root`. `--base REF` reviews
+was — and then works in the worktree's copy of the host project: the worktree itself when
+the project is the repository's top, and otherwise the same directory below it that the host
+project is below its own top (`git rev-parse --show-prefix`), as in a repository holding
+several projects. There it symlinks the host's `deps/`, seeds its build path from the host's
+`_build/dev` when missing, and runs the index build against `origin/<base>`, writing the
+index to the host's `.grasp/index.json` with that directory as `project.root`. `--base REF` reviews
 against a ref other than the one the pull request targets, and `mix grasp.pr N --close`
 removes the worktree. The agent's
 edit-mode recipe becomes: `mix grasp.pr N`, then `reload_index`, then `list_changes` and

@@ -10,6 +10,12 @@ defmodule Grasp.PullRequest do
   `.grasp/worktrees/pr-N`, detached at the fetched head, and everything the review touches
   happens inside it. The reader's own tree is never read from and never written to.
 
+  A worktree checks out the whole repository, and the Mix project need not be at its top: in
+  a repository holding several projects the reader's checkout is one directory of it. The
+  review works in the same directory of the worktree — the one git names as the reader's
+  path below the top — so the lending and the index build below happen in the pull
+  request's copy of the reader's project rather than in whatever project the top holds.
+
   The worktree is a bare checkout of the source, so two things are lent to it rather than
   rebuilt: `deps/` is symlinked to the host's, and the build directory the index compiles
   in starts as a copy of the host's `_build/dev`. That is what makes the second pull
@@ -38,9 +44,17 @@ defmodule Grasp.PullRequest do
   """
   @type runner :: ([String.t()], Path.t(), keyword() -> {String.t(), non_neg_integer()})
 
-  @typedoc "An opened pull request: where its code is, what it is, and the index built of it."
+  @typedoc """
+  An opened pull request: where its code is, what it is, and the index built of it.
+
+  `worktree` is the checkout of the whole repository and `project` the Mix project inside
+  it, the directory the index is built in. The two are one directory when the project is
+  the repository's top, and `project` is the same path below `worktree` that the reader's
+  project is below its repository's top otherwise.
+  """
   @type t :: %{
           worktree: Path.t(),
+          project: Path.t(),
           base: String.t(),
           head: String.t(),
           title: String.t(),
@@ -96,14 +110,17 @@ defmodule Grasp.PullRequest do
          :ok <- log.("Reading pull request #{number}: #{pull_request.title}"),
          :ok <- fetch(root, base, head, runner),
          :ok <- log.("Fetched origin/#{base} and origin/#{head}"),
+         {:ok, prefix} <- prefix(root, runner),
+         project = Path.join(worktree, prefix),
          :ok <- place(root, worktree, head, runner, log),
-         :ok <- lend_deps(root, worktree, log),
-         {:ok, build} <- lend_build(root, worktree, log),
-         :ok <- log.("Indexing #{Path.relative_to(worktree, root)} against origin/#{base}"),
-         :ok <- index(worktree, base, index, build, runner) do
+         :ok <- lend_deps(root, project, log),
+         {:ok, build} <- lend_build(root, project, log),
+         :ok <- log.("Indexing #{Path.relative_to(project, root)} against origin/#{base}"),
+         :ok <- index(project, base, index, build, runner) do
       {:ok,
        %{
          worktree: worktree,
+         project: project,
          base: base,
          head: head,
          title: pull_request.title,
@@ -230,6 +247,13 @@ defmodule Grasp.PullRequest do
          do: :ok
   end
 
+  # The reader's project below its repository's top, `""` when it is the top: git answers
+  # the path with a trailing separator, which `Path.join/2` takes as it is.
+  defp prefix(root, runner) do
+    with {:ok, output} <- command(["git", "rev-parse", "--show-prefix"], root, [], runner),
+         do: {:ok, String.trim(output)}
+  end
+
   # An existing worktree is moved to the head that was just fetched rather than left where
   # the last review put it: a pull request pushed to since then is a different commit.
   defp place(root, worktree, head, runner, log) do
@@ -298,9 +322,9 @@ defmodule Grasp.PullRequest do
     end
   end
 
-  defp lend_deps(root, worktree, log) do
+  defp lend_deps(root, project, log) do
     source = Path.join(root, "deps")
-    target = Path.join(worktree, "deps")
+    target = Path.join(project, "deps")
 
     cond do
       # The link itself, not what it points at: a link left dangling by a removed `deps/`
@@ -325,8 +349,8 @@ defmodule Grasp.PullRequest do
 
   # The build directory is seeded here rather than left to `mix grasp.index`, which seeds
   # from the build of the project it runs in: a fresh worktree has none to seed from.
-  defp lend_build(root, worktree, log) do
-    build = Path.join([worktree, "_build", "grasp"])
+  defp lend_build(root, project, log) do
+    build = Path.join([project, "_build", "grasp"])
     source = Path.join([root, "_build", "dev"])
 
     if File.dir?(build) or not File.dir?(source) do
@@ -342,7 +366,7 @@ defmodule Grasp.PullRequest do
     end
   end
 
-  defp index(worktree, base, out, build, runner) do
+  defp index(project, base, out, build, runner) do
     argv = [
       "mix",
       "grasp.index",
@@ -354,7 +378,7 @@ defmodule Grasp.PullRequest do
       build
     ]
 
-    with {:ok, _output} <- command(argv, worktree, [env: [{"MIX_ENV", "dev"}]], runner), do: :ok
+    with {:ok, _output} <- command(argv, project, [env: [{"MIX_ENV", "dev"}]], runner), do: :ok
   end
 
   defp remove(root, worktree, runner, log) do
