@@ -48,6 +48,11 @@ defmodule Grasp.Comments do
   later publish that the thread is already on GitHub, and the id is what a reply is addressed
   to, so it belongs with the thread rather than in a ledger of its own.
 
+  A comment and each reply can be rewritten by `edit/3`. The rewrite keeps the entry's id,
+  author and `created_at`, and records `edited_at`, so a card can say the text is not the
+  text first written. A thread published to a pull request keeps its stamp through an edit:
+  GitHub holds the text it was sent, and the edit is the checkout's alone.
+
   Every successful mutation broadcasts `:comments_changed` on the `"comments"` topic.
   """
 
@@ -60,7 +65,13 @@ defmodule Grasp.Comments do
   @type author :: String.t()
   @type side :: String.t()
   @type store :: GenServer.server()
-  @type reply :: %{id: pos_integer(), author: author(), body: String.t(), created_at: String.t()}
+  @type reply :: %{
+          id: pos_integer(),
+          author: author(),
+          body: String.t(),
+          created_at: String.t(),
+          edited_at: String.t() | nil
+        }
   @type github :: %{id: pos_integer(), url: String.t(), published_at: String.t()}
   @type thread :: %{
           id: pos_integer(),
@@ -72,6 +83,7 @@ defmodule Grasp.Comments do
           body: String.t(),
           author: author(),
           created_at: String.t(),
+          edited_at: String.t() | nil,
           resolved: boolean(),
           github: github() | nil,
           replies: [reply()]
@@ -140,6 +152,20 @@ defmodule Grasp.Comments do
   @spec reply(pos_integer(), map()) :: {:ok, thread()} | {:error, :unknown | :invalid}
   def reply(id, attrs) when is_integer(id) and is_map(attrs),
     do: GenServer.call(__MODULE__, {:reply, id, attrs})
+
+  @doc """
+  Rewrites the body of the thread `id` — its opening comment when `reply_id` is `nil`, the
+  reply `reply_id` of it otherwise — and stamps the entry's `edited_at`.
+
+  `body` is stored trimmed and may not be blank, as when it was first written; a blank one is
+  `{:error, :invalid}`, and a thread or reply the store does not hold is `{:error, :unknown}`.
+  Answers the whole thread.
+  """
+  @spec edit(pos_integer(), pos_integer() | nil, String.t()) ::
+          {:ok, thread()} | {:error, :unknown | :invalid}
+  def edit(id, reply_id, body)
+      when is_integer(id) and (is_integer(reply_id) or is_nil(reply_id)) and is_binary(body),
+      do: GenServer.call(__MODULE__, {:edit, id, reply_id, body})
 
   @doc "Marks the thread `id` resolved or unresolved."
   @spec set_resolved(pos_integer(), boolean()) :: {:ok, thread()} | {:error, :unknown}
@@ -296,6 +322,17 @@ defmodule Grasp.Comments do
       {:reply, {:ok, thread}, commit(state)}
     else
       :error -> {:reply, {:error, thread_error(state, id)}, state}
+    end
+  end
+
+  def handle_call({:edit, id, reply_id, body}, _from, state) do
+    with {:ok, thread} <- Map.fetch(state.threads, id),
+         {:ok, thread} <- rewrite(thread, reply_id, body) do
+      state = %{state | threads: Map.put(state.threads, id, thread)}
+      {:reply, {:ok, thread}, commit(state)}
+    else
+      :error -> {:reply, {:error, :unknown}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
@@ -474,10 +511,32 @@ defmodule Grasp.Comments do
          body: body,
          author: author,
          created_at: now(),
+         edited_at: nil,
          resolved: false,
          github: nil,
          replies: []
        }}
+    end
+  end
+
+  defp rewrite(thread, reply_id, body) do
+    with {:ok, body} <- body_value(body) do
+      edited = %{body: body, edited_at: now()}
+
+      case reply_id do
+        nil ->
+          {:ok, Map.merge(thread, edited)}
+
+        reply_id ->
+          case Enum.find_index(thread.replies, &(&1.id == reply_id)) do
+            nil ->
+              {:error, :unknown}
+
+            at ->
+              {:ok,
+               %{thread | replies: List.update_at(thread.replies, at, &Map.merge(&1, edited))}}
+          end
+      end
     end
   end
 
@@ -489,7 +548,7 @@ defmodule Grasp.Comments do
   defp build_reply(attrs, id) do
     with {:ok, author} <- member_field(attrs, :author, @authors),
          {:ok, body} <- body_field(attrs) do
-      {:ok, %{id: id, author: author, body: body, created_at: now()}}
+      {:ok, %{id: id, author: author, body: body, created_at: now(), edited_at: nil}}
     end
   end
 
@@ -525,17 +584,20 @@ defmodule Grasp.Comments do
   defp end_line_value(_invalid, _line), do: {:error, :invalid_end_line}
 
   defp body_field(attrs) do
-    case Map.get(attrs, :body) do
-      body when is_binary(body) ->
-        case String.trim(body) do
-          "" -> :error
-          trimmed -> {:ok, trimmed}
-        end
-
-      _invalid ->
-        :error
+    case body_value(Map.get(attrs, :body)) do
+      {:ok, body} -> {:ok, body}
+      {:error, :invalid} -> :error
     end
   end
+
+  defp body_value(body) when is_binary(body) do
+    case String.trim(body) do
+      "" -> {:error, :invalid}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp body_value(_body), do: {:error, :invalid}
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
@@ -550,6 +612,7 @@ defmodule Grasp.Comments do
       "body" => thread.body,
       "author" => thread.author,
       "created_at" => thread.created_at,
+      "edited_at" => thread.edited_at,
       "resolved" => thread.resolved,
       "replies" => Enum.map(thread.replies, &encode_reply/1)
     }
@@ -572,7 +635,8 @@ defmodule Grasp.Comments do
       "id" => reply.id,
       "author" => reply.author,
       "body" => reply.body,
-      "created_at" => reply.created_at
+      "created_at" => reply.created_at,
+      "edited_at" => reply.edited_at
     }
   end
 
@@ -609,8 +673,10 @@ defmodule Grasp.Comments do
               is_binary(created_at) and is_integer(line) and line > 0 and side in @sides and
               author in @authors do
     snippet = Map.get(comment, "snippet")
+    edited_at = Map.get(comment, "edited_at")
 
     with true <- is_nil(snippet) or is_binary(snippet),
+         true <- is_nil(edited_at) or is_binary(edited_at),
          {:ok, end_line} <- end_line_value(Map.get(comment, "end_line"), line),
          {:ok, github} <- decode_github(Map.get(comment, "github")) do
       {replies, dropped} = decode_replies(Map.get(comment, "replies", []))
@@ -626,6 +692,7 @@ defmodule Grasp.Comments do
          body: body,
          author: author,
          created_at: created_at,
+         edited_at: edited_at,
          resolved: Map.get(comment, "resolved") == true,
          github: github,
          replies: replies
@@ -659,10 +726,19 @@ defmodule Grasp.Comments do
 
   defp decode_replies(_replies), do: {[], 1}
 
-  defp decode_reply(%{"id" => id, "author" => author, "body" => body, "created_at" => created_at})
+  defp decode_reply(
+         %{"id" => id, "author" => author, "body" => body, "created_at" => created_at} = reply
+       )
        when is_integer(id) and id > 0 and is_binary(body) and is_binary(created_at) and
-              author in @authors,
-       do: {:ok, %{id: id, author: author, body: body, created_at: created_at}}
+              author in @authors do
+    case Map.get(reply, "edited_at") do
+      edited_at when is_nil(edited_at) or is_binary(edited_at) ->
+        {:ok, %{id: id, author: author, body: body, created_at: created_at, edited_at: edited_at}}
+
+      _malformed ->
+        :error
+    end
+  end
 
   defp decode_reply(_reply), do: :error
 end

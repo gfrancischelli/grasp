@@ -157,6 +157,10 @@ line number while the composer is open to stretch the range to it, or back to a 
 ⌘/Ctrl+Enter saves, Escape cancels. A thread takes replies, and can be resolved, reopened or
 deleted. A resolved thread collapses to one line and expands on click.
 
+**edit** beside a comment or a reply opens a box in its place holding its text; save the
+rewrite and the entry is marked `edited`. A comment already published to a pull request
+changes here only: GitHub keeps the text it was sent, so edit it there too.
+
 In a diff body the line numbers on the base side are clickable the same way, so a thread can
 land on a line the branch deleted. A range runs down one side: a drag that crosses to the
 other side's numbers stops where it left its own.

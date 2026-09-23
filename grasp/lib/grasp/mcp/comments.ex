@@ -54,6 +54,7 @@ defmodule Grasp.MCP.Comments do
       "body" => thread.body,
       "author" => thread.author,
       "created_at" => thread.created_at,
+      "edited_at" => thread.edited_at,
       "resolved" => thread.resolved,
       "github_url" => thread.github && thread.github.url,
       "replies" => Enum.map(thread.replies, &reply_map/1)
@@ -102,7 +103,8 @@ defmodule Grasp.MCP.Comments do
       "id" => reply.id,
       "author" => reply.author,
       "body" => reply.body,
-      "created_at" => reply.created_at
+      "created_at" => reply.created_at,
+      "edited_at" => reply.edited_at
     }
   end
 end

@@ -7,7 +7,13 @@
 // action and the bubble to the window, so neither ever reaches the global key handlers.
 const Composer = {
   mounted() {
-    this.el.querySelector("textarea")?.focus()
+    // A box that rewrites a comment opens holding its text, and the caret goes after it, where
+    // a reader adding to what they wrote starts typing.
+    const textarea = this.el.querySelector("textarea")
+    if (textarea) {
+      textarea.focus()
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    }
 
     this.el.addEventListener("keydown", (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {

@@ -430,7 +430,7 @@ defmodule GraspWeb.CardComponents do
   # so the code it is about reads before the box that talks about it. A reply is not placed
   # here: it belongs inside the thread it answers, which renders it itself.
   defp composing_at?(
-         %{card: card, side: side, line: line, end_line: end_line, reply_to: nil},
+         %{card: card, side: side, line: line, end_line: end_line, reply_to: nil, edit: nil},
          card_id,
          line_side,
          number

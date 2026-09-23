@@ -1737,7 +1737,11 @@
   // js/hooks/composer.js
   var Composer = {
     mounted() {
-      this.el.querySelector("textarea")?.focus();
+      const textarea = this.el.querySelector("textarea");
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
       this.el.addEventListener("keydown", (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
           e.preventDefault();

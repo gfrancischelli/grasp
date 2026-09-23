@@ -91,7 +91,7 @@ defmodule GraspWeb.CommentsLiveTest do
     assert has_element?(view, "#card-1 .composer__lines", "Lines 9–11")
 
     assert composing(view) ==
-             %{card: 1, side: "new", anchor: 9, line: 9, end_line: 11, reply_to: nil}
+             %{card: 1, side: "new", anchor: 9, line: 9, end_line: 11, reply_to: nil, edit: nil}
 
     # The anchor is where the composer was opened, so a Shift click above it runs the range
     # the other way rather than off the composer's far end.
@@ -206,6 +206,55 @@ defmodule GraspWeb.CommentsLiveTest do
     view |> element("#thread-#{id} .comment__delete") |> render_click()
 
     refute has_element?(view, "#thread-#{id}")
+    assert composing(view) == nil
+  end
+
+  test "a comment and a reply are edited in place", %{view: view, name: name} do
+    Session.open_root(name, @greet)
+    body = unique("this clause never runs")
+    reply = unique("it does when loud? is true")
+
+    view |> element("#card-1 .line[data-line='8'] .ln") |> render_click()
+    view |> form("#card-1 form.composer", %{"body" => body}) |> render_submit()
+    id = thread_id(body)
+    view |> element("#thread-#{id} .thread__actions button", "reply") |> render_click()
+    view |> form("#thread-#{id} form.composer", %{"body" => reply}) |> render_submit()
+    [%{id: reply_id}] = Comments.fetch(id) |> then(fn {:ok, thread} -> thread.replies end)
+
+    view |> element("#thread-#{id} .comment__edit:not([phx-value-reply])") |> render_click()
+
+    assert has_element?(view, "#thread-#{id} form.composer#edit-#{id}-thread textarea", body)
+    refute has_element?(view, "#thread-#{id} .comment__body", body)
+
+    view |> element("#edit-#{id}-thread button", "Cancel") |> render_click()
+    assert has_element?(view, "#thread-#{id} .comment__body", body)
+    refute has_element?(view, "#thread-#{id} .comment__edited")
+
+    view |> element("#thread-#{id} .comment__edit:not([phx-value-reply])") |> render_click()
+    view |> form("#edit-#{id}-thread", %{"body" => "  "}) |> render_submit()
+    assert has_element?(view, "#edit-#{id}-thread")
+
+    edited = unique("this clause runs when loud? is true")
+    view |> form("#edit-#{id}-thread", %{"body" => edited}) |> render_submit()
+
+    refute has_element?(view, "#edit-#{id}-thread")
+    assert has_element?(view, "#thread-#{id} .comment__body", edited)
+    refute has_element?(view, "#thread-#{id} .comment__body", body)
+    assert has_element?(view, "#thread-#{id} .comment__edited", "edited")
+    assert has_element?(view, "#thread-#{id} .comment__body", reply)
+
+    view
+    |> element("#thread-#{id} .comment__edit[phx-value-reply='#{reply_id}']")
+    |> render_click()
+
+    assert has_element?(view, "#edit-#{id}-#{reply_id} textarea", reply)
+
+    answer = unique("only when loud? is true")
+    view |> form("#edit-#{id}-#{reply_id}", %{"body" => answer}) |> render_submit()
+
+    assert has_element?(view, "#thread-#{id} .comment__body", answer)
+    refute has_element?(view, "#thread-#{id} .comment__body", reply)
+    assert {:ok, %{body: ^edited, replies: [%{body: ^answer}]}} = Comments.fetch(id)
     assert composing(view) == nil
   end
 

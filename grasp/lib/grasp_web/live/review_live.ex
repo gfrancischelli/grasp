@@ -588,7 +588,32 @@ defmodule GraspWeb.ReviewLive do
         anchor: thread.line,
         line: thread.line,
         end_line: thread.end_line,
-        reply_to: thread.id
+        reply_to: thread.id,
+        edit: nil
+      }
+
+      {:noreply, socket |> close_overlays() |> assign(composing: composing)}
+    else
+      _unknown_thread -> {:noreply, socket}
+    end
+  end
+
+  # An edit is the one box open on the canvas like any other, so opening it closes whatever
+  # else was open. It is drawn in place of the entry it rewrites and names that entry — the
+  # thread's opening comment when no reply is given — rather than a line, since the text it
+  # replaces is already anchored.
+  def handle_event("comment_edit", %{"card" => card, "id" => id} = params, socket) do
+    with card_id when is_integer(card_id) <- int(card),
+         thread_id when is_integer(thread_id) <- int(id),
+         {:ok, thread} <- Grasp.Comments.fetch(thread_id) do
+      composing = %{
+        card: card_id,
+        side: thread.side,
+        anchor: thread.line,
+        line: thread.line,
+        end_line: thread.end_line,
+        reply_to: nil,
+        edit: %{thread: thread.id, reply: int(params["reply"])}
       }
 
       {:noreply, socket |> close_overlays() |> assign(composing: composing)}
@@ -668,6 +693,13 @@ defmodule GraspWeb.ReviewLive do
 
       {thread_id, reply_id} ->
         Grasp.Comments.delete_reply(thread_id, reply_id)
+
+        socket =
+          case socket.assigns.composing do
+            %{edit: %{thread: ^thread_id, reply: ^reply_id}} -> assign(socket, composing: nil)
+            _elsewhere -> socket
+          end
+
         {:noreply, refresh_comments(socket)}
     end
   end
@@ -770,7 +802,7 @@ defmodule GraspWeb.ReviewLive do
   # thread. What it stretches from is the line the box was opened at, which is the one end of
   # the range the click does not move.
   defp shift_anchor(
-         %{card: card_id, side: side, anchor: anchor, reply_to: nil},
+         %{card: card_id, side: side, anchor: anchor, reply_to: nil, edit: nil},
          card_id,
          side,
          shift
@@ -794,7 +826,8 @@ defmodule GraspWeb.ReviewLive do
       anchor: if(anchor in range, do: anchor, else: first),
       line: first,
       end_line: if(last > first, do: last),
-      reply_to: nil
+      reply_to: nil,
+      edit: nil
     }
   end
 
@@ -820,6 +853,7 @@ defmodule GraspWeb.ReviewLive do
   defp forget_reply_box(socket, thread_id) do
     case socket.assigns.composing do
       %{reply_to: ^thread_id} -> assign(socket, composing: nil)
+      %{edit: %{thread: ^thread_id}} -> assign(socket, composing: nil)
       _elsewhere -> socket
     end
   end
@@ -831,9 +865,17 @@ defmodule GraspWeb.ReviewLive do
   # them back could disagree with the box the reader was typing in.
   defp write_comment(socket, body) do
     case socket.assigns.composing do
-      %{reply_to: nil} = composing -> open_thread(socket, body, composing)
-      %{reply_to: reply_to} -> Grasp.Comments.reply(reply_to, %{body: body, author: "human"})
-      _closed -> :ok
+      %{edit: %{thread: thread_id, reply: reply_id}} ->
+        Grasp.Comments.edit(thread_id, reply_id, body)
+
+      %{reply_to: nil} = composing ->
+        open_thread(socket, body, composing)
+
+      %{reply_to: reply_to} ->
+        Grasp.Comments.reply(reply_to, %{body: body, author: "human"})
+
+      _closed ->
+        :ok
     end
   end
 

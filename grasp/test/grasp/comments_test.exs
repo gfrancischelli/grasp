@@ -115,6 +115,51 @@ defmodule Grasp.CommentsTest do
     assert {:ok, %{replies: [%{id: ^second_id}]}} = Comments.fetch(thread.id)
   end
 
+  test "edit/3 rewrites a comment or one reply and stamps when it was edited", %{
+    function_id: function_id
+  } do
+    {:ok, thread} = add(function_id, %{})
+
+    {:ok, %{replies: [reply]}} =
+      Comments.reply(thread.id, %{body: unique("yes"), author: "agent"})
+
+    :ok = Comments.subscribe()
+
+    assert thread.edited_at == nil
+    assert reply.edited_at == nil
+
+    body = unique("the guard is reachable after all")
+    assert {:ok, edited} = Comments.edit(thread.id, nil, "  #{body}  ")
+    assert edited.body == body
+    assert {:ok, _datetime, _offset} = DateTime.from_iso8601(edited.edited_at)
+    assert edited.created_at == thread.created_at
+    assert [%{body: reply_body, edited_at: nil}] = edited.replies
+    assert reply_body == reply.body
+    assert_receive :comments_changed
+
+    answer = unique("yes, but only when loud")
+
+    assert {:ok, %{replies: [%{id: reply_id} = rewritten]}} =
+             Comments.edit(thread.id, reply.id, answer)
+
+    assert reply_id == reply.id
+    assert rewritten.body == answer
+    assert is_binary(rewritten.edited_at)
+    assert {:ok, %{body: ^body}} = Comments.fetch(thread.id)
+  end
+
+  test "edit/3 refuses a blank body and does not know a comment no thread holds", %{
+    function_id: function_id
+  } do
+    {:ok, thread} = add(function_id, %{})
+
+    assert Comments.edit(thread.id, nil, "   ") == {:error, :invalid}
+    assert Comments.edit(thread.id, thread.id + 1_000, "text") == {:error, :unknown}
+    assert Comments.edit(thread.id + 1_000, nil, "text") == {:error, :unknown}
+    assert {:ok, %{body: body, edited_at: nil}} = Comments.fetch(thread.id)
+    assert body == thread.body
+  end
+
   test "delete/1 removes a thread and ignores unknown ids", %{function_id: function_id} do
     {:ok, thread} = add(function_id, %{})
 
@@ -177,6 +222,7 @@ defmodule Grasp.CommentsTest do
         body: "why a default here?",
         author: "human",
         created_at: "2026-09-17T09:00:00Z",
+        edited_at: "2026-09-17T09:04:00Z",
         resolved: false,
         github: %{
           id: 55_123,
@@ -188,7 +234,8 @@ defmodule Grasp.CommentsTest do
             id: 2,
             author: "agent",
             body: "callers rely on it",
-            created_at: "2026-09-17T09:01:00Z"
+            created_at: "2026-09-17T09:01:00Z",
+            edited_at: nil
           }
         ]
       },
@@ -202,6 +249,7 @@ defmodule Grasp.CommentsTest do
         body: "the base read better",
         author: "agent",
         created_at: "2026-09-17T09:02:00Z",
+        edited_at: nil,
         resolved: true,
         github: nil,
         replies: []

@@ -832,8 +832,9 @@ redraw the flow" is one prompt in the chat panel.
   resolved, replies}`: `side` is `"new"` for a line of the current source, numbered as the
   file is, or `"old"` for a line the diff deleted, numbered from 1 within `base_source` as
   the diff view numbers them; `snippet` is the trimmed text of the line when the comment
-  was made; `author` is `"human"` or `"agent"`; `created_at` is ISO 8601 UTC; a reply is
-  `%{id, author, body, created_at}`; `end_line` is `nil` for a thread on one line, or the
+  was made; `author` is `"human"` or `"agent"`; `created_at` is ISO 8601 UTC; `edited_at`
+  is `nil` until the body is rewritten and then the moment of the latest rewrite; a reply is
+  `%{id, author, body, created_at, edited_at}`; `end_line` is `nil` for a thread on one line, or the
   last line of the range the thread covers (`end_line > line`, same side) — the snippet is
   always the first line's text, which is what re-anchoring reads; `github` is `nil` until the thread is published to a
   pull request, then `%{id, url, published_at}` — the review comment's id and link, kept
@@ -858,8 +859,12 @@ redraw the flow" is one prompt in the chat panel.
   line for the whole range; Shift-clicking another line number while a composer is open
   extends or shrinks its range. A ranged thread renders under its last line with every line
   it covers tinted, its label reads `L12–L18`, and folding keeps the whole range open. A deleted line in the diff view takes a comment on its `"old"` side. Threads
-  render under their line: each comment with its author (`you` or `claude`), its time and
-  its body as plain text with line breaks kept, then reply, resolve or reopen, and delete.
+  render under their line: each comment with its author (`you` or `claude`), its time, an
+  `edited` mark once rewritten, edit and delete, and its body as plain text with line breaks
+  kept, then reply and resolve or reopen. Edit swaps one entry's body for a composer holding
+  its text, Save and Cancel, and `Grasp.Comments.edit/3` stores the rewrite trimmed, refusing a
+  blank one, with the entry's id, author and `created_at` kept; the open edit is the
+  `composing` box like any other, naming the thread and the reply it rewrites.
   A resolved thread collapses to one line, `Resolved · n comments`, that expands on click;
   which resolved threads a tab has expanded is that tab's own. The composer's draft is the
   browser's (`phx-update="ignore"`), so a patch from an agent run mid-sentence cannot wipe
@@ -1117,6 +1122,12 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
   other expression is a value no parser can know, and guessing it would name a function the
   compiler never defined, so the embed is globbed and named as if the option were not
   there.
+
+### Known gaps (comment edits)
+
+- **An edit does not reach GitHub.** A published thread keeps its `github` stamp through an
+  edit, and a publish skips a stamped thread, so the review comment on the pull request goes
+  on reading as it was sent. Editing it there is GitHub's own edit.
 
 ### Known gaps (milestone 7.9)
 

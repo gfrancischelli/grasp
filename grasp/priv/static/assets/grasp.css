@@ -913,7 +913,7 @@ body.grasp-dragging .module__title {
 }
 .comment {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto auto auto 1fr auto auto;
   align-items: baseline;
   gap: var(--space-xs) var(--space-s);
   margin-block: var(--space-xs);
@@ -933,8 +933,23 @@ body.grasp-dragging .module__title {
   color: var(--fg-subtle);
   font-size: 11px;
 }
+.comment__edited {
+  grid-column: 3;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  font-style: italic;
+}
+.comment__edit {
+  grid-column: 5;
+  padding: 0 var(--space-xs);
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.comment__edit:hover {
+  color: var(--fg);
+}
 .comment__delete {
-  grid-column: 4;
+  grid-column: 6;
   padding: 0 var(--space-xs);
   color: var(--fg-muted);
 }
@@ -945,6 +960,9 @@ body.grasp-dragging .module__title {
   grid-column: 1 / -1;
   margin: 0;
   white-space: pre-wrap;
+}
+.comment > .composer {
+  grid-column: 1 / -1;
 }
 .thread__actions {
   display: flex;

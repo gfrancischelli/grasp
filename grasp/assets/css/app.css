@@ -295,13 +295,19 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .thread__snippet code { font-family: var(--mono); font-size: var(--code-size); }
 .thread__toggle { padding: 0; color: var(--fg-muted); font-size: 12px; }
 .thread__toggle:hover { color: var(--accent); }
-.comment { display: grid; grid-template-columns: auto auto 1fr auto; align-items: baseline; gap: var(--space-xs) var(--space-s); margin-block: var(--space-xs); }
+/* Author, time, the edited mark, then the actions pushed to the far end; the body and the
+   box that rewrites it take the whole width under them. */
+.comment { display: grid; grid-template-columns: auto auto auto 1fr auto auto; align-items: baseline; gap: var(--space-xs) var(--space-s); margin-block: var(--space-xs); }
 .comment__author { padding: 0 var(--space-s); border-radius: 999px; background: var(--bg); color: var(--fg-muted); font-size: 11px; }
 .comment[data-author="agent"] .comment__author { background: var(--accent-soft); color: var(--accent); }
 .comment time { color: var(--fg-subtle); font-size: 11px; }
-.comment__delete { grid-column: 4; padding: 0 var(--space-xs); color: var(--fg-muted); }
+.comment__edited { grid-column: 3; color: var(--fg-subtle); font-size: 11px; font-style: italic; }
+.comment__edit { grid-column: 5; padding: 0 var(--space-xs); color: var(--fg-muted); font-size: 11px; }
+.comment__edit:hover { color: var(--fg); }
+.comment__delete { grid-column: 6; padding: 0 var(--space-xs); color: var(--fg-muted); }
 .comment__delete:hover { color: var(--danger); }
 .comment__body { grid-column: 1 / -1; margin: 0; white-space: pre-wrap; }
+.comment > .composer { grid-column: 1 / -1; }
 .thread__actions { display: flex; gap: var(--space-m); }
 .thread__actions button { padding: 0; color: var(--fg-muted); font-size: 12px; }
 .thread__actions button:hover { color: var(--accent); }

@@ -10,6 +10,9 @@ defmodule GraspWeb.CommentComponents do
   conversation is over, and a card whose every settled argument is still spelled out in full
   buries the code it was written about; the toggle keeps the thread one click away.
 
+  Each comment and reply has an edit action, which draws the box in place of the text it
+  rewrites, holding that text, and an entry once rewritten says so beside its time.
+
   A published thread carries a link to the review comment it was posted as, beside the
   actions that act on it, so the conversation on the pull request is one click from the
   conversation on the card.
@@ -47,11 +50,7 @@ defmodule GraspWeb.CommentComponents do
     thread = assigns.thread
 
     entries = [
-      %{reply_id: nil, author: thread.author, body: thread.body, created_at: thread.created_at}
-      | Enum.map(
-          thread.replies,
-          &%{reply_id: &1.id, author: &1.author, body: &1.body, created_at: &1.created_at}
-        )
+      entry(thread, nil) | Enum.map(thread.replies, &entry(&1, &1.id))
     ]
 
     assigns =
@@ -59,7 +58,8 @@ defmodule GraspWeb.CommentComponents do
         entries: entries,
         collapsed?: thread.resolved and not assigns.expanded,
         summary: "Resolved · #{count(length(entries))}",
-        replying?: is_map(assigns.composing) and assigns.composing.reply_to == thread.id
+        replying?: is_map(assigns.composing) and assigns.composing.reply_to == thread.id,
+        editing: editing(assigns.composing, thread.id)
       )
 
     ~H"""
@@ -87,6 +87,19 @@ defmodule GraspWeb.CommentComponents do
         <div :for={entry <- @entries} class="comment" data-author={entry.author}>
           <span class="comment__author">{author(entry.author)}</span>
           <time datetime={entry.created_at}>{stamp(entry.created_at)}</time>
+          <span
+            :if={entry.edited_at}
+            class="comment__edited"
+            title={"Edited " <> stamp(entry.edited_at)}
+          >edited</span>
+          <button
+            class="comment__edit"
+            phx-click="comment_edit"
+            phx-value-card={@card_id}
+            phx-value-id={@thread.id}
+            phx-value-reply={entry.reply_id}
+            title="Edit"
+          >edit</button>
           <button
             class="comment__delete"
             phx-click="comment_delete"
@@ -94,7 +107,16 @@ defmodule GraspWeb.CommentComponents do
             phx-value-reply={entry.reply_id}
             title="Delete"
           >×</button>
-          <p class="comment__body">{entry.body}</p>
+          <%= if @editing == {:ok, entry.reply_id} do %>
+            <.composer
+              composing={@composing}
+              card_id={@card_id}
+              id={"edit-#{@thread.id}-#{entry.reply_id || "thread"}"}
+              body={entry.body}
+            />
+          <% else %>
+            <p class="comment__body">{entry.body}</p>
+          <% end %>
         </div>
         <div class="thread__actions">
           <button phx-click="comment_reply" phx-value-card={@card_id} phx-value-id={@thread.id}>
@@ -127,6 +149,12 @@ defmodule GraspWeb.CommentComponents do
   attr :composing, :map, required: true
   attr :card_id, :integer, required: true
 
+  attr :id, :string,
+    doc: "the box's id when it rewrites an entry rather than writing one",
+    default: nil
+
+  attr :body, :string, doc: "the text a rewrite starts from", default: nil
+
   @doc """
   The box a comment is written in, naming in its markup the anchor it was opened at: the
   view answers the submit from its own record of where the box stands, and the fields are
@@ -136,14 +164,22 @@ defmodule GraspWeb.CommentComponents do
     composing = assigns.composing
 
     id =
-      "composer-#{assigns.card_id}-#{composing.side}-#{composing.anchor}-#{composing.reply_to || "new"}"
+      assigns.id ||
+        "composer-#{assigns.card_id}-#{composing.side}-#{composing.anchor}-#{composing.reply_to || "new"}"
+
+    edit? = assigns.body != nil
 
     assigns =
-      assign(assigns, id: id, reply?: composing.reply_to != nil, lines: heading(composing))
+      assign(assigns,
+        id: id,
+        edit?: edit?,
+        reply?: composing.reply_to != nil,
+        lines: heading(composing)
+      )
 
     ~H"""
     <form id={@id} class="composer" phx-submit="comment_save" phx-hook="Composer">
-      <p :if={not @reply?} class="composer__lines">{@lines}</p>
+      <p :if={not @reply? and not @edit?} class="composer__lines">{@lines}</p>
       <input type="hidden" name="card" value={@card_id} />
       <input type="hidden" name="side" value={@composing.side} />
       <input type="hidden" name="line" value={@composing.line} />
@@ -155,12 +191,27 @@ defmodule GraspWeb.CommentComponents do
         placeholder={if @reply?, do: "Reply…", else: "Leave a comment…"}
         aria-label="Comment"
         phx-update="ignore"
-      ></textarea>
-      <button type="submit">Comment</button>
+      >{@body}</textarea>
+      <button type="submit">{if @edit?, do: "Save", else: "Comment"}</button>
       <button type="button" phx-click="comment_cancel">Cancel</button>
     </form>
     """
   end
+
+  defp entry(comment, reply_id) do
+    %{
+      reply_id: reply_id,
+      author: comment.author,
+      body: comment.body,
+      created_at: comment.created_at,
+      edited_at: Map.get(comment, :edited_at)
+    }
+  end
+
+  # The entry of this thread the open box rewrites, as `{:ok, reply_id}` with `nil` for the
+  # thread's own comment, or `:none` when the box is not rewriting any of this thread.
+  defp editing(%{edit: %{thread: thread_id, reply: reply_id}}, thread_id), do: {:ok, reply_id}
+  defp editing(_composing, _thread_id), do: :none
 
   # Why a thread sits in the card's footer instead of under a line. A thread the view simply
   # draws no line for — a comment on the base side, in a card reading as source — is still
