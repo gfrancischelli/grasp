@@ -209,6 +209,7 @@
       });
       this.placeCards();
       this.draw();
+      this.syncCoverageToggle();
     },
     updated() {
       this.syncCoverageToggle();

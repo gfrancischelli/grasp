@@ -63,6 +63,56 @@ defmodule GraspWeb.CardCoverageTest do
     assert CardCoverage.for_function(held, @greet) == :none
   end
 
+  describe "gaps" do
+    # A clause never entered holds every arm starting where it does, so its marker says all
+    # an arm's would and names the wider range: on a shared first line the clause's wins.
+    setup do
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "generated_at" => "2026-09-28T11:58:00Z",
+          "project" => %{"test_paths" => ["test"]},
+          "functions" => [
+            %{
+              "id" => "Acme.Tally.step/1",
+              "module" => "Acme.Tally",
+              "name" => "step",
+              "arity" => 1,
+              "arities" => [1],
+              "kind" => "def",
+              "file" => "lib/acme/tally.ex",
+              "span" => %{"start_line" => 1, "end_line" => 8},
+              "source" => "source of step/1",
+              "calls" => [],
+              "clauses" => [[1, 4], [5, 8]],
+              "arms" => [[2, 2], [3, 4], [5, 6], [7, 8]]
+            }
+          ]
+        })
+
+      {forest, _id} = Forest.open_root(Forest.new(), "Acme.Tally.step/1")
+      %{index: index, forest: forest}
+    end
+
+    test "an arm never entered is marked at its first line, and a clause over an arm on the same line",
+         %{index: index, forest: forest} do
+      document =
+        Coverage.build(
+          index,
+          %{{"Acme.Tally", "step", 1} => %{2 => 3, 4 => 0, 6 => 0, 8 => 0}},
+          %{generated_at: "2026-09-28T12:00:00Z", git_head: nil}
+        )
+
+      held = CardCoverage.refresh(CardCoverage.new(), {1, document}, index, forest)
+
+      assert CardCoverage.for_function(held, "Acme.Tally.step/1").gaps == %{
+               3 => "arm",
+               5 => "clause",
+               7 => "arm"
+             }
+    end
+  end
+
   describe "refresh/4" do
     # A held reading no document could produce: kept, it proves the function was not read again.
     setup %{index: index, forest: forest, snapshot: snapshot} do

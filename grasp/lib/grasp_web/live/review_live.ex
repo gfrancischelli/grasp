@@ -140,8 +140,9 @@ defmodule GraspWeb.ReviewLive do
      )}
   end
 
-  # Another coverage document reads every card again; each card whose reading differs
-  # re-renders, and the toolbar's toggle follows whether there is anything to show.
+  # Another coverage document reads every card again, and the toolbar's toggle follows
+  # whether there is anything to show. A card is handed its own reading alone, so only a
+  # card whose reading differs receives different assigns to re-render for.
   def handle_info(:coverage_reloaded, socket) do
     %{coverage: held, index: index, forest: forest} = socket.assigns
     {:noreply, assign(socket, coverage: refresh_coverage(held, index, forest))}
@@ -1149,11 +1150,18 @@ defmodule GraspWeb.ReviewLive do
 
   # Every visible card, flattened out of the sections: the columns are the order a card with
   # no position is placed in, which the node carries as its depth.
-  defp nodes(sections) do
+  # Each node carries its card's own coverage reading rather than the whole held set, so a
+  # document that leaves a card's reading as it stands hands that card the same assigns.
+  defp nodes(sections, forest, coverage) do
     Enum.flat_map(sections, fn section ->
       section.columns
       |> Enum.with_index()
-      |> Enum.flat_map(fn {ids, depth} -> Enum.map(ids, &%{id: &1, depth: depth}) end)
+      |> Enum.flat_map(fn {ids, depth} ->
+        Enum.map(ids, fn id ->
+          reading = CardCoverage.for_function(coverage, Forest.card(forest, id).function_id)
+          %{id: id, depth: depth, coverage: reading}
+        end)
+      end)
     end)
   end
 
@@ -1210,7 +1218,7 @@ defmodule GraspWeb.ReviewLive do
         open_calls: open_calls,
         base: base_label(assigns.index),
         sections: sections,
-        nodes: nodes(sections)
+        nodes: nodes(sections, assigns.forest, assigns.coverage)
       )
 
     ~H"""
@@ -1443,7 +1451,7 @@ defmodule GraspWeb.ReviewLive do
               editor={@editor}
               callers_open={@callers_open}
               test_reach={@test_reach}
-              coverage={@coverage}
+              coverage={node.coverage}
               selected={MapSet.member?(@selected, node.id)}
               comments={@comments}
               composing={@composing}

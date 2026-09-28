@@ -210,6 +210,9 @@ const Canvas = {
     })
     this.placeCards()
     this.draw()
+    // A document loaded between the dead render and the join leaves the ignored button as
+    // the dead render drew it, and a join calls mounted() rather than updated().
+    this.syncCoverageToggle()
   },
 
   updated() {

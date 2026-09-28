@@ -21,7 +21,8 @@ defmodule GraspWeb.CardComponents do
   the next. The answers are the LiveView's, held in a `GraspWeb.TestReach`, so a card reads them
   rather than walking the index as it renders.
 
-  Coverage is read the same way, from a `GraspWeb.CardCoverage` the LiveView holds: a fresh
+  Coverage is read the same way, from a `GraspWeb.CardCoverage` the LiveView holds, each card
+  handed only its own reading: a fresh
   reading marks the body's counted lines and the clauses and arms never entered, and a stale
   one puts `coverage stale` in the header and marks nothing. Both are drawn only while the
   reader has the coverage mode on, which is the page's CSS and not the card's markup.
@@ -37,7 +38,6 @@ defmodule GraspWeb.CardComponents do
   alias Grasp.Diff.Hunks
   alias Grasp.Index
   alias Grasp.Session.Forest
-  alias GraspWeb.CardCoverage
   alias GraspWeb.TestReach
 
   @stdlib_apps [:elixir, :logger, :eex, :ex_unit, :mix, :iex]
@@ -62,9 +62,9 @@ defmodule GraspWeb.CardComponents do
   attr :callers_open, :integer, default: nil
   attr :test_reach, TestReach, doc: "the tests reaching each card's function", default: nil
 
-  attr :coverage, CardCoverage,
-    doc: "how each card's function reads in the coverage",
-    default: nil
+  attr :coverage, :any,
+    doc: "this card's own reading, a `t:GraspWeb.CardCoverage.reading/0`",
+    default: :none
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -129,9 +129,9 @@ defmodule GraspWeb.CardComponents do
   attr :callers_open, :integer, default: nil
   attr :test_reach, TestReach, doc: "the tests reaching each card's function", default: nil
 
-  attr :coverage, CardCoverage,
-    doc: "how each card's function reads in the coverage",
-    default: nil
+  attr :coverage, :any,
+    doc: "this card's own reading, a `t:GraspWeb.CardCoverage.reading/0`",
+    default: :none
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -253,7 +253,7 @@ defmodule GraspWeb.CardComponents do
 
     # The reading is taken once per coverage document and index and held by the LiveView;
     # a stale one tints nothing, since its counts describe a body other than this one.
-    coverage = CardCoverage.for_function(assigns.coverage, record["id"])
+    coverage = assigns.coverage
 
     highlight_opts = [
       card_id: card.id,

@@ -6,8 +6,9 @@ defmodule GraspWeb.CardCoverage do
   answers are kept together with the generation of the coverage document, the generation of
   the index and the function ids they were taken for. Another document or another index takes
   every answer again; a card opened on a function not yet read takes that one alone; a
-  move, a focus, a comment or a render leaves the held answers as they are, so a card
-  re-renders for its coverage only when its reading differs.
+  move, a focus, a comment or a render leaves the held answers as they are. The LiveView
+  hands each card its own reading from `for_function/2`, so a card's coverage attribute
+  differs between renders only when its reading does.
 
   A fresh reading is what a card body is drawn with: each counted line as `"run"` or
   `"missed"` and the first line of each clause or arm never entered as `"clause"` or

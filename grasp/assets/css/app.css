@@ -39,9 +39,9 @@
   --diff-del-fg: #cf222e;
   /* Coverage: a line the suite ran, one it never ran, and the mark on a clause or arm it
      never entered. */
-  --coverage-run-bg: color-mix(in oklch, #1a7f37 12%, transparent);
-  --coverage-missed-bg: color-mix(in oklch, #cf222e 14%, transparent);
-  --coverage-gap: #cf222e;
+  --coverage-run-bg: color-mix(in oklch, var(--diff-ins-fg) 12%, transparent);
+  --coverage-missed-bg: color-mix(in oklch, var(--diff-del-fg) 14%, transparent);
+  --coverage-gap: var(--diff-del-fg);
   --sidebar-width: 18rem;
   --code-size: 13px;
   /* What a counter-scaled label measures on screen at any zoom: see body.grasp-signatures. */
