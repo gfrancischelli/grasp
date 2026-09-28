@@ -4,8 +4,8 @@ defmodule GraspWeb.TestReach do
 
   `Grasp.Index.tests_for/2` walks the callers graph backwards, so its answers are kept
   together with the generation of the index and the set of function ids they were taken
-  against, and taken again only when either of the two differs. A move, a focus, a comment or a render leaves
-  both alone, and the held answers stand as they are.
+  against, and taken again only when either of the two differs. A move, a focus, a comment
+  or a render leaves both alone, and the held answers stand as they are.
 
   A test or a setup is a test itself rather than something tests reach, so its card holds no
   entry.

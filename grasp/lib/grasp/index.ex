@@ -20,6 +20,10 @@ defmodule Grasp.Index do
 
   alias Grasp.Index.Join
 
+  # One bound for both walks: a Tests row counted by `tests_for/3` opens `path_back/4`, which
+  # has to reach as far.
+  @max_hops 4
+
   defstruct version: 1,
             generation: 0,
             generated_at: nil,
@@ -320,7 +324,7 @@ defmodule Grasp.Index do
   another path. An id the index does not define, or a function no test reaches, answers `[]`.
   """
   @spec tests_for(t(), String.t(), non_neg_integer()) :: [reach()]
-  def tests_for(%__MODULE__{} = index, id, max_hops \\ 4) do
+  def tests_for(%__MODULE__{} = index, id, max_hops \\ @max_hops) do
     start = resolve(index, id)
 
     if Map.has_key?(index.functions, start) do
@@ -380,7 +384,7 @@ defmodule Grasp.Index do
   met at the same hop as such a setup is preferred to it.
   """
   @spec path_back(t(), String.t(), String.t(), non_neg_integer()) :: [String.t()]
-  def path_back(%__MODULE__{} = index, test_id, id, max_hops \\ 4) do
+  def path_back(%__MODULE__{} = index, test_id, id, max_hops \\ @max_hops) do
     start = resolve(index, id)
 
     case index.functions[test_id] do

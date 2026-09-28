@@ -206,7 +206,9 @@ defmodule GraspWeb.ReviewLive do
           |> Enum.chunk_every(2, 1, :discard)
           |> Enum.map(fn [callee, caller] -> {caller, call_target(socket, caller, callee)} end)
 
-        mutate(socket, &Session.open_callers(&1, id, callers))
+        if callers == [],
+          do: {:noreply, socket},
+          else: mutate(socket, &Session.open_callers(&1, id, callers))
 
       _no_function ->
         {:noreply, socket}

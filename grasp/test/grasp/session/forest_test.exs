@@ -96,6 +96,20 @@ defmodule Grasp.Session.ForestTest do
     assert {^forest, nil} = Forest.open_callers(forest, 999, [{"T.t/1", nil}])
   end
 
+  test "open_callers/3 unfolds a folded card on the chain, focusing the last caller" do
+    {forest, x} = Forest.open_root(Forest.new(), "X.f/1")
+    {forest, h} = Forest.open_root(forest, "H.h/0")
+    {forest, t} = Forest.open_root(forest, "T.t/1")
+    forest = forest |> Forest.toggle_collapse(h) |> Forest.toggle_collapse(t)
+
+    {forest, ^t} = Forest.open_callers(forest, x, [{"H.h/0", "X.f/1"}, {"T.t/1", "H.h/0"}])
+
+    assert Forest.hidden(forest) == MapSet.new()
+    refute Forest.card(forest, h).collapsed
+    refute Forest.card(forest, t).collapsed
+    assert forest.focus == t
+  end
+
   test "a function opened under two parents is one card with two edges" do
     {forest, a} = Forest.open_root(Forest.new(), "A.f/1")
     {forest, d} = Forest.open_root(forest, "D.i/0")

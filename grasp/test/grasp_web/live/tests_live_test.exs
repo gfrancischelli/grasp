@@ -231,8 +231,21 @@ defmodule GraspWeb.TestsLiveTest do
       view |> element("#card-1 .card__tests") |> render_click()
 
       assert has_element?(view, "#card-1 .card__callers-toggle[aria-expanded='true']")
-      assert has_element?(view, "#card-1 .card__callers li:last-of-type .caller--test")
-      refute has_element?(view, "#card-1 .card__callers li:first-child .caller--test")
+
+      assert has_element?(
+               view,
+               "#card-1 .card__callers li:first-child .caller:not(.caller--test)"
+             )
+
+      assert has_element?(
+               view,
+               "#card-1 .card__callers li:has(.caller:not(.caller--test)) + li.callers__heading + li .caller--test"
+             )
+
+      refute has_element?(
+               view,
+               "#card-1 .card__callers li.callers__heading ~ li .caller:not(.caller--test)"
+             )
 
       assert rows(view, 1) == [
                {"a verified path reaches the controller", "2 hops"},
@@ -285,6 +298,18 @@ defmodule GraspWeb.TestsLiveTest do
       assert has_element?(view, "#card-3[data-function-id='#{@init}']")
       refute has_element?(view, "#card-4")
       assert has_element?(view, "#card-2 span.call[data-edge-to='1']")
+    end
+
+    test "opens nothing for a test that does not reach the function, or an unknown card", %{
+      view: view
+    } do
+      render_click(view, "open_root", %{"id" => @handle_call})
+      render_click(view, "open_test", %{"card" => "1", "test" => @init})
+      render_click(view, "open_test", %{"card" => "99", "test" => @reply})
+      render_click(view, "open_test", %{"card" => "x", "test" => @reply})
+
+      assert has_element?(view, "#card-1[data-focused='true']")
+      refute has_element?(view, "#card-2")
     end
 
     test "keeps its badge through a move", %{view: view} do
