@@ -93,8 +93,8 @@ defmodule Grasp.Index.Builder do
   names. The project block then names `"test_paths"`, the test environment's, so a reader
   knows which records are tests. A test's Mox `expect` and `stub` calls become calls of kind
   `:double` on the application functions the mock stands in for, by `Grasp.Index.Doubles`,
-  against the mocks `test_helper.exs` under each test path and the files the trace read
-  declare. A trace that fails is reported with the last lines of its
+  against the mocks `test_helper.exs` under each test path, the test-only support files and
+  the test files declare. A trace that fails is reported with the last lines of its
   output and leaves the index the application's alone, its classification included: a
   changed test file is classified only once its tests were indexed.
   """
@@ -468,11 +468,7 @@ defmodule Grasp.Index.Builder do
         extracted = extract(root, trace.files)
         report_failures(extracted.failures)
 
-        declarations =
-          root
-          |> declaration_files(trace.test_paths, trace.files)
-          |> read_sources()
-          |> Doubles.declarations()
+        declarations = Doubles.declarations_in(root, trace.test_paths, trace.files)
 
         records =
           extracted.definitions
@@ -496,27 +492,6 @@ defmodule Grasp.Index.Builder do
   end
 
   defp trace_tests(_root, _paths, _application, _candidates, false), do: @no_tests
-
-  # Where a project declares its Mox mocks: the `test_helper.exs` of each test path, which
-  # `mix test` runs and the trace never requires, and the files the trace read.
-  defp declaration_files(root, test_paths, files) do
-    helpers =
-      for path <- test_paths,
-          helper = Path.join(path, "test_helper.exs"),
-          File.regular?(Path.join(root, helper)),
-          do: helper
-
-    Enum.map(Enum.uniq(helpers ++ files), &Path.join(root, &1))
-  end
-
-  defp read_sources(files) do
-    Enum.flat_map(files, fn file ->
-      case File.read(file) do
-        {:ok, source} -> [source]
-        {:error, _reason} -> []
-      end
-    end)
-  end
 
   defp extract_file(file, relative) do
     case File.read(file) do

@@ -825,26 +825,26 @@ defmodule Grasp.Index.ExtractTest do
       end
 
       test "reads the clock" do
-        expect(GeolocationMock, :lookup, fn _ip -> {:ok, "PT"} end)
+        expect(SampleApp.GeoMock, :lookup, fn _ip -> {:ok, "PT"} end)
         Mox.expect(Clock, :at, 2, fn zone, when_ when is_binary(zone) -> when_ end)
-        Mox.stub(GeolocationMock, :lookup, &SampleApp.Geo.lookup/1)
+        Mox.stub(SampleApp.GeoMock, :lookup, &SampleApp.Geo.lookup/1)
         expect(mock(), :lookup, fn _ip -> :ok end)
-        expect(GeolocationMock, name(), fn _ip -> :ok end)
-        GeolocationMock |> expect(:country, fn -> "PT" end) |> stub(:city, fn _a, _b -> "" end)
+        expect(SampleApp.GeoMock, name(), fn _ip -> :ok end)
+        SampleApp.GeoMock |> expect(:country, fn -> "PT" end) |> stub(:city, fn _a, _b -> "" end)
       end
 
-      defp mock, do: GeolocationMock
+      defp mock, do: SampleApp.GeoMock
       defp name, do: :lookup
     end
     """
 
-    test "records each expect and stub on a literal mock and function, local or on Mox" do
+    test "records each expect and stub on a literal mock and function, local or on Mox, at the arity its fn or capture writes" do
       {:ok, %{definitions: defs}} = Extract.extract(@doubles_source, "test/clock_test.exs")
       test = find(defs, "SampleApp.ClockTest", :"test reads the clock")
 
       assert test.double_sites == [
                %{
-                 mock: "GeolocationMock",
+                 mock: "SampleApp.GeoMock",
                  function: :lookup,
                  arity: 1,
                  range: %{start: {12, 5}, end: {12, 11}}
@@ -856,22 +856,22 @@ defmodule Grasp.Index.ExtractTest do
                  range: %{start: {13, 5}, end: {13, 15}}
                },
                %{
-                 mock: "GeolocationMock",
+                 mock: "SampleApp.GeoMock",
                  function: :lookup,
-                 arity: nil,
+                 arity: 1,
                  range: %{start: {14, 5}, end: {14, 13}}
                },
                %{
-                 mock: "GeolocationMock",
+                 mock: "SampleApp.GeoMock",
                  function: :country,
                  arity: 0,
-                 range: %{start: {17, 24}, end: {17, 30}}
+                 range: %{start: {17, 26}, end: {17, 32}}
                },
                %{
-                 mock: "GeolocationMock",
+                 mock: "SampleApp.GeoMock",
                  function: :city,
                  arity: 2,
-                 range: %{start: {17, 60}, end: {17, 64}}
+                 range: %{start: {17, 62}, end: {17, 66}}
                }
              ]
     end

@@ -2,8 +2,9 @@ defmodule Grasp.Index.Doubles do
   @moduledoc """
   Turns a test's Mox expectations into calls on the code they stand in for.
 
-  A Mox mock is declared with `Mox.defmock(Mock, for: Behaviour)` — `defmock` alone when the
-  file imports `Mox` — in `test_helper.exs` or a test-only support file, and a test sets it
+  A Mox mock is declared with `Mox.defmock(Mock, for: Behaviour)`, or a bare
+  `defmock(Mock, for: Behaviour)` as a file importing `Mox` writes it, in `test_helper.exs`
+  or a test-only support file, and a test sets it
   up with `expect(Mock, :fun, …)` or `stub(Mock, :fun, …)`. The mock stands in for every
   module that implements `Behaviour`, so the test's expectation names code the index holds:
   `Impl.fun` of each implementation. `resolve/4` writes those as calls of kind `:double`,
@@ -49,6 +50,34 @@ defmodule Grasp.Index.Doubles do
     |> Map.new()
   end
 
+  @doc """
+  The mocks the project at `root` declares where its tests would find them: the
+  `test_helper.exs` of each of `test_paths`, which `mix test` runs before any test, and
+  `files`, the test-only support files and test files the test trace read.
+
+  Paths are relative to `root`, or absolute. A test path with no `test_helper.exs`, or a
+  file that cannot be read, declares nothing. The files are parsed as `declarations/1`
+  parses them, and none is run.
+  """
+  @spec declarations_in(String.t(), [String.t()], [String.t()]) :: declarations()
+  def declarations_in(root, test_paths, files) do
+    helpers =
+      for path <- test_paths,
+          helper = Path.expand(Path.join(path, "test_helper.exs"), root),
+          File.regular?(helper),
+          do: helper
+
+    (helpers ++ Enum.map(files, &Path.expand(&1, root)))
+    |> Enum.uniq()
+    |> Enum.flat_map(fn file ->
+      case File.read(file) do
+        {:ok, source} -> [source]
+        {:error, _reason} -> []
+      end
+    end)
+    |> declarations()
+  end
+
   defp source_declarations(ast) do
     aliases = aliases(ast)
 
@@ -74,6 +103,9 @@ defmodule Grasp.Index.Doubles do
   defp defmock({{:., _, [{:__aliases__, _, [:Mox]}, :defmock]}, _meta, args}), do: mock_args(args)
   defp defmock({:defmock, _meta, args}), do: mock_args(args)
   defp defmock(_node), do: nil
+
+  defp mock_args([mock, {:__block__, _, [options]}]) when is_list(options),
+    do: mock_args([mock, options])
 
   defp mock_args([mock, options]) when is_list(options) do
     Enum.find_value(options, fn

@@ -81,7 +81,8 @@ defmodule Grasp.Index.Extract do
   `stub(Mock, :fun, …)` its body writes, local or on `Mox`, called on the mock or piped
   from it, whose mock is a literal alias and whose function a literal atom. A site holds
   the mock's full name, expanded through the file's `alias` lines, the function, the
-  parameter count of a literal `fn` handed over as the code — `nil` for any other code —
+  parameter count of a literal `fn` or the arity a capture writes (`&Geo.lookup/1`) handed
+  over as the code — `nil` for any other code —
   and the range of the call's name. `Grasp.Index.Doubles` resolves them against the mocks
   the project declares.
 
@@ -133,8 +134,8 @@ defmodule Grasp.Index.Extract do
   @type route_site :: %{verb: String.t(), path: [segment()], range: range()}
   # A Mox expectation: `mock` is the mock's full name, the alias written expanded through the
   # file's `alias` lines; `function` the atom the call names; `arity` the parameter count of
-  # the literal `fn` handed over, `nil` when the code is anything else; `range` the call's
-  # name, as a call site's range covers it.
+  # the literal `fn` handed over, or the arity a capture handed over writes, `nil` when the
+  # code is anything else; `range` the call's name, as a call site's range covers it.
   @type double_site :: %{
           mock: String.t(),
           function: atom(),
@@ -1111,6 +1112,10 @@ defmodule Grasp.Index.Extract do
 
   defp fn_arity({:fn, _meta, [{:->, _, [params, _body]} | _]}) when is_list(params),
     do: length(params)
+
+  defp fn_arity({:&, _meta, [{:/, _, [_function, {:__block__, _, [arity]}]}]})
+       when is_integer(arity),
+       do: arity
 
   defp fn_arity(_code), do: nil
 

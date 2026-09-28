@@ -1,7 +1,7 @@
 defmodule Grasp.Index.DoublesTest do
   use ExUnit.Case, async: true
 
-  alias Grasp.Index.{Builder, Doubles, Join, Resolve}
+  alias Grasp.Index.{Builder, Doubles, Extract, Join, Resolve}
 
   describe "declarations/1" do
     test "reads each defmock, local under import Mox or on Mox, through the file's aliases" do
@@ -9,13 +9,13 @@ defmodule Grasp.Index.DoublesTest do
       alias SampleApp.Geo
       import Mox
 
-      Mox.defmock(GeolocationMock, for: Geo.Lookup)
+      Mox.defmock(SampleApp.GeoMock, for: Geo.Lookup)
       defmock(SampleApp.ClockMock, for: SampleApp.Clock, skip_optional_callbacks: true)
       ExUnit.start()
       """
 
       assert Doubles.declarations([helper]) == %{
-               "GeolocationMock" => "SampleApp.Geo.Lookup",
+               "SampleApp.GeoMock" => "SampleApp.Geo.Lookup",
                "SampleApp.ClockMock" => "SampleApp.Clock"
              }
     end
@@ -29,21 +29,69 @@ defmodule Grasp.Index.DoublesTest do
         Mox.defmock(SampleApp.MailerMock, for: Post)
         Mox.defmock(Geo.Mock, for: Clock)
         Mox.defmock(@computed, for: Clock)
-        Mox.defmock(ListMock, for: [Clock, Post])
+        Mox.defmock(SampleApp.ListMock, for: [Clock, Post])
+        Mox.defmock(SampleApp.BracketMock, [for: Post])
         raise "never evaluated"
       end
       """
 
       assert Doubles.declarations([support, "defmodule Broken do"]) == %{
                "SampleApp.MailerMock" => "SampleApp.Mailer",
-               "SampleApp.Geo.Mock" => "SampleApp.Clock"
+               "SampleApp.Geo.Mock" => "SampleApp.Clock",
+               "SampleApp.BracketMock" => "SampleApp.Mailer"
+             }
+    end
+  end
+
+  describe "declarations_in/3" do
+    @tag :tmp_dir
+    test "reads each test path's test_helper.exs and the traced files, only parsing them",
+         %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "test/support"))
+      File.mkdir_p!(Path.join(root, "integration"))
+
+      File.write!(Path.join(root, "test/test_helper.exs"), ~S"""
+      Mox.defmock(SampleApp.GeoMock, for: SampleApp.Geo)
+      ExUnit.start()
+      """)
+
+      File.write!(Path.join(root, "test/support/mocks.ex"), ~S"""
+      defmodule SampleApp.Mocks do
+        import Mox
+        alias SampleApp.Clock
+        defmock(SampleApp.ClockMock, for: Clock)
+        raise "never evaluated"
+      end
+      """)
+
+      assert Doubles.declarations_in(
+               root,
+               ["test", "integration", Path.join(root, "missing")],
+               ["test/support/mocks.ex", "test/support/gone.ex"]
+             ) == %{
+               "SampleApp.GeoMock" => "SampleApp.Geo",
+               "SampleApp.ClockMock" => "SampleApp.Clock"
+             }
+    end
+
+    @tag :tmp_dir
+    test "finds a test path's helper written as an absolute path", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "test"))
+
+      File.write!(
+        Path.join(root, "test/test_helper.exs"),
+        "Mox.defmock(SampleApp.GeoMock, for: SampleApp.Geo)\n"
+      )
+
+      assert Doubles.declarations_in(root, [Path.join(root, "test")], []) == %{
+               "SampleApp.GeoMock" => "SampleApp.Geo"
              }
     end
   end
 
   describe "resolve/4" do
     @declarations %{
-      "GeolocationMock" => "SampleApp.Geo",
+      "SampleApp.GeoMock" => "SampleApp.Geo",
       "SampleApp.ClockMock" => "SampleApp.Clock"
     }
     @modules [
@@ -66,14 +114,14 @@ defmodule Grasp.Index.DoublesTest do
       [test] =
         [
           test_definition([
-            site("GeolocationMock", :lookup, 1, {5, 5}),
-            site("GeolocationMock", :lookup, nil, {6, 5})
+            site("SampleApp.GeoMock", :lookup, 1, {5, 5}),
+            site("SampleApp.GeoMock", :lookup, nil, {6, 5})
           ])
         ]
         |> Join.join([])
         |> Doubles.resolve(@declarations, @modules, functions)
 
-      double = %{mock: "GeolocationMock", behaviour: "SampleApp.Geo"}
+      double = %{mock: "SampleApp.GeoMock", behaviour: "SampleApp.Geo"}
 
       assert test.calls == [
                %{
@@ -115,15 +163,38 @@ defmodule Grasp.Index.DoublesTest do
       [test] =
         [
           test_definition([
-            site("UndeclaredMock", :lookup, 1, {5, 5}),
+            site("SampleApp.UndeclaredMock", :lookup, 1, {5, 5}),
             site("SampleApp.ClockMock", :now, 0, {6, 5}),
-            site("GeolocationMock", :lookup, 3, {7, 5})
+            site("SampleApp.GeoMock", :lookup, 3, {7, 5})
           ])
         ]
         |> Join.join([])
         |> Doubles.resolve(@declarations, @modules, functions)
 
       assert test.calls == []
+    end
+
+    test "a capture reaches the arity it writes and no other" do
+      source = ~S"""
+      defmodule SampleApp.GeoTest do
+        use ExUnit.Case
+        import Mox
+
+        test "looks up" do
+          stub(SampleApp.GeoMock, :lookup, &SampleApp.Geo.Static.lookup/1)
+        end
+      end
+      """
+
+      {:ok, %{definitions: definitions}} = Extract.extract(source, "test/geo_test.exs")
+      functions = Join.join([definition("SampleApp.Geo.Static", :lookup, [1, 2])], [])
+
+      [test] =
+        definitions
+        |> Join.join([])
+        |> Doubles.resolve(@declarations, @modules, functions)
+
+      assert [%{target: "SampleApp.Geo.Static.lookup/1", kind: :double}] = test.calls
     end
 
     test "leaves a record with no double sites as it is" do
@@ -135,7 +206,7 @@ defmodule Grasp.Index.DoublesTest do
       functions = Join.join([definition("SampleApp.Geo.Ip", :new, [1])], [])
 
       [test] =
-        [test_definition([site("GeolocationMock", :new, 1, {5, 5})])]
+        [test_definition([site("SampleApp.GeoMock", :new, 1, {5, 5})])]
         |> Join.join([])
         |> Doubles.resolve(@declarations, @modules, functions)
 
@@ -145,7 +216,7 @@ defmodule Grasp.Index.DoublesTest do
                %{
                  "target" => "SampleApp.Geo.Ip.new/1",
                  "kind" => "double",
-                 "double" => %{"mock" => "GeolocationMock", "behaviour" => "SampleApp.Geo"}
+                 "double" => %{"mock" => "SampleApp.GeoMock", "behaviour" => "SampleApp.Geo"}
                } = call
              ] = json["calls"]
 

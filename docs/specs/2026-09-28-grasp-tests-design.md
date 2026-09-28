@@ -547,8 +547,10 @@ test paths uncompared.
   support file names `Mock` a double of `Behaviour`; those files are parsed, never run.
   An `expect(Mock, :fun, …)` or `stub(Mock, :fun, …)` in a test body — local or `Mox.`
   remote — is an edge of kind `double`, dashed, from the test to `fun` of every indexed
-  module whose behaviours include `Behaviour`, at the arity of the `fn` passed when it is
-  a literal, or every arity of `fun` the implementation defines otherwise. The call site
+  application module (not a module under the test paths) whose behaviours include
+  `Behaviour`, at the arity of the `fn` passed when it is a literal or of the capture
+  passed (`&Impl.fun/1`), or every arity of `fun` the implementation defines otherwise.
+  The call site
   reads `Mox double of Behaviour`. A double stands in for the code rather than running
   it, so `double` edges are not reach: they count for no test in `tests_for`, untested
   changes or anything built on them.
