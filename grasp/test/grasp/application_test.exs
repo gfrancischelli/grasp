@@ -21,6 +21,7 @@ defmodule Grasp.ApplicationTest do
 
     assert {Grasp.IndexStore, []} in children
     assert {Grasp.Comments, []} in children
+    assert {Grasp.Runs, []} in children
     assert {Grasp.Reindexer, []} in children
     refute GraspWeb.Endpoint in children
   end

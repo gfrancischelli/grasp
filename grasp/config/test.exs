@@ -40,6 +40,11 @@ config :grasp,
   coverage_path:
     Path.join(System.tmp_dir!(), "grasp-test-#{System.os_time(:millisecond)}/coverage.json")
 
+# The test results likewise, for the same reason.
+config :grasp,
+  results_path:
+    Path.join(System.tmp_dir!(), "grasp-test-#{System.os_time(:millisecond)}/results.json")
+
 # And the sessions to a temporary directory of their own, one per run.
 config :grasp,
   sessions_dir:
