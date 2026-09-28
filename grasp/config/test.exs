@@ -56,5 +56,10 @@ config :grasp, agent_command: Path.expand("test/support/fake_claude.sh", __DIR__
 # Nor the real GitHub CLI: this stand-in answers canned pull request JSON.
 config :grasp, gh_command: Path.expand("test/support/fake_gh.sh", __DIR__ <> "/..")
 
+# Nor the project's own `mix`: a test or coverage run started from the viewer reaches this
+# stand-in, which prints each argument it receives on a line of its own.
+config :grasp,
+  runs_command: ["sh", "-c", ~S|for arg in "$@"; do printf 'arg %s\n' "$arg"; done|, "fake-mix"]
+
 config :logger, level: :warning
 config :phoenix, :plug_init_mode, :runtime

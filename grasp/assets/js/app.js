@@ -9,6 +9,7 @@ import Chat from "./hooks/chat"
 import Composer from "./hooks/composer"
 import Gutter from "./hooks/gutter"
 import Help from "./hooks/help"
+import Runs from "./hooks/runs"
 
 const {Socket} = window.Phoenix
 const {LiveSocket} = window.LiveView
@@ -17,7 +18,7 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 // The socket belongs to the host's endpoint, so its path is whatever the host declared;
 // the layout writes it onto <html> because only the server knows it.
 const socketPath = document.documentElement.getAttribute("phx-socket") || "/live"
-const liveSocket = new LiveSocket(socketPath, Socket, {params: {_csrf_token: csrfToken}, hooks: {Palette, Keys, Canvas, Chat, Composer, Gutter, Help}})
+const liveSocket = new LiveSocket(socketPath, Socket, {params: {_csrf_token: csrfToken}, hooks: {Palette, Keys, Canvas, Chat, Composer, Gutter, Help, Runs}})
 
 liveSocket.connect()
 window.liveSocket = liveSocket

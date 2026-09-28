@@ -35,6 +35,8 @@ defmodule GraspWeb.Sidebar do
   no test reaches is marked `untested` instead, and the Untested changes group after it lists
   those functions under their modules, opening on arrival whenever there is one. Both
   answers are read from the index, which walks back from the changes once when it is built.
+  When the branch added or modified tests, the group opens with `run changed tests`, which
+  runs them all; while any run is under way it is disabled, titled with the running command.
 
   Above even that is the Comments group, the unresolved review threads of the session being
   read, under the modules they were written on. A thread is a question waiting on someone, so it
@@ -218,6 +220,7 @@ defmodule GraspWeb.Sidebar do
   attr :expanded, MapSet, required: true
   attr :expanded_module, :string, default: nil
   attr :expanded_test_module, :string, default: nil
+  attr :running, :string, default: nil, doc: "the description of the run under way, if any"
 
   def entry_groups(assigns) do
     index = assigns.index
@@ -236,6 +239,7 @@ defmodule GraspWeb.Sidebar do
         test_count:
           tests |> Enum.flat_map(& &1.describes) |> Enum.map(&length(elem(&1, 1))) |> Enum.sum(),
         changes: changes_by_module(changes),
+        changed_tests?: Index.changed_test_ids(index) != [],
         change_count: length(changes),
         untested: changes_by_module(untested),
         untested_ids: MapSet.new(untested, & &1["id"]),
@@ -285,6 +289,17 @@ defmodule GraspWeb.Sidebar do
           class="group__body"
           hidden={not open?(@expanded, "changes")}
         >
+          <button
+            :if={@changed_tests?}
+            type="button"
+            id="run-changed"
+            class="group__run"
+            phx-click="run_changed"
+            disabled={@running != nil}
+            title={GraspWeb.RunsPanel.running_title(@running, "Run the tests this branch changed")}
+          >
+            run changed tests
+          </button>
           <div :for={{module, records} <- @changes} class="group__module">
             <h2 class="group__heading">{module}</h2>
             <%= for record <- records do %>

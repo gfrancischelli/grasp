@@ -26,6 +26,12 @@ defmodule GraspWeb.CardComponents do
   reading marks the body's counted lines and the clauses and arms never entered, and a stale
   one puts `coverage stale` in the header and marks nothing. Both are drawn only while the
   reader has the coverage mode on, which is the page's CSS and not the card's markup.
+
+  Test results are read the same way again, from a `GraspWeb.CardResults`: a test card wears
+  its latest result — `passed`, `failed`, `skipped` or `stale` — and a function card's tests
+  badge adds how many of its tests fresh results mark failed. A test card has `run`, and the
+  callers menu's Tests section `run all`, each starting a run of those tests; while any run
+  is under way both are disabled, titled with the command that is running.
   """
 
   use GraspWeb, :html
@@ -65,6 +71,12 @@ defmodule GraspWeb.CardComponents do
   attr :coverage, :any,
     doc: "this card's own reading, a `t:GraspWeb.CardCoverage.reading/0`",
     default: :none
+
+  attr :result, :any,
+    doc: "this card's own reading, a `t:GraspWeb.CardResults.reading/0`",
+    default: :none
+
+  attr :running, :string, doc: "the description of the run under way, if any", default: nil
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -111,6 +123,8 @@ defmodule GraspWeb.CardComponents do
         callers_open={@callers_open}
         test_reach={@test_reach}
         coverage={@coverage}
+        result={@result}
+        running={@running}
         selected={@selected}
         comments={@comments}
         composing={@composing}
@@ -132,6 +146,12 @@ defmodule GraspWeb.CardComponents do
   attr :coverage, :any,
     doc: "this card's own reading, a `t:GraspWeb.CardCoverage.reading/0`",
     default: :none
+
+  attr :result, :any,
+    doc: "this card's own reading, a `t:GraspWeb.CardResults.reading/0`",
+    default: :none
+
+  attr :running, :string, doc: "the description of the run under way, if any", default: nil
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -358,6 +378,9 @@ defmodule GraspWeb.CardComponents do
         stats: diffable? && Diff.stats(record["base_source"], record["source"]),
         callers: Index.callers(index, record["id"]),
         tests: tests_reaching(assigns.test_reach, card.function_id),
+        result: result_worn(assigns.result),
+        failing: failing(assigns.result),
+        runnable?: record["kind"] == "test" and record["removed"] != true,
         entries: Index.entry_points_for(index, record["id"]),
         title: title,
         signature: signature(record),
@@ -408,6 +431,7 @@ defmodule GraspWeb.CardComponents do
           {badge_label(entry)}
         </span>
         <.test_badge kind={@title.badge} />
+        <span :if={@result} class="badge badge--result" data-result={@result}>{@result}</span>
         <button
           :if={@tests != []}
           type="button"
@@ -415,9 +439,10 @@ defmodule GraspWeb.CardComponents do
           phx-click="toggle_callers"
           phx-value-card={@card.id}
           aria-expanded={to_string(@callers_open == @card.id)}
+          data-failing={@failing > 0 && to_string(@failing)}
           title="Tests reaching this function"
         >
-          {count_label(length(@tests), "test")}
+          {count_label(length(@tests), "test")}{if @failing > 0, do: " · #{@failing} failing"}
         </button>
         <h2 class="card__title">
           <span class="card__module">{@title.module}{@title.separator}</span><span class="card__fn">{@title.name}</span>
@@ -459,7 +484,19 @@ defmodule GraspWeb.CardComponents do
                   {caller}
                 </button>
               </li>
-              <li :if={@tests != []} class="callers__heading">Tests</li>
+              <li :if={@tests != []} class="callers__heading">
+                Tests
+                <button
+                  type="button"
+                  class="callers__run"
+                  phx-click="run_reaching"
+                  phx-value-card={@card.id}
+                  disabled={@running != nil}
+                  title={GraspWeb.RunsPanel.running_title(@running, "Run every test listed")}
+                >
+                  run all
+                </button>
+              </li>
               <li :for={reach <- @tests}>
                 <button
                   class="caller caller--test"
@@ -473,6 +510,18 @@ defmodule GraspWeb.CardComponents do
               </li>
             </ul>
           </div>
+          <button
+            :if={@runnable?}
+            type="button"
+            id={"run-#{@card.id}"}
+            class="card__run"
+            phx-click="run_test"
+            phx-value-test={@record["id"]}
+            disabled={@running != nil}
+            title={GraspWeb.RunsPanel.running_title(@running, "Run this test")}
+          >
+            run
+          </button>
           <button
             :if={@diffable?}
             id={"view-#{@card.id}"}
@@ -654,6 +703,12 @@ defmodule GraspWeb.CardComponents do
 
   defp tests_reaching(nil, _function_id), do: []
   defp tests_reaching(reach, function_id), do: TestReach.for_function(reach, function_id)
+
+  defp result_worn({:result, status}), do: status
+  defp result_worn(_reading), do: nil
+
+  defp failing({:failing, count}), do: count
+  defp failing(_reading), do: 0
 
   defp count_label(1, noun), do: "1 #{noun}"
   defp count_label(count, noun), do: "#{count} #{noun}s"

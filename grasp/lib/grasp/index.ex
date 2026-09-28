@@ -282,6 +282,18 @@ defmodule Grasp.Index do
     index.changed_tests |> Map.get(id, []) |> Enum.map(&Map.fetch!(index.functions, &1))
   end
 
+  @doc """
+  The ids of the tests the branch added or modified, sorted: every record of kind `"test"`
+  that `changed_functions/1` lists as added or modified and that is not removed — the tests
+  `mix grasp.test --changed` runs.
+  """
+  @spec changed_test_ids(t()) :: [String.t()]
+  def changed_test_ids(%__MODULE__{} = index) do
+    for %{"kind" => "test", "change" => change} = record <- changed_functions(index),
+        change in ~w(added modified) and record["removed"] != true,
+        do: record["id"]
+  end
+
   defp changed_application_functions(index) do
     index
     |> changed_functions()

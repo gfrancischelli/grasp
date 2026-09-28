@@ -18,7 +18,8 @@ config :grasp,
   editor: nil,
   agent_command: "claude",
   agent_model: nil,
-  gh_command: "gh"
+  gh_command: "gh",
+  runs_command: ["mix"]
 
 config :phoenix, :json_library, Jason
 

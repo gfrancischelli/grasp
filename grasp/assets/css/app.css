@@ -251,6 +251,17 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .callers__heading { padding: var(--space-xs) var(--space-s) 2px; border-top: 1px solid var(--border); margin-top: var(--space-xs); color: var(--fg-subtle); font-size: 11px; }
 .callers__heading:first-child { border-top: 0; margin-top: 0; }
 .card__stats { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
+/* A test's latest result, coloured as the diff colours what it adds and removes. */
+.badge--result[data-result="passed"] { background: var(--diff-ins-bg); color: var(--diff-ins-fg); }
+.badge--result[data-result="failed"] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
+.badge--result[data-result="skipped"], .badge--result[data-result="stale"] { background: color-mix(in oklch, var(--fg-muted) 14%, transparent); color: var(--fg-muted); }
+.card__tests[data-failing] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
+.card__run, .callers__run { padding: 0 var(--space-xs); color: var(--fg-muted); }
+.card__run:hover:not(:disabled), .callers__run:hover:not(:disabled) { color: var(--accent); }
+.card__run:disabled, .callers__run:disabled, .group__run:disabled { color: var(--fg-faint); cursor: default; }
+.callers__heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-s); }
+.group__run { align-self: flex-start; margin: var(--space-xs) var(--space-m) 0; padding: 1px var(--space-s); border: 1px solid var(--border); border-radius: 999px; color: var(--fg-muted); font-size: 12px; }
+.group__run:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .card__coverage { display: none; color: var(--focus); font-size: 12px; white-space: nowrap; }
 body.grasp-coverage .card__coverage { display: inline; }
 .card__view, .card__context, .card__collapse, .card__close { padding: 0 var(--space-xs); color: var(--fg-muted); }
@@ -511,3 +522,25 @@ body.grasp-modules #stage .card__module { display: none; }
 .chat button { color: var(--fg-muted); padding: var(--space-xs) var(--space-s); }
 .chat button:hover:not(:disabled) { color: var(--accent); }
 .chat button:disabled { color: var(--fg-faint); cursor: default; }
+
+/* The runs panel takes the chat panel's place above the toolbar; the two are never open
+   together. The pointer is for reading and selecting inside it, as in the chat. */
+.runs { position: absolute; inset-block-end: calc(var(--space-m) + 3rem); inset-inline-end: var(--space-m); z-index: 4; width: 36rem; max-width: calc(100% - 2 * var(--space-m)); max-height: 60vh; display: flex; flex-direction: column; background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); font-size: 13px; user-select: text; cursor: auto; }
+.runs[hidden] { display: none; }
+.runs__header { display: flex; align-items: baseline; gap: var(--space-s); padding: var(--space-s) var(--space-m); border-bottom: 1px solid var(--border); }
+.runs__description { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+.runs__description--none { color: var(--fg-subtle); font-family: inherit; }
+.runs__status { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
+.runs__status[data-status="running"] { color: var(--accent); }
+.runs__status[data-status="finished"] { color: var(--diff-ins-fg); }
+.runs__status[data-status="failed"] { color: var(--danger); }
+.runs__transcript { position: relative; display: flex; flex-direction: column; min-height: 0; }
+.runs__log { overflow: auto; min-height: 4rem; padding: var(--space-s) var(--space-m); background: var(--bg-sunken); font-family: var(--mono); font-size: 12px; }
+.runs__line { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.runs__jump { position: absolute; inset-block-end: var(--space-xs); inset-inline-start: 50%; translate: -50% 0; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--shadow); padding: 2px var(--space-s); font-size: 12px; color: var(--fg-muted); }
+.runs__jump[hidden] { display: none; }
+.runs__actions { display: flex; justify-content: flex-end; gap: var(--space-xs); padding: var(--space-s); border-top: 1px solid var(--border); }
+.runs__actions button { color: var(--fg-muted); padding: var(--space-xs) var(--space-s); }
+.runs__actions button:hover:not(:disabled) { color: var(--accent); }
+.runs__actions button:disabled { color: var(--fg-faint); cursor: default; }
+#toggle-runs[data-running="true"] { color: var(--accent); }

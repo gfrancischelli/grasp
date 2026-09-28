@@ -97,6 +97,56 @@ defmodule Grasp.Runs do
   end
 
   @doc """
+  Starts a test run of `test_ids`, as `start/3` does: `mix grasp.test` with each id an
+  argument of its own, so an id's quotes and spaces reach the task as they are written.
+
+  The command in front of `grasp.test` is `command/0`'s. The description names the one test
+  a run of one runs, and counts the tests of any other.
+  """
+  @spec start_tests([String.t(), ...], keyword()) ::
+          {:ok, run()}
+          | {:error, {:running, run()} | :no_command | {:no_root, Path.t()}}
+  def start_tests([_ | _] = test_ids, opts \\ []) do
+    description =
+      case test_ids do
+        [id] -> "mix grasp.test #{id}"
+        ids -> "mix grasp.test (#{length(ids)} tests)"
+      end
+
+    start(:tests, command() ++ ["grasp.test" | test_ids],
+      description: Keyword.get(opts, :description, description),
+      root: opts[:root]
+    )
+  end
+
+  @doc """
+  Starts a coverage run, as `start/3` does: `mix grasp.cover`, behind `command/0`'s command.
+  """
+  @spec start_coverage(keyword()) ::
+          {:ok, run()}
+          | {:error, {:running, run()} | :no_command | {:no_root, Path.t()}}
+  def start_coverage(opts \\ []) do
+    start(:coverage, command() ++ ["grasp.cover"],
+      description: Keyword.get(opts, :description, "mix grasp.cover"),
+      root: opts[:root]
+    )
+  end
+
+  @doc """
+  The command and leading arguments `start_tests/2` and `start_coverage/1` put in front of
+  the task they run: the `:grasp, :runs_command` config, a non-empty list of strings, and
+  `["mix"]` when it is unset. A suite configures a stand-in here, so what a run would have
+  been given reaches a command that prints it rather than the project's own `mix`.
+  """
+  @spec command() :: [String.t(), ...]
+  def command do
+    case Application.get_env(:grasp, :runs_command) do
+      [_ | _] = command -> Enum.map(command, &to_string/1)
+      _unset -> ["mix"]
+    end
+  end
+
+  @doc """
   Cancels the run under way: stops its process tree, closes its port and finishes it as
   cancelled. Answers the cancelled run, or `:idle` when none is running.
   """

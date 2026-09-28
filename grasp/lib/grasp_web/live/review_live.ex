@@ -23,6 +23,15 @@ defmodule GraspWeb.ReviewLive do
   which every link and asset URL is built, and `"mcp_path"`, where the agent reaches
   `Grasp.Plug`. Both are required — a default would render a page whose links quietly point
   somewhere else — so this LiveView is mountable only through the macro.
+
+  Test and coverage runs are `Grasp.Runs`', one at a time for the whole viewer, and reach
+  every tab by PubSub, as the results they leave do through `Grasp.ResultsStore`. A run is
+  held here as `run`, the run under way or the last to finish, without its output, and
+  `running`, the description of the one under way: the controls that start a run are
+  disabled while `running` is set, and it changes only when a run starts or finishes, so a
+  line of output re-renders no card. The output goes to a stream the runs panel draws, one
+  insert per line. The runs panel and the chat panel take the same place over the canvas,
+  so opening one closes the other, and starting a run opens the runs panel.
   """
 
   use GraspWeb, :live_view
@@ -31,12 +40,15 @@ defmodule GraspWeb.ReviewLive do
   import GraspWeb.ChatPanel
   import GraspWeb.Help
   import GraspWeb.Palette
+  import GraspWeb.RunsPanel
   import GraspWeb.Sidebar
 
-  alias Grasp.{CoverageStore, Index, IndexStore, Links, Session}
+  alias Grasp.{CoverageStore, Index, IndexStore, Links, ResultsStore, Runs, Session}
   alias Grasp.Session.Disk
   alias Grasp.Session.Forest
   alias GraspWeb.CardCoverage
+  alias GraspWeb.CardResults
+  alias GraspWeb.RunsPanel
   alias GraspWeb.TestReach
 
   @groups GraspWeb.Sidebar.group_kinds()
@@ -70,20 +82,28 @@ defmodule GraspWeb.ReviewLive do
       :ok = Grasp.Agent.subscribe(name)
       :ok = IndexStore.subscribe()
       :ok = CoverageStore.subscribe()
+      :ok = ResultsStore.subscribe()
+      :ok = Runs.subscribe()
       :ok = Grasp.Comments.subscribe()
     end
 
     index = IndexStore.get()
     forest = Session.get(name)
+    reach = TestReach.refresh(TestReach.new(), index, forest)
+    runs = Runs.status()
 
-    assign(socket,
+    socket
+    |> assign(
       name: name,
       index: index,
       index_error: IndexStore.last_error(),
       index_path: IndexStore.path(),
       forest: forest,
-      test_reach: TestReach.refresh(TestReach.new(), index, forest),
+      test_reach: reach,
       coverage: CardCoverage.refresh(CardCoverage.new(), CoverageStore.snapshot(), index, forest),
+      results:
+        CardResults.refresh(CardResults.new(), ResultsStore.snapshot(), index, forest, reach),
+      runs_open?: false,
       sessions: Session.list(),
       session_menu_open?: false,
       new_session_name: "",
@@ -107,6 +127,7 @@ defmodule GraspWeb.ReviewLive do
       agent: Grasp.Agent.get(name),
       editor: Application.get_env(:grasp, :editor)
     )
+    |> show_run(if(runs.current == :idle, do: runs.last, else: runs.current))
   end
 
   @impl true
@@ -126,12 +147,14 @@ defmodule GraspWeb.ReviewLive do
   # out of the old index is a claim about functions that may no longer be there.
   def handle_info(:index_reloaded, socket) do
     index = IndexStore.get()
+    reach = TestReach.refresh(socket.assigns.test_reach, index, socket.assigns.forest)
 
     {:noreply,
      assign(socket,
        index: index,
-       test_reach: TestReach.refresh(socket.assigns.test_reach, index, socket.assigns.forest),
+       test_reach: reach,
        coverage: refresh_coverage(socket.assigns.coverage, index, socket.assigns.forest),
+       results: refresh_results(socket.assigns.results, index, socket.assigns.forest, reach),
        expanded_groups: default_expanded(index, open_threads(socket.assigns.name)),
        selected: MapSet.new(),
        expanded_folds: MapSet.new(),
@@ -147,6 +170,29 @@ defmodule GraspWeb.ReviewLive do
     %{coverage: held, index: index, forest: forest} = socket.assigns
     {:noreply, assign(socket, coverage: refresh_coverage(held, index, forest))}
   end
+
+  def handle_info(:results_reloaded, socket) do
+    %{results: held, index: index, forest: forest, test_reach: reach} = socket.assigns
+    {:noreply, assign(socket, results: refresh_results(held, index, forest, reach))}
+  end
+
+  # A run started here has been shown already, when the start answered; the broadcast of it
+  # is the same run arriving a second time, and resetting its log would drop any line that
+  # followed it in.
+  def handle_info({:run_started, run}, socket) do
+    case socket.assigns.run do
+      %{id: id} when id == run.id -> {:noreply, socket}
+      _other -> {:noreply, show_run(socket, run)}
+    end
+  end
+
+  def handle_info({:run_output, id, line}, %{assigns: %{run: %{id: id}}} = socket),
+    do: {:noreply, stream_line(socket, line)}
+
+  def handle_info({:run_finished, %{id: id} = run}, %{assigns: %{run: %{id: id}}} = socket),
+    do: {:noreply, assign(socket, run: Map.delete(run, :output), running: nil)}
+
+  def handle_info({:run_finished, run}, socket), do: {:noreply, show_run(socket, run)}
 
   # A thread belongs to the session it was written in, so a change made in another tab on
   # this session — or by the agent working in it — lands here, and another session's does not.
@@ -502,7 +548,52 @@ defmodule GraspWeb.ReviewLive do
   end
 
   def handle_event("chat_toggle", _params, socket) do
-    {:noreply, socket |> update(:chat_open?, &(not &1)) |> assign(chat_error: nil)}
+    {:noreply,
+     socket
+     |> update(:chat_open?, &(not &1))
+     |> assign(chat_error: nil, runs_open?: false)}
+  end
+
+  def handle_event("runs_toggle", _params, socket),
+    do: {:noreply, socket |> update(:runs_open?, &(not &1)) |> assign(chat_open?: false)}
+
+  # Each start names its tests by what the page points at — a test, a card, the branch —
+  # and the ids are read here from the index, so a page can only ever start tests the index
+  # holds.
+  def handle_event("run_test", %{"test" => test}, socket) when is_binary(test),
+    do: start_tests(socket, Enum.filter([test], &runnable_test?(socket.assigns.index, &1)))
+
+  def handle_event("run_reaching", %{"card" => card}, socket) do
+    ids =
+      case function_id(socket, int(card)) do
+        nil ->
+          []
+
+        function_id ->
+          socket.assigns.test_reach
+          |> TestReach.for_function(function_id)
+          |> Enum.map(& &1.test)
+          |> Enum.filter(&runnable_test?(socket.assigns.index, &1))
+      end
+
+    start_tests(socket, ids)
+  end
+
+  def handle_event("run_changed", _params, socket) do
+    case socket.assigns.index do
+      %Index{} = index -> start_tests(socket, Index.changed_test_ids(index))
+      nil -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("run_coverage", _params, socket),
+    do: {:noreply, started(socket, Runs.start_coverage())}
+
+  def handle_event("run_cancel", _params, socket) do
+    case Runs.cancel() do
+      {:ok, run} -> {:noreply, assign(socket, run: Map.delete(run, :output), running: nil)}
+      :idle -> {:noreply, socket}
+    end
   end
 
   def handle_event("chat_send", %{"prompt" => prompt}, socket) when is_binary(prompt) do
@@ -780,6 +871,56 @@ defmodule GraspWeb.ReviewLive do
   # message must be dropped rather than take the whole page down with it.
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
+  defp start_tests(socket, []), do: {:noreply, socket}
+  defp start_tests(socket, ids), do: {:noreply, started(socket, Runs.start_tests(ids))}
+
+  # A start refused because another run is under way shows that run, which is the answer to
+  # what the reader asked for: the controls were disabled in every tab that had heard of it.
+  defp started(socket, {:ok, run}),
+    do: socket |> show_run(run) |> assign(runs_open?: true, chat_open?: false)
+
+  defp started(socket, {:error, {:running, run}}),
+    do: socket |> show_run(run) |> assign(runs_open?: true, chat_open?: false)
+
+  defp started(socket, {:error, :no_command}),
+    do: put_flash(socket, :error, "Could not start the run: #{hd(Runs.command())} not found")
+
+  defp started(socket, {:error, {:no_root, root}}),
+    do: put_flash(socket, :error, "Could not start the run: #{root} is not a directory")
+
+  # The panel draws `run` and the stream of its output, reset to the lines the run still
+  # keeps. A finished run carries `finished_at`; one under way does not, and is `running`.
+  defp show_run(socket, nil),
+    do:
+      socket |> assign(run: nil, running: nil, run_line: 0) |> stream(:run_lines, [], reset: true)
+
+  defp show_run(socket, run) do
+    running = if Map.has_key?(run, :finished_at), do: nil, else: run.description
+
+    socket
+    |> assign(run: Map.delete(run, :output), running: running, run_line: 0)
+    |> stream(:run_lines, [], reset: true)
+    |> then(fn socket -> Enum.reduce(Map.get(run, :output, []), socket, &stream_line(&2, &1)) end)
+  end
+
+  defp stream_line(socket, text) do
+    n = socket.assigns.run_line + 1
+    line = %{id: "run-line-#{n}", text: RunsPanel.display_line(text)}
+
+    socket
+    |> assign(run_line: n)
+    |> stream_insert(:run_lines, line, limit: -200)
+  end
+
+  defp runnable_test?(%Index{} = index, id) do
+    case Index.fetch_function(index, id) do
+      {:ok, %{"kind" => "test", "id" => ^id} = record} -> record["removed"] != true
+      _not_a_test -> false
+    end
+  end
+
+  defp runnable_test?(nil, _id), do: false
+
   # A prompt sent while a run is live is queued rather than refused, and the panel draws the
   # queue from the same view, so both answers land the same way.
   defp ask(socket, prompt) do
@@ -992,11 +1133,13 @@ defmodule GraspWeb.ReviewLive do
   # is ever put back in by accident.
   defp put_forest(socket, %Forest{} = forest) do
     on_canvas? = &Map.has_key?(forest.cards, &1)
+    reach = TestReach.refresh(socket.assigns.test_reach, socket.assigns.index, forest)
 
     assign(socket,
       forest: forest,
-      test_reach: TestReach.refresh(socket.assigns.test_reach, socket.assigns.index, forest),
+      test_reach: reach,
       coverage: refresh_coverage(socket.assigns.coverage, socket.assigns.index, forest),
+      results: refresh_results(socket.assigns.results, socket.assigns.index, forest, reach),
       selected: MapSet.filter(socket.assigns.selected, on_canvas?),
       expanded_folds:
         MapSet.filter(socket.assigns.expanded_folds, fn {id, _from} -> on_canvas?.(id) end)
@@ -1005,6 +1148,9 @@ defmodule GraspWeb.ReviewLive do
 
   defp refresh_coverage(held, index, forest),
     do: CardCoverage.refresh(held, CoverageStore.snapshot(), index, forest)
+
+  defp refresh_results(held, index, forest, reach),
+    do: CardResults.refresh(held, ResultsStore.snapshot(), index, forest, reach)
 
   # The callers menu is addressed by the id of the card it hangs off, so one left open on a
   # card that is closing would have nothing to render against.
@@ -1150,16 +1296,23 @@ defmodule GraspWeb.ReviewLive do
 
   # Every visible card, flattened out of the sections: the columns are the order a card with
   # no position is placed in, which the node carries as its depth.
-  # Each node carries its card's own coverage reading rather than the whole held set, so a
-  # document that leaves a card's reading as it stands hands that card the same assigns.
-  defp nodes(sections, forest, coverage) do
+  # Each node carries its card's own coverage and results readings rather than the whole held
+  # sets, so a document that leaves a card's reading as it stands hands that card the same
+  # assigns.
+  defp nodes(sections, forest, coverage, results) do
     Enum.flat_map(sections, fn section ->
       section.columns
       |> Enum.with_index()
       |> Enum.flat_map(fn {ids, depth} ->
         Enum.map(ids, fn id ->
-          reading = CardCoverage.for_function(coverage, Forest.card(forest, id).function_id)
-          %{id: id, depth: depth, coverage: reading}
+          function_id = Forest.card(forest, id).function_id
+
+          %{
+            id: id,
+            depth: depth,
+            coverage: CardCoverage.for_function(coverage, function_id),
+            result: CardResults.for_function(results, function_id)
+          }
         end)
       end)
     end)
@@ -1218,7 +1371,7 @@ defmodule GraspWeb.ReviewLive do
         open_calls: open_calls,
         base: base_label(assigns.index),
         sections: sections,
-        nodes: nodes(sections, assigns.forest, assigns.coverage)
+        nodes: nodes(sections, assigns.forest, assigns.coverage, assigns.results)
       )
 
     ~H"""
@@ -1260,6 +1413,7 @@ defmodule GraspWeb.ReviewLive do
           expanded={@expanded_groups}
           expanded_module={@expanded_module}
           expanded_test_module={@expanded_test_module}
+          running={@running}
         />
       </aside>
       <section class="canvas" id="canvas" phx-hook="Canvas">
@@ -1347,6 +1501,16 @@ defmodule GraspWeb.ReviewLive do
           >
             ask
           </button>
+          <button
+            type="button"
+            id="toggle-runs"
+            phx-click="runs_toggle"
+            aria-pressed={to_string(@runs_open?)}
+            data-running={to_string(@running != nil)}
+            data-tip="Test and coverage runs"
+          >
+            {if @running, do: "running…", else: "runs"}
+          </button>
           <%!-- The list it opens is the client's alone, so this button carries no phx-click:
           the Help hook picks the click up from the document. --%>
           <button type="button" id="help-toggle" data-tip="Keys and gestures" data-key="?">
@@ -1363,6 +1527,7 @@ defmodule GraspWeb.ReviewLive do
           error={@chat_error}
           suggestions={chat_suggestions(@agent, @index, @forest, @comments)}
         />
+        <.runs_panel open?={@runs_open?} run={@run} running={@running} lines={@streams.run_lines} />
         <div id="stage" class="stage">
           <%!-- A group's frame is measured from the cards inside it and so cannot be a box the
           server renders: the hook owns this layer and fills it on every draw. --%>
@@ -1452,6 +1617,8 @@ defmodule GraspWeb.ReviewLive do
               callers_open={@callers_open}
               test_reach={@test_reach}
               coverage={node.coverage}
+              result={node.result}
+              running={@running}
               selected={MapSet.member?(@selected, node.id)}
               comments={@comments}
               composing={@composing}

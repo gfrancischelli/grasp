@@ -663,7 +663,7 @@ const Canvas = {
     // focus away from them.
     if (header && !e.target.closest("button, a, input")) {
       this.beginCardDrag(e, header.closest(".card"), false)
-    } else if (!e.target.closest(".card, .toolbar, .chat, button, a, input")) {
+    } else if (!e.target.closest(".card, .toolbar, .chat, .runs, button, a, input")) {
       this.beginPan(e)
     }
   },
