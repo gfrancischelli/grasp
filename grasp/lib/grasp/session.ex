@@ -120,6 +120,16 @@ defmodule Grasp.Session do
   def open_callers(name, card_id, callers),
     do: mutate(name, &Forest.open_callers(&1, card_id, callers))
 
+  @doc """
+  Opens (or focuses) each of `callees` as a callee of the card before it, starting from
+  `card_id`, in one change; each names its function, the call target that opened it or nil,
+  and the highlight it wears. The last one is focused.
+  """
+  @spec open_callees(name(), Forest.id(), [{String.t(), String.t() | nil, Forest.highlight()}]) ::
+          Forest.t()
+  def open_callees(name, card_id, callees),
+    do: mutate(name, &Forest.open_callees(&1, card_id, callees))
+
   @doc "Closes `card_id` alone, leaving the cards it called behind."
   @spec close(name(), Forest.id()) :: Forest.t()
   def close(name, card_id), do: mutate(name, &Forest.close(&1, card_id))

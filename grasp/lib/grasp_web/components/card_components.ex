@@ -32,6 +32,14 @@ defmodule GraspWeb.CardComponents do
   card's tests badge adds how many of its tests fresh results mark failed or invalid. A test card has `run`, and the
   callers menu's Tests section `run all`, each starting a run of those tests; while any run
   is under way both are disabled, titled with the command that is running.
+
+  A test card whose fresh result failed draws each error under the line its own frame names
+  (`Grasp.TestFailure.line/2`): the message, an assertion's expression and its `left` and
+  `right` as the run printed them, and the stacktrace with each frame outside the index
+  said to be. It is drawn from the result the card is handed, never stored as a thread, and
+  goes when the result goes stale. A line the view does not draw puts the panel in a footer.
+  The header then has `open failure`, which lays the first error's stacktrace out as a chain
+  of callees from the card.
   """
 
   use GraspWeb, :html
@@ -44,6 +52,7 @@ defmodule GraspWeb.CardComponents do
   alias Grasp.Diff.Hunks
   alias Grasp.Index
   alias Grasp.Session.Forest
+  alias Grasp.TestFailure
   alias GraspWeb.TestReach
 
   @stdlib_apps [:elixir, :logger, :eex, :ex_unit, :mix, :iex]
@@ -77,6 +86,10 @@ defmodule GraspWeb.CardComponents do
     default: :none
 
   attr :running, :string, doc: "the description of the run under way, if any", default: nil
+
+  attr :failures, :list,
+    doc: "the errors of this card's fresh failed result, `GraspWeb.CardResults.failures/2`",
+    default: []
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -124,6 +137,7 @@ defmodule GraspWeb.CardComponents do
         test_reach={@test_reach}
         coverage={@coverage}
         result={@result}
+        failures={@failures}
         running={@running}
         selected={@selected}
         comments={@comments}
@@ -152,6 +166,10 @@ defmodule GraspWeb.CardComponents do
     default: :none
 
   attr :running, :string, doc: "the description of the run under way, if any", default: nil
+
+  attr :failures, :list,
+    doc: "the errors of this card's fresh failed result, `GraspWeb.CardResults.failures/2`",
+    default: []
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -344,6 +362,22 @@ defmodule GraspWeb.CardComponents do
       |> Enum.concat(Enum.map(hidden, &{:hidden, &1.thread}))
       |> Enum.sort_by(fn {_why, thread} -> thread.id end)
 
+    # A failure is the result's, not a thread: it is read from the result each render and
+    # hangs under the line the test's own frame names, which a fold keeps open as a thread
+    # keeps its range open.
+    failures =
+      if record["kind"] == "test" do
+        Enum.map(assigns.failures, fn error ->
+          %{
+            error: error,
+            line: TestFailure.line(record, error),
+            trace: TestFailure.trace(index, record, error)
+          }
+        end)
+      else
+        []
+      end
+
     expanded_folds = assigns.expanded_folds || MapSet.new()
     card_id = card.id
     opened = for {^card_id, from} <- expanded_folds, into: MapSet.new(), do: from
@@ -358,6 +392,8 @@ defmodule GraspWeb.CardComponents do
           into: MapSet.new(),
           do: {side, number}
 
+    keep = Enum.reduce(failures, keep, &MapSet.put(&2, {:new, &1.line}))
+
     lines =
       if context == :hunks do
         Hunks.fold(lines, keep: keep, expanded: opened)
@@ -365,8 +401,16 @@ defmodule GraspWeb.CardComponents do
         lines
       end
 
+    drawn_new = for %{side: :new, line: number} <- lines, into: MapSet.new(), do: number
+
+    {failures_under, failures_aside} =
+      Enum.split_with(failures, &MapSet.member?(drawn_new, &1.line))
+
     assigns =
       assign(assigns,
+        failures_under: Enum.group_by(failures_under, & &1.line),
+        failures_aside: failures_aside,
+        failed?: failures != [],
         focused?: forest.focus == card.id,
         coverage_stale?: coverage == :stale,
         lines: lines,
@@ -511,6 +555,17 @@ defmodule GraspWeb.CardComponents do
             </ul>
           </div>
           <button
+            :if={@failed?}
+            type="button"
+            id={"open-failure-#{@card.id}"}
+            class="card__open-failure"
+            phx-click="open_failure"
+            phx-value-card={@card.id}
+            title="Open the functions this test failed down, each as a callee of the one before"
+          >
+            open failure
+          </button>
+          <button
             :if={@runnable?}
             type="button"
             id={"run-#{@card.id}"}
@@ -597,7 +652,10 @@ defmodule GraspWeb.CardComponents do
               ⋯ {line.count} unchanged lines
             </button>
           <% else %>
-            {raw(line.html)}<.thread
+            {raw(line.html)}<.failure_panel
+              :for={failure <- failures_at(@failures_under, line)}
+              failure={failure}
+            /><.thread
               :for={thread <- Map.get(@placed, {line.side, line.line}, [])}
               thread={thread}
               card_id={@card.id}
@@ -611,6 +669,9 @@ defmodule GraspWeb.CardComponents do
           <% end %>
         <% end %>
       </div>
+      <footer :if={@failures_aside != []} class="card__failures">
+        <.failure_panel :for={failure <- @failures_aside} failure={failure} />
+      </footer>
       <footer :if={@aside != []} class="card__outdated">
         <.thread
           :for={{why, thread} <- @aside}
@@ -636,6 +697,77 @@ defmodule GraspWeb.CardComponents do
       </footer>
     </article>
     """
+  end
+
+  defp failures_at(under, %{side: :new, line: number}), do: Map.get(under, number, [])
+  defp failures_at(_under, _line), do: []
+
+  attr :failure, :map,
+    required: true,
+    doc: "one error, with the line it belongs under and its trace (`Grasp.TestFailure`)"
+
+  # Everything an error holds is what the test run printed — the message, and the values an
+  # assertion compared — so it is rendered as text, preformatted as the run printed it.
+  defp failure_panel(assigns) do
+    error = assigns.failure.error
+
+    assigns =
+      assign(assigns,
+        kind: text_field(error, "kind"),
+        message: text_field(error, "message"),
+        expr: text_field(error, "expr"),
+        left: text_field(error, "left"),
+        right: text_field(error, "right"),
+        trace: assigns.failure.trace
+      )
+
+    ~H"""
+    <div class="failure" data-line={@failure.line} data-kind={@kind}>
+      <pre :if={@message} class="failure__message">{@message}</pre>
+      <pre :if={@expr} class="failure__expr">{@expr}</pre>
+      <dl :if={@left || @right} class="failure__values">
+        <div :if={@left} class="failure__value" data-side="left">
+          <dt>left</dt>
+          <dd><pre>{@left}</pre></dd>
+        </div>
+        <div :if={@right} class="failure__value" data-side="right">
+          <dt>right</dt>
+          <dd><pre>{@right}</pre></dd>
+        </div>
+      </dl>
+      <ol :if={@trace != []} class="failure__trace">
+        <li
+          :for={frame <- @trace}
+          class="failure__frame"
+          data-indexed={to_string(frame.id != nil)}
+          data-own={frame.own? && "true"}
+          data-step={frame.step? && "true"}
+        >
+          <span class="failure__function">{frame.label}</span>
+          <span :if={frame.file} class="failure__location">
+            {frame.file}{if frame.line, do: ":#{frame.line}"}
+          </span>
+          <span :if={frame.id == nil} class="failure__note">outside the index</span>
+          <span :if={frame.step? and frame.via == nil and frame.skipped?} class="failure__note">
+            reached through code outside the index
+          </span>
+          <span
+            :if={frame.step? and frame.via == nil and not frame.skipped?}
+            class="failure__note"
+          >
+            a call its caller's record does not hold
+          </span>
+        </li>
+      </ol>
+    </div>
+    """
+  end
+
+  defp text_field(error, key) do
+    case Map.get(error, key) do
+      value when is_binary(value) and value != "" -> value
+      _none -> nil
+    end
   end
 
   # Where the composer for a new thread is drawn: under the last line of the range it covers,

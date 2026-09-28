@@ -110,6 +110,30 @@ defmodule Grasp.Session.ForestTest do
     assert forest.focus == t
   end
 
+  test "open_callees/3 opens each callee to the right of the one before, highlighting each" do
+    {forest, t} = Forest.open_root(Forest.new(), "T.t/1")
+    {forest, h} = Forest.open_root(forest, "H.h/0")
+    forest = Forest.toggle_collapse(forest, h)
+
+    {forest, x} =
+      Forest.open_callees(forest, t, [
+        {"H.h/0", nil, %{"lines" => [3, 3]}},
+        {"X.f/1", "X.f/0", %{"lines" => [9, 9]}}
+      ])
+
+    assert forest.edges == [
+             %{from: t, to: h, target: "H.h/0", color: 0},
+             %{from: h, to: x, target: "X.f/0", color: 1}
+           ]
+
+    assert forest.focus == x
+    assert map_size(forest.cards) == 3
+    refute Forest.card(forest, h).collapsed
+    assert Forest.card(forest, h).highlight == %{"lines" => [3, 3]}
+    assert Forest.card(forest, x).highlight == %{"lines" => [9, 9]}
+    assert {^forest, nil} = Forest.open_callees(forest, 999, [{"X.f/1", nil, nil}])
+  end
+
   test "a function opened under two parents is one card with two edges" do
     {forest, a} = Forest.open_root(Forest.new(), "A.f/1")
     {forest, d} = Forest.open_root(forest, "D.i/0")

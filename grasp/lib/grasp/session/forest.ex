@@ -273,6 +273,34 @@ defmodule Grasp.Session.Forest do
     end)
   end
 
+  @doc """
+  Opens a chain of callees rightwards from `card_id`: the first as a callee of `card_id`,
+  each next one as a callee of the one before, as `open_child/4` opens one, each with the
+  call target that opened it (nil for the callee's own id) and the highlight it is to wear.
+  Focuses the last and returns its id, or nil if `card_id` is unknown.
+
+  Every card the chain opens or reuses is expanded, as `open_callers/3` expands the callers
+  it opens: a collapsed card on the chain would hide what follows it.
+  """
+  @spec open_callees(t(), id(), [{String.t(), String.t() | nil, highlight()}]) ::
+          {t(), id() | nil}
+  def open_callees(%__MODULE__{} = forest, card_id, callees) when is_list(callees) do
+    Enum.reduce(callees, {forest, card_id}, fn
+      _callee, {forest, nil} ->
+        {forest, nil}
+
+      {function_id, opened_by, highlight}, {forest, caller} ->
+        case open_child(forest, caller, function_id, opened_by) do
+          {forest, nil} ->
+            {forest, nil}
+
+          {forest, callee} ->
+            forest = forest |> expand(callee) |> set_highlight(callee, highlight)
+            {forest, callee}
+        end
+    end)
+  end
+
   defp expand(forest, id), do: put_card(forest, %{card(forest, id) | collapsed: false})
 
   @doc """

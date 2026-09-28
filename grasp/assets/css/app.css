@@ -366,6 +366,27 @@ body:not(.grasp-coverage) .gap-label { display: none; }
 .composer button { margin: var(--space-xs) var(--space-s) 0 0; padding: 1px var(--space-s); color: var(--fg-muted); border: 1px solid var(--border); border-radius: var(--radius); font-size: 12px; }
 .composer button[type="submit"] { color: var(--accent); }
 .card__outdated { padding: var(--space-s) 0; border-top: 1px solid var(--border); }
+/* A failed test's error, under the line its own frame names. It sits in the preformatted
+   body as a thread does, so it sets its own type back; what the run printed — the message
+   and an assertion's values — stays preformatted, wrapping rather than widening the card. */
+.failure { margin-block: var(--space-xs); padding: var(--space-s) var(--space-m); border-inline-start: 2px solid var(--danger); background: var(--diff-del-bg); font-family: var(--sans); font-size: 13px; white-space: normal; user-select: text; cursor: auto; }
+.failure pre { margin: 0; font-family: var(--mono); font-size: var(--code-size); white-space: pre-wrap; overflow-wrap: anywhere; }
+.failure__message { color: var(--danger); }
+.failure__expr { margin-block-start: var(--space-xs); color: var(--fg-muted); }
+.failure__values { display: grid; gap: var(--space-xs); margin: var(--space-xs) 0 0; }
+.failure__value { display: grid; grid-template-columns: 5ch 1fr; gap: var(--space-s); }
+.failure__value dt { color: var(--fg-muted); }
+.failure__value dd { margin: 0; }
+.failure__trace { margin: var(--space-s) 0 0; padding: 0; list-style: none; font-size: 12px; }
+.failure__frame { display: flex; flex-wrap: wrap; gap: 0 var(--space-s); }
+.failure__function { font-family: var(--mono); }
+.failure__frame[data-indexed="false"] .failure__function { color: var(--fg-faint); }
+.failure__frame[data-own="true"] .failure__function, .failure__frame[data-step="true"] .failure__function { font-weight: 600; }
+.failure__location, .failure__note { color: var(--fg-muted); }
+.failure__note { font-style: italic; }
+.card__failures { padding: var(--space-s) 0; border-top: 1px solid var(--border); }
+.card__open-failure { padding: 0 var(--space-xs); color: var(--danger); }
+.card__open-failure:hover { text-decoration: underline; }
 
 .stub .card__header { border-bottom: 0; }
 .stub__text, .stub__docs { margin: 0 var(--space-m) var(--space-s); display: block; color: var(--fg-muted); }
@@ -378,7 +399,7 @@ body:not(.grasp-coverage) .gap-label { display: none; }
    divides by --zoom, which the canvas hook writes on #stage beside the transform, so each of
    these rules has to match inside the stage to see it. */
 body.grasp-signatures #stage .card__body, body.grasp-signatures #stage .card__also, body.grasp-signatures #stage .stub__text, body.grasp-signatures #stage .stub__docs { display: none; }
-body.grasp-signatures #stage .thread, body.grasp-signatures #stage .composer, body.grasp-signatures #stage .card__outdated { display: none; }
+body.grasp-signatures #stage .thread, body.grasp-signatures #stage .composer, body.grasp-signatures #stage .card__outdated, body.grasp-signatures #stage .card__failures { display: none; }
 body.grasp-signatures #stage .card__signature { display: block; font-size: calc(var(--far-size) / var(--zoom, 1)); padding: calc(var(--space-s) / var(--zoom, 1)) calc(var(--space-m) / var(--zoom, 1)); }
 /* In this mode only the header and the signature ask for width, so the card's ceiling and
    floor both go and it is exactly as wide as the wider of the two. */

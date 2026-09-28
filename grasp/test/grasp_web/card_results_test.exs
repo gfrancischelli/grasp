@@ -80,6 +80,26 @@ defmodule GraspWeb.CardResultsTest do
     assert CardResults.for_function(again, @handle_call) == :none
   end
 
+  test "a fresh failure holds its errors; a stale one and any other status hold none", %{
+    index: index,
+    forest: forest,
+    snapshot: {generation, document}
+  } do
+    errors = [%{"kind" => "error", "message" => "boom", "stacktrace" => []}, "not an error"]
+    document = put_in(document, ["tests", @reply, "errors"], errors)
+    held = refresh(CardResults.new(), {generation, document}, index, forest)
+
+    assert CardResults.failures(held, @reply) == [hd(errors)]
+    assert CardResults.failures(held, @init) == []
+    assert CardResults.failures(held, @verified) == []
+    assert CardResults.failures(held, @handle_call) == []
+    assert CardResults.failures(nil, @reply) == []
+
+    stale = put_in(document, ["tests", @reply, "source_hash"], "0")
+    held = refresh(held, {generation + 1, stale}, index, forest)
+    assert CardResults.failures(held, @reply) == []
+  end
+
   test "without a document every card reads as none", %{index: index, forest: forest} do
     held = refresh(CardResults.new(), nil, index, forest)
     assert CardResults.for_function(held, @init) == :none
