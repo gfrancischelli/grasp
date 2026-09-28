@@ -67,19 +67,65 @@ defmodule Grasp.TestReviewTest do
             ~s|assert name(user)|
           ] do
         assert TestReview.review(modified(~s|assert name(user) == "Ada"|, head)) ==
-                 {:weakened,
-                  [
-                    ~s|removed: assert name(user) == "Ada"|,
-                    ~s|loosened: assert name(user) == "Ada"|
-                  ]}
+                 {:weakened, [~s|loosened: assert name(user) == "Ada"|]}
       end
 
       assert TestReview.review(modified(~s|assert name(user) === "Ada"|, ~s|assert name(user)|)) ==
-               {:weakened,
-                [
-                  ~s|removed: assert name(user) === "Ada"|,
-                  ~s|loosened: assert name(user) === "Ada"|
-                ]}
+               {:weakened, [~s|loosened: assert name(user) === "Ada"|]}
+    end
+
+    test "a loosened equality made twice at the base is one reason" do
+      assert TestReview.review(modified("assert a == 1\n    assert a == 1", "assert a")) ==
+               {:weakened, ["removed: assert a == 1", "loosened: assert a == 1"]}
+    end
+
+    test "only an equality loosens" do
+      assert TestReview.review(modified("assert a != 1", "assert a")) == :ok
+    end
+
+    test "an equality loosens only into an assertion on the same left side" do
+      assert TestReview.review(modified("assert a == 1", ~s|assert b =~ "1"|)) == :ok
+    end
+
+    test "an edit that keeps the number of assertions is not a weakening" do
+      assert TestReview.review(modified("assert a == 1", "assert a == 2")) == :ok
+
+      assert TestReview.review(modified("assert_receive :x, 100", "assert_receive :x, 500")) ==
+               :ok
+
+      assert TestReview.review(modified("refute a == 1", "refute a")) == :ok
+    end
+
+    test "splitting one assertion into two is not a weakening" do
+      base = "assert a == 1 and b == 2"
+      assert TestReview.review(modified(base, "assert a == 1\n    assert b == 2")) == :ok
+    end
+
+    test "compares assertions by their parsed form, so the formatter's rewrap is the same one" do
+      long =
+        "assert %{status: :ok, total: 4200, currency: \"EUR\", lines: [1, 2, 3], " <>
+          "customer: \"Ada Lovelace\", note: \"gift\"} = Checkout.run(cart)"
+
+      head = "x" |> body(long) |> Code.format_string!() |> IO.iodata_to_binary()
+      assert head =~ "%{\n"
+
+      record =
+        "x"
+        |> record(long)
+        |> Map.merge(%{
+          "change" => "modified",
+          "source" => head,
+          "base_source" => body("x", long <> "\n    assert extra")
+        })
+
+      assert TestReview.review(record) == {:weakened, ["removed: assert extra"]}
+    end
+
+    test "a changed string inside an assertion is a different assertion" do
+      assert TestReview.review(
+               modified(~s|assert s == "a  b"\n    assert t|, ~s|assert s == "a b"|)
+             ) ==
+               {:weakened, [~s|removed: assert s == "a b"|, "removed: assert t"]}
     end
 
     test "a test that reorders or rewraps its assertions is not marked" do

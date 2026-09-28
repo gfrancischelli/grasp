@@ -8,13 +8,18 @@ defmodule Grasp.TestReview do
   source is then the whole pipeline. Signature mode renders the same calls, so both read
   one walk of the parse: `assertion_calls/1`.
 
-  Assertions are compared by their text with every run of whitespace collapsed to one
-  space, so a test the formatter rewrapped, or one whose assertions moved, compares equal.
-  A modified test is weakened when the head makes an assertion of the base fewer times,
-  calls an `assert_*`/`refute_*` function fewer times, or turns an `assert left == right`
-  (or `===`) into one that accepts more: `left =~ …`, `left in …`, a `match?/2` on `left`,
-  or a bare `assert left`. An added test with no assertion at all asserts nothing. A source
-  that does not parse is never marked, since nothing can be said of what it asserts.
+  Assertions are compared by a canonical form of their parsed node: the node printed by
+  `Macro.to_string/1` with its metadata and Sourceror's literal wrappers taken off, so
+  layout, line breaks and comments make no difference while the contents of a string do.
+  The source with its whitespace collapsed is what a reason shows.
+
+  A modified test is weakened when it takes strength away: the head makes fewer assertion
+  calls than the base, calls an `assert_*`/`refute_*` function fewer times, or turns an
+  `assert left == right` (or `===`) into one that accepts more — `left =~ …`, `left in …`, a
+  `match?/2` on `left`, or a bare `assert left`. An edit that keeps the number of
+  assertions, such as a different expected value or timeout, is not a weakening on its own.
+  An added test with no assertion at all asserts nothing. A source that does not parse is
+  never marked, since nothing can be said of what it asserts.
   """
 
   @typedoc "An assertion call as the parse holds it: its name, its range and its node."
@@ -81,8 +86,11 @@ defmodule Grasp.TestReview do
   @spec assertions(String.t()) :: [assertion()]
   def assertions(source) when is_binary(source) do
     case read(source) do
-      {:ok, assertions} -> Enum.map(assertions, &Map.drop(&1, [:arg, :matched]))
-      :error -> []
+      {:ok, assertions} ->
+        Enum.map(assertions, &Map.drop(&1, [:key, :arg, :matched, :left_key]))
+
+      :error ->
+        []
     end
   end
 
@@ -92,11 +100,13 @@ defmodule Grasp.TestReview do
   A modified test (`"change" => "modified"`, kind `"test"`, with a `"base_source"`) answers
   `{:weakened, reasons}` when the head, against the base:
 
-    * makes an assertion fewer times — `"removed: <text>"`, once per assertion text;
+    * makes fewer assertion calls — `"removed: <text>"` for each assertion of the base with
+      no canonical counterpart at the head;
     * calls an `assert_*`/`refute_*` name fewer times — `"dropped: <name>"`;
-    * holds, for an `assert left == right` or `===` of the base the head makes fewer times, an
-      assertion using `=~` or `in` on `left`, a `match?/2` on `left`, or a bare
-      `assert left` — `"loosened: <text>"`, `text` being the base assertion's.
+    * holds, for an `assert left == right` or `===` of the base with no canonical
+      counterpart at the head, an assertion using `=~` or `in` on `left`, a `match?/2` on
+      `left`, or a bare `assert left` — `"loosened: <text>"`, `text` being the base
+      assertion's.
 
   Reasons come in that order, each kind in the order the base makes them. An added test
   (`"change" => "added"`) with no assertion answers `:asserts_nothing`. Anything else,
@@ -128,19 +138,22 @@ defmodule Grasp.TestReview do
   def review(_record), do: :ok
 
   defp weakened(base, head) do
-    base_texts = Enum.frequencies_by(base, & &1.text)
-    head_texts = Enum.frequencies_by(head, & &1.text)
+    head_keys = Enum.frequencies_by(head, & &1.key)
 
-    removed =
-      for {text, count} <- base_texts,
-          Map.get(head_texts, text, 0) < count,
+    unmatched =
+      for {key, count} <- Enum.frequencies_by(base, & &1.key),
+          Map.get(head_keys, key, 0) < count,
           into: MapSet.new(),
-          do: text
+          do: key
 
     removed_reasons =
-      for text <- base |> Enum.map(& &1.text) |> Enum.uniq(),
-          MapSet.member?(removed, text),
-          do: "removed: " <> text
+      if length(head) < length(base) do
+        for %{key: key, text: text} <- Enum.uniq_by(base, & &1.key),
+            MapSet.member?(unmatched, key),
+            do: "removed: " <> text
+      else
+        []
+      end
 
     base_names = base |> Enum.filter(&suffixed?(&1.name)) |> Enum.frequencies_by(& &1.name)
     head_names = Enum.frequencies_by(head, & &1.name)
@@ -151,9 +164,9 @@ defmodule Grasp.TestReview do
           do: "dropped: " <> name
 
     loosened_reasons =
-      for %{name: "assert", op: op, left: left, text: text} <- base,
+      for %{name: "assert", op: op, left_key: left, key: key, text: text} <- base,
           op in @strict_ops,
-          MapSet.member?(removed, text),
+          MapSet.member?(unmatched, key),
           Enum.any?(head, &looser?(&1, left)),
           uniq: true,
           do: "loosened: " <> text
@@ -162,7 +175,7 @@ defmodule Grasp.TestReview do
   end
 
   defp looser?(%{name: "assert"} = assertion, left) do
-    (assertion[:op] in @loose_ops and assertion[:left] == left) or
+    (assertion[:op] in @loose_ops and assertion[:left_key] == left) or
       left in assertion.matched or assertion.arg == left
   end
 
@@ -172,8 +185,9 @@ defmodule Grasp.TestReview do
   defp suffixed?("refute_" <> _rest), do: true
   defp suffixed?(_name), do: false
 
-  # Each assertion with what the comparison reads beyond `assertions/1`: the text of an
-  # `assert`'s first argument, and the expressions its `match?/2` calls test.
+  # Each assertion with what the comparison reads beyond `assertions/1`: its canonical form,
+  # and those of an `assert`'s first argument, of its left side and of the expressions its
+  # `match?/2` calls test.
   defp read(source) do
     with {:ok, calls} <- assertion_calls(source) do
       lines = String.split(source, "\n")
@@ -182,16 +196,17 @@ defmodule Grasp.TestReview do
   end
 
   defp assertion(%{name: name, range: range, node: node}, lines) do
-    call = %{name: name, text: slice(lines, range), arg: nil, matched: []}
+    call = %{name: name, text: slice(lines, range), key: canonical(node), arg: nil, matched: []}
 
     case {name, node} do
       {"assert", {:assert, _meta, [arg | _rest]}} ->
-        call = %{call | arg: text_of(arg, lines), matched: matched(arg, lines)}
+        call = %{call | arg: canonical(arg), matched: matched(arg)}
 
         case arg do
           {op, _op_meta, [left, _right]} when is_atom(op) ->
             if Macro.operator?(op, 2),
-              do: Map.merge(call, %{op: op, left: text_of(left, lines)}),
+              do:
+                Map.merge(call, %{op: op, left: text_of(left, lines), left_key: canonical(left)}),
               else: call
 
           _other ->
@@ -203,11 +218,11 @@ defmodule Grasp.TestReview do
     end
   end
 
-  defp matched(arg, lines) do
+  defp matched(arg) do
     {_arg, matched} =
       Macro.prewalk(arg, [], fn
         {:match?, _meta, [_pattern, expression]} = node, acc ->
-          {node, [text_of(expression, lines) | acc]}
+          {node, [canonical(expression) | acc]}
 
         node, acc ->
           {node, acc}
@@ -220,6 +235,24 @@ defmodule Grasp.TestReview do
     case Sourceror.get_range(node) do
       %Sourceror.Range{} = range -> slice(lines, range)
       nil -> node |> Sourceror.to_string() |> collapse()
+    end
+  end
+
+  # Sourceror wraps a literal in a one-element `:__block__` to carry its token and comments;
+  # taking the wrapper and every node's metadata off leaves the plain quoted form the printer
+  # reads. A form the printer cannot read is compared by its stripped term instead.
+  defp canonical(node) do
+    stripped =
+      Macro.postwalk(node, fn
+        {:__block__, _meta, [single]} -> single
+        {form, meta, args} when is_list(meta) -> {form, [], args}
+        other -> other
+      end)
+
+    try do
+      Macro.to_string(stripped)
+    rescue
+      _unprintable -> inspect(stripped, limit: :infinity)
     end
   end
 

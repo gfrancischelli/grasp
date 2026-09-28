@@ -63,8 +63,8 @@ defmodule Grasp.Index do
         }
 
   @typedoc """
-  A test the branch added or modified that the review marks: `:weakened` with the reasons `Grasp.TestReview.review/1`
-  gives, or `:asserts_nothing` with none.
+  A test the branch added or modified that the review marks: `:weakened` with the reasons
+  `Grasp.TestReview.review/1` gives, or `:asserts_nothing` with none.
   """
   @type test_mark :: %{
           id: String.t(),

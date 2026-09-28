@@ -752,7 +752,7 @@ defmodule Grasp.IndexTest do
                %{
                  id: test_id("MyApp.WalletsTest", "b weakened"),
                  mark: :weakened,
-                 reasons: ["removed: assert a == 1", "loosened: assert a == 1"]
+                 reasons: ["loosened: assert a == 1"]
                }
              ]
     end

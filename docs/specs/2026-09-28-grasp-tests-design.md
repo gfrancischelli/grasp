@@ -532,14 +532,23 @@ test paths uncompared.
 - **Assertions compared.** An assertion is a call named `assert`, `refute`, or starting with
   `assert_` or `refute_` — local, imported or piped, as signature mode reads them — taken
   from a parse of the test's source. In PR mode, for each modified test the assertions of
-  its `base_source` are compared with those of its `source`, by their text with whitespace
-  normalised:
-  - an assertion of the base with no counterpart at the head, or an `assert_*`/`refute_*`
-    call the head no longer makes, marks the test `assertion weakened`;
-  - so does an `assert left == right` or `assert left === right` of the base whose left
-    side reappears at the head in an assertion using `=~`, `match?/2` or `in`, or as a bare
-    `assert left`.
-  An added test with no assertion at all is marked `asserts nothing`.
+  its `base_source` are compared with those of its `source` by a canonical form of the
+  parsed node — `Macro.to_string/1` of the node with its metadata stripped — so layout,
+  line breaks and comments do not count and the contents of a string do. A modified test
+  is marked `assertion weakened` when:
+  - the head makes fewer assertion calls than the base, with the reason
+    `removed: <text>` for each assertion of the base with no canonical counterpart at the
+    head;
+  - an `assert_*`/`refute_*` name the base calls is called fewer times at the head, with
+    the reason `dropped: <name>`;
+  - an `assert left == right` or `assert left === right` of the base has no canonical
+    counterpart at the head and its `left` appears at the head in an assertion using `=~`
+    or `in`, in a `match?/2`, or as a bare `assert left`, with the reason
+    `loosened: <text>`.
+  An edit that keeps the number of assertions — a different expected value, a different
+  `assert_receive` timeout, a different `refute` — is not a weakening on its own. A reason's
+  text is the assertion's source with its whitespace collapsed. An added test with no
+  assertion at all is marked `asserts nothing`.
 - **Where it shows.** Both marks are badges on the test card and rows, with the reason, in a
   **Test review** group of the sidebar, after Untested changes. They are computed once per
   index load, as the untested changes are. MCP `test_review()` answers the same list.

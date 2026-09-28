@@ -322,7 +322,6 @@ defmodule GraspWeb.SidebarTest do
       assert credits =~ ~s|phx-value-id="#{html_escape(@credits)}"|
       assert credits =~ "SampleApp.WalletsTest › credits a wallet"
       assert credits =~ ~r|data-review="weakened"[^>]*>\s*assertion weakened|
-      assert credits =~ html_escape(~s|removed: assert credit(1) == "1"|)
       assert credits =~ html_escape(~s|loosened: assert credit(1) == "1"|)
 
       assert debits =~ "SampleApp.WalletsTest › debits a wallet"

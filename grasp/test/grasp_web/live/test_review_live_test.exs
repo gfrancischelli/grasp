@@ -29,19 +29,17 @@ defmodule GraspWeb.TestReviewLiveTest do
 
     badge_html = view |> element(badge) |> render() |> LazyHTML.from_fragment()
 
-    assert LazyHTML.attribute(badge_html, "title") == [
-             "removed: #{@base_assertion}\nloosened: #{@base_assertion}"
-           ]
+    assert LazyHTML.attribute(badge_html, "title") == ["loosened: #{@base_assertion}"]
   end
 
   test "an added test with no assertion wears asserts nothing", %{view: view} do
     render_click(view, "open_root", %{"id" => @plain})
 
-    assert has_element?(
-             view,
-             "#card-1 .card__header .badge--review[data-review='asserts_nothing']",
-             "asserts nothing"
-           )
+    badge = "#card-1 .card__header .badge--review[data-review='asserts_nothing']"
+    assert has_element?(view, badge, "asserts nothing")
+
+    badge_html = view |> element(badge) |> render() |> LazyHTML.from_fragment()
+    assert LazyHTML.attribute(badge_html, "title") == ["An added test that makes no assertion"]
   end
 
   test "an unmarked test's card wears no review badge", %{view: view} do
@@ -74,7 +72,7 @@ defmodule GraspWeb.TestReviewLiveTest do
                %{
                  "id" => @init,
                  "mark" => "weakened",
-                 "reasons" => ["removed: #{@base_assertion}", "loosened: #{@base_assertion}"]
+                 "reasons" => ["loosened: #{@base_assertion}"]
                },
                %{"id" => @plain, "mark" => "asserts_nothing", "reasons" => []}
              ]
