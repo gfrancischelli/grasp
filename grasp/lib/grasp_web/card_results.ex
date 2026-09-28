@@ -82,17 +82,17 @@ defmodule GraspWeb.CardResults do
     if same? and missing == [] and map_size(kept) == map_size(held.readings) do
       held
     else
-      read = Map.new(missing, &{&1, read(document, index, reach, &1)})
+      taken = Map.new(missing, &{&1, read(document, index, reach, &1)})
 
       %__MODULE__{
         results: generation,
         index: index_generation,
         readings:
-          Map.merge(kept, Map.new(read, fn {id, {reading, _errors}} -> {id, reading} end)),
+          Map.merge(kept, Map.new(taken, fn {id, {reading, _errors}} -> {id, reading} end)),
         failures:
           Map.merge(
             kept_failures,
-            for({id, {_reading, [_ | _] = errors}} <- read, into: %{}, do: {id, errors})
+            for({id, {_reading, [_ | _] = errors}} <- taken, into: %{}, do: {id, errors})
           )
       }
     end

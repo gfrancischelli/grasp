@@ -11,8 +11,9 @@ defmodule Grasp.TestFailure do
   `{module, function, arity}` names an indexed function (through the index's
   default-argument aliases) is a step of it. A frame of a dependency, of the standard
   library or of any function the index does not hold is no step, and neither is a frame of
-  the function the step before it already names, as a recursive call repeats one. A test
-  with no frame of its own walks the whole stacktrace.
+  the function the step before it already names, as a recursive call repeats one. A frame of
+  an anonymous function, a comprehension or an inlined body is read as a frame of the
+  function it is written in. A test with no frame of its own walks the whole stacktrace.
 
   A step records the call target its caller writes for it, which is the edge the records
   hold, or nil when the caller holds no call to it: the failure passed through code outside
@@ -30,8 +31,10 @@ defmodule Grasp.TestFailure do
   @typedoc """
   One frame of an error's stacktrace, deepest first, as a failure panel lists it.
 
-  `label` is `Module.function/arity`; `id` the indexed function's id, nil for a frame
-  outside the index; `own?` marks the test's own frame; `step?` marks a frame the chain
+  `label` is `Module.function/arity`, of the enclosing function for a frame of an anonymous
+  function, a comprehension or an inlined body, which `closure?` marks; `id` the indexed
+  function's id, nil for a frame outside the index; `own?` marks the test's own frame, a
+  closure inside the test included; `step?` marks a frame the chain
   opens; `via` is, for a step, the call target its caller writes for it, nil when the caller
   holds no such call; `skipped?` marks a step whose caller is reached through at least one
   frame outside the index.
@@ -42,6 +45,7 @@ defmodule Grasp.TestFailure do
           line: pos_integer() | nil,
           id: String.t() | nil,
           own?: boolean(),
+          closure?: boolean(),
           step?: boolean(),
           via: String.t() | nil,
           skipped?: boolean()
@@ -111,14 +115,27 @@ defmodule Grasp.TestFailure do
   @doc """
   The chain `open failure` lays out for `error`: the steps of its trace from the test
   outwards, deepest last. Empty when no frame above the test's own is indexed.
+
+  A step's line is that of the deepest frame of its function before the next step: a
+  recursive call, a default-argument alias beside its definition, or a closure inside the
+  function repeats it, and the deepest of those is the line that went on to fail.
   """
   @spec chain(Index.t(), Index.function_record(), map()) :: [step()]
   def chain(%Index{} = index, record, error) do
     index
     |> trace(record, error)
-    |> Enum.filter(& &1.step?)
     |> Enum.reverse()
-    |> Enum.map(&%{id: &1.id, via: &1.via, line: &1.line})
+    |> Enum.reduce([], fn
+      %{step?: true} = frame, steps ->
+        [%{id: frame.id, via: frame.via, line: frame.line} | steps]
+
+      %{id: id, line: line}, [%{id: id} = step | steps] when is_integer(line) ->
+        [%{step | line: line} | steps]
+
+      _frame, steps ->
+        steps
+    end)
+    |> Enum.reverse()
   end
 
   defp raw_frames(%{"stacktrace" => frames}) when is_list(frames),
@@ -127,8 +144,30 @@ defmodule Grasp.TestFailure do
   defp raw_frames(_error), do: []
 
   defp own_frame?(record, frame) do
-    named?(frame) and frame["module"] == record["module"] and
-      frame["function"] == to_string(record["name"])
+    case enclosing(frame) do
+      {name, _arity, _closure?} ->
+        frame["module"] == record["module"] and name == to_string(record["name"])
+
+      nil ->
+        false
+    end
+  end
+
+  # The compiler names an anonymous function `-NAME/ARITY-fun-N-`, a comprehension's body
+  # `-NAME/ARITY-lc$^N/1-N-` and an inlined one `-NAME/ARITY-inlined-N-`, after the function
+  # it is written in; NAME may itself hold a slash, so ARITY is the last number before the
+  # suffix. Such a frame is the code of that function.
+  @generated ~r/\A-(.+)\/(\d+)-(?:fun-\d+|lc\$\^\d+\/\d+-\d+|inlined-\d+)-\z/s
+
+  defp enclosing(frame) do
+    if named?(frame), do: enclosing(frame["function"], frame["arity"], false)
+  end
+
+  defp enclosing(name, arity, closure?) do
+    case Regex.run(@generated, name) do
+      [_, outer, outer_arity] -> enclosing(outer, String.to_integer(outer_arity), true)
+      nil -> {name, arity, closure?}
+    end
   end
 
   defp named?(%{"module" => module, "function" => function, "arity" => arity}),
@@ -140,16 +179,18 @@ defmodule Grasp.TestFailure do
   defp text(value), do: inspect(value)
 
   defp read_frame(index, record, frame) do
-    {label, id} =
-      if named?(frame) do
-        label = Join.function_id(frame["module"], frame["function"], frame["arity"])
+    {label, id, closure?} =
+      case enclosing(frame) do
+        {name, arity, closure?} ->
+          label = Join.function_id(frame["module"], name, arity)
 
-        case Index.fetch_function(index, label) do
-          {:ok, indexed} -> {label, indexed["id"]}
-          :error -> {label, nil}
-        end
-      else
-        {"#{text(frame["module"])}.#{text(frame["function"])}", nil}
+          case Index.fetch_function(index, label) do
+            {:ok, indexed} -> {label, indexed["id"], closure?}
+            :error -> {label, nil, closure?}
+          end
+
+        nil ->
+          {"#{text(frame["module"])}.#{text(frame["function"])}", nil, false}
       end
 
     %{
@@ -158,6 +199,7 @@ defmodule Grasp.TestFailure do
       line: if(is_integer(frame["line"]) and frame["line"] > 0, do: frame["line"]),
       id: id,
       own?: own_frame?(record, frame),
+      closure?: closure?,
       step?: false,
       via: nil,
       skipped?: false

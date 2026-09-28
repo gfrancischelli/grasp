@@ -134,6 +134,16 @@ defmodule Grasp.Session.ForestTest do
     assert {^forest, nil} = Forest.open_callees(forest, 999, [{"X.f/1", nil, nil}])
   end
 
+  test "open_callees/3 leaves a reused card's highlight when the step brings none" do
+    {forest, t} = Forest.open_root(Forest.new(), "T.t/1")
+    {forest, h} = Forest.open_root(forest, "H.h/0")
+    forest = Forest.set_highlight(forest, h, %{"lines" => [2, 2]})
+
+    {forest, ^h} = Forest.open_callees(forest, t, [{"H.h/0", nil, nil}])
+
+    assert Forest.card(forest, h).highlight == %{"lines" => [2, 2]}
+  end
+
   test "a function opened under two parents is one card with two edges" do
     {forest, a} = Forest.open_root(Forest.new(), "A.f/1")
     {forest, d} = Forest.open_root(forest, "D.i/0")

@@ -38,8 +38,8 @@ defmodule GraspWeb.CardComponents do
   `right` as the run printed them, and the stacktrace with each frame outside the index
   said to be. It is drawn from the result the card is handed, never stored as a thread, and
   goes when the result goes stale. A line the view does not draw puts the panel in a footer.
-  The header then has `open failure`, which lays the first error's stacktrace out as a chain
-  of callees from the card.
+  When the first error's stacktrace holds an indexed frame above the test's own, the header
+  has `open failure`, which lays those frames out as a chain of callees from the card.
   """
 
   use GraspWeb, :html
@@ -401,6 +401,13 @@ defmodule GraspWeb.CardComponents do
         lines
       end
 
+    # `open failure` opens the first error's chain, so a chain of nothing offers no button.
+    chain? =
+      case failures do
+        [%{error: first} | _rest] -> TestFailure.chain(index, record, first) != []
+        [] -> false
+      end
+
     drawn_new = for %{side: :new, line: number} <- lines, into: MapSet.new(), do: number
 
     {failures_under, failures_aside} =
@@ -410,7 +417,7 @@ defmodule GraspWeb.CardComponents do
       assign(assigns,
         failures_under: Enum.group_by(failures_under, & &1.line),
         failures_aside: failures_aside,
-        failed?: failures != [],
+        chain?: chain?,
         focused?: forest.focus == card.id,
         coverage_stale?: coverage == :stale,
         lines: lines,
@@ -555,7 +562,7 @@ defmodule GraspWeb.CardComponents do
             </ul>
           </div>
           <button
-            :if={@failed?}
+            :if={@chain?}
             type="button"
             id={"open-failure-#{@card.id}"}
             class="card__open-failure"
@@ -746,6 +753,9 @@ defmodule GraspWeb.CardComponents do
           <span class="failure__function">{frame.label}</span>
           <span :if={frame.file} class="failure__location">
             {frame.file}{if frame.line, do: ":#{frame.line}"}
+          </span>
+          <span :if={frame.closure?} class="failure__note">
+            inside an anonymous function or comprehension
           </span>
           <span :if={frame.id == nil} class="failure__note">outside the index</span>
           <span :if={frame.step? and frame.via == nil and frame.skipped?} class="failure__note">

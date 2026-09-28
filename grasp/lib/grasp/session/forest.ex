@@ -276,8 +276,9 @@ defmodule Grasp.Session.Forest do
   @doc """
   Opens a chain of callees rightwards from `card_id`: the first as a callee of `card_id`,
   each next one as a callee of the one before, as `open_child/4` opens one, each with the
-  call target that opened it (nil for the callee's own id) and the highlight it is to wear.
-  Focuses the last and returns its id, or nil if `card_id` is unknown.
+  call target that opened it (nil for the callee's own id) and the highlight it is to wear,
+  nil leaving the card's own highlight as it is. Focuses the last and returns its id, or nil
+  if `card_id` is unknown.
 
   Every card the chain opens or reuses is expanded, as `open_callers/3` expands the callers
   it opens: a collapsed card on the chain would hide what follows it.
@@ -295,7 +296,8 @@ defmodule Grasp.Session.Forest do
             {forest, nil}
 
           {forest, callee} ->
-            forest = forest |> expand(callee) |> set_highlight(callee, highlight)
+            forest = expand(forest, callee)
+            forest = if highlight, do: set_highlight(forest, callee, highlight), else: forest
             {forest, callee}
         end
     end)

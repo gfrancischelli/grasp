@@ -222,7 +222,7 @@ defmodule GraspWeb.FailuresLiveTest do
       assert forest.focus == greet
     end
 
-    test "a failure with no indexed frame above the test's opens nothing", %{
+    test "a failure with no indexed frame above the test's offers and opens nothing", %{
       view: view,
       name: name,
       results: results
@@ -231,9 +231,74 @@ defmodule GraspWeb.FailuresLiveTest do
 
       Session.open_root(name, @init)
       before = Session.get(name)
-      view |> element("#open-failure-1") |> render_click()
+      assert has_element?(view, "#card-1 .failure", "boom")
+      refute has_element?(view, "#open-failure-1")
+      render_click(view, "open_failure", %{"card" => "1"})
 
       assert Session.get(name) == before
+    end
+
+    test "a forged card, or a card holding no failure, opens nothing", %{
+      view: view,
+      name: name,
+      results: results
+    } do
+      record_failure(results, [error([@deepest, @helper, @own], message: "boom")])
+
+      Session.open_root(name, @init_with)
+      before = Session.get(name)
+
+      for card <- ["1", "999", "nope", ""],
+          do: render_click(view, "open_failure", %{"card" => card})
+
+      assert Session.get(name) == before
+    end
+
+    test "a default-argument frame opens its definition once, at the deeper line", %{
+      view: view,
+      name: name,
+      results: results
+    } do
+      alias_frame = %{greet_frame() | "arity" => 1, "line" => 6}
+      record_failure(results, [error([greet_frame(), alias_frame, @own], message: "boom")])
+
+      Session.open_root(name, @init)
+      view |> element("#open-failure-1") |> render_click()
+
+      forest = Session.get(name)
+      greet = Grasp.Session.Forest.find(forest, @greet)
+      assert map_size(forest.cards) == 2
+      assert Grasp.Session.Forest.card(forest, greet).highlight == %{"lines" => [7, 7]}
+      assert forest.focus == greet
+    end
+
+    test "a closure's frame is its function's, part of the chain", %{
+      view: view,
+      name: name,
+      results: results
+    } do
+      closure = %{@helper | "function" => "-init_with/1-fun-0-", "line" => 21}
+
+      record_failure(results, [
+        error([@deepest, @dependency, closure, @dependency, @own], message: "boom")
+      ])
+
+      Session.open_root(name, @init)
+
+      assert has_element?(
+               view,
+               "#card-1 .failure__frame[data-step='true']",
+               "inside an anonymous function or comprehension"
+             )
+
+      view |> element("#open-failure-1") |> render_click()
+
+      forest = Session.get(name)
+      helper = Grasp.Session.Forest.find(forest, @init_with)
+      deepest = Grasp.Session.Forest.find(forest, @counter_init)
+
+      assert Enum.map(forest.edges, &{&1.from, &1.to}) == [{1, helper}, {helper, deepest}]
+      assert forest.focus == deepest
     end
   end
 
