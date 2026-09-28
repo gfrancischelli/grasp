@@ -54,7 +54,7 @@ root: run it inside the app.
       "status": "failed",
       "time": 1234,
       "run_id": "5f2c…",
-      "finished_at": "2026-09-28T12:00:00Z",
+      "finished_at": "2026-09-28T12:00:00.123Z",
       "source_hash": "9a1e…",
       "errors": [
         {
@@ -115,15 +115,24 @@ has **cancel** while a run is under way and **run coverage**, which runs
 - **`run changed tests`** at the top of the Changes group runs the tests the branch added
   or modified.
 
-Starting a run opens the panel. One run goes at a time, shared by every tab: while one is
+Starting a run opens the panel in the tab that started it. A run started elsewhere — in
+another tab, or by the agent — opens no panel, but every tab's toolbar follows it and every
+tab's panel shows it once opened. One run goes at a time, shared by every tab: while one is
 under way the toolbar button reads `running…`, and every control that starts a run is
 disabled and says what is running. **cancel** stops the whole suite — the task and the test
 VM it started — and the run finishes as cancelled.
 
-The run is started in the directory Grasp was started in, with the viewer's own
-environment, so a database name or a secret the viewer's environment sets reaches the
-suite. `config :grasp, runs_command:` names the command in front of the task, `["mix"]`
-unless configured.
+The run is started in `config :grasp, runs_root:` when that is set, and otherwise in Grasp's
+home: the directory Grasp was started in — a host's project root, where its dev server
+starts — or, for `mix grasp.viewer`, the root of the indexed project. It runs with the
+viewer's own environment, so a database name or a secret the viewer's environment sets
+reaches the suite. `config :grasp, runs_command:` names the command in front of the task,
+`["mix"]` unless configured.
+
+A run from the viewer passes the task the viewer's own paths: `--index`, the index the
+viewer holds, and `--out`, the results document it watches — or, for a coverage run, the
+coverage document. The ids the viewer checked are resolved in that index, and the results
+land where the cards read them, whatever your project's config names.
 
 ## Results on the cards
 
@@ -165,3 +174,12 @@ test's own.
   stopping the suite, and a viewer that halts leaves a run's suite running.
 - **A frame whose line lies outside its function's indexed span** — code compiled from
   another file, an index behind the files — opens its card with no line highlighted.
+- **An index behind the test files runs whatever test the indexed line holds.** A test runs
+  as the file and line the index recorded, and test files are not reindexed as you edit
+  them, so after an edit that moves tests the line can land in another test or in none. The
+  test you named then reads as excluded and keeps its previous result, while the test that
+  ran is recorded against the old index and reads fresh until the next reindex. Rebuild the
+  index after moving tests.
+- **A viewer at an umbrella root cannot run tests.** Both tasks refuse at an umbrella root,
+  so every run such a viewer starts fails with that refusal. Set `config :grasp, runs_root:`
+  to one app's directory to run that app's suite.

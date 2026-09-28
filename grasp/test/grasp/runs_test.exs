@@ -4,7 +4,7 @@ defmodule Grasp.RunsTest do
 
   import ExUnit.CaptureLog
 
-  alias Grasp.Runs
+  alias Grasp.{CoverageStore, IndexStore, ResultsStore, Runs}
   alias Grasp.Runs.ProcessTree
 
   setup do
@@ -306,10 +306,39 @@ defmodule Grasp.RunsTest do
       ids = [~S|SampleApp.TallyTest."test init keeps the start count"/1|, "-x"]
 
       {:ok, %{id: id, argv: argv}} = Runs.start_tests(ids, root: root)
-      assert argv == ["sh", "-c", ~S|printf '%s\n' "$@"|, "fake", "grasp.test", "--" | ids]
+      paths = ["--index", IndexStore.path(), "--out", ResultsStore.path()]
+
+      assert argv ==
+               ["sh", "-c", ~S|printf '%s\n' "$@"|, "fake", "grasp.test" | paths] ++
+                 ["--" | ids]
 
       assert_receive {:run_finished, %{id: ^id, output: output}}, 2_000
-      assert output == ["grasp.test", "--" | ids]
+      assert output == ["grasp.test" | paths] ++ ["--" | ids]
+    end
+
+    test "a coverage run passes the index and the coverage document the viewer holds", %{
+      root: root
+    } do
+      Application.put_env(:grasp, :runs_command, ["sh", "-c", ~S|printf '%s\n' "$@"|, "fake"])
+
+      {:ok, %{id: id}} = Runs.start_coverage(root: root)
+      assert_receive {:run_finished, %{id: ^id, output: output}}, 2_000
+
+      assert output == [
+               "grasp.cover",
+               "--index",
+               IndexStore.path(),
+               "--out",
+               CoverageStore.path()
+             ]
+    end
+
+    test "the index and out options name other paths", %{root: root} do
+      Application.put_env(:grasp, :runs_command, ["sh", "-c", ~S|printf '%s\n' "$@"|, "fake"])
+
+      {:ok, %{id: id}} = Runs.start_tests(["T/1"], root: root, index: "i.json", out: "r.json")
+      assert_receive {:run_finished, %{id: ^id, output: output}}, 2_000
+      assert output == ["grasp.test", "--index", "i.json", "--out", "r.json", "--", "T/1"]
     end
 
     test "unset is mix" do

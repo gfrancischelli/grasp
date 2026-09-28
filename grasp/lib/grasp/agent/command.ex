@@ -9,7 +9,10 @@ defmodule Grasp.Agent.Command do
   under its mount prefix — the caller supplies that URL, since only it knows where the host
   mounted Grasp. `--strict-mcp-config` keeps the developer's own `.mcp.json` out of the
   run, and the tool allowlist follows the chat's mode. In `read` mode it is the grasp tools
-  plus `Read`, `Grep` and `Glob`, with nothing that writes files or runs commands. In `edit`
+  plus `Read`, `Grep` and `Glob`, with nothing that writes files or runs commands:
+  `--disallowedTools` takes `run_tests` and `run_coverage` out of the grasp tools, since a
+  run executes the project's suite, and leaves `run_status`, so the agent reads a run the
+  user started and its results. In `edit`
   mode it also carries `Edit`, `Write` and a `Bash` narrowed to `mix`, to the read-only git
   commands, to `git fetch` and to `gh pr view`, so the agent can act on a review comment,
   rebuild the index and read a pull request, and still cannot reach for an arbitrary shell
@@ -42,6 +45,7 @@ defmodule Grasp.Agent.Command do
   @max_turns "60"
   @read_tools "Read,Grep,Glob"
   @read_allowed_tools "mcp__grasp,Read,Grep,Glob"
+  @read_disallowed_tools "mcp__grasp__run_tests,mcp__grasp__run_coverage"
   @edit_tools "Read,Grep,Glob,Edit,Write,Bash"
   @edit_allowed_tools "mcp__grasp,Read,Grep,Glob,Edit,Write,Bash(mix:*),Bash(git status:*),Bash(git diff:*),Bash(git fetch:*),Bash(gh pr view:*)"
 
@@ -84,12 +88,15 @@ defmodule Grasp.Agent.Command do
         "--tools",
         tools(mode),
         "--allowedTools",
-        allowed_tools(mode),
-        "--max-turns",
-        @max_turns,
-        "--append-system-prompt",
-        system_prompt(session, mode, reindex)
+        allowed_tools(mode)
       ] ++
+        disallowed_tools(mode) ++
+        [
+          "--max-turns",
+          @max_turns,
+          "--append-system-prompt",
+          system_prompt(session, mode, reindex)
+        ] ++
         flag("--resume", opts[:resume]) ++ flag("--model", opts[:model])
 
     {Keyword.fetch!(opts, :command), argv}
@@ -109,7 +116,7 @@ defmodule Grasp.Agent.Command do
     The Grasp viewer session you control is "#{session}". Pass session: "#{session}" to every grasp card tool. Pass session: "#{session}" to every comment tool as well: list_comments, add_comment, reply_comment, resolve_comment, publish_comments, and get_function when you want the comments on the function. A comment belongs to the session it was written in, so these tools see only this session's threads.
 
     Work like this:
-    1. Discover with the grasp read tools: search_functions, get_function, get_callers, get_callees, list_entry_points, find_paths (with only `to` it walks callers back to entry points such as controller actions, LiveView callbacks and Oban workers). For questions about what a change does, start from list_changes and trace each changed function to its entry points with find_paths. For questions about tests, tests_for lists the tests that reach a function, nearest first with the hops between them, untested_changes lists the changed functions no test reaches, and coverage says which lines of a function the suite last ran and never ran, and the clauses and arms it never entered (the user runs mix grasp.cover first, or you start it with run_coverage). run_tests starts a run of tests by id, or of the tests the branch changed, and run_coverage a coverage run; both answer at once, and run_status reads the run's output while it runs and, once it has finished, each test's result with the first error and frame of every failure.
+    1. Discover with the grasp read tools: search_functions, get_function, get_callers, get_callees, list_entry_points, find_paths (with only `to` it walks callers back to entry points such as controller actions, LiveView callbacks and Oban workers). For questions about what a change does, start from list_changes and trace each changed function to its entry points with find_paths. For questions about tests, tests_for lists the tests that reach a function, nearest first with the hops between them, untested_changes lists the changed functions no test reaches, and coverage says which lines of a function the suite last ran and never ran, and the clauses and arms it never entered (#{coverage_source(mode)}). #{runs(mode)}
     2. Answer with set_cards: one call that lays out the whole flow, roots at the entry points, each callee under the function that calls it, in call order. The same function reached from two callers is one card with two edges — reuse the key. Add a highlight on a card when one call or line range is the point of interest. When the user asks for several flows at once, give each flow its own group: put the flow's name in the `group` field of every card that belongs to it, so the canvas draws each flow in its own titled frame.
     3. Reply in a few sentences: what the flow does and where to look first. The cards are the answer; do not paste source code. If a function is not in the index, say so.
 
@@ -184,6 +191,23 @@ defmodule Grasp.Agent.Command do
 
   defp allowed_tools("edit"), do: @edit_allowed_tools
   defp allowed_tools(_read), do: @read_allowed_tools
+
+  defp disallowed_tools("edit"), do: []
+  defp disallowed_tools(_read), do: ["--disallowedTools", @read_disallowed_tools]
+
+  defp coverage_source("edit"),
+    do: "the user runs mix grasp.cover first, or you start it with run_coverage"
+
+  defp coverage_source(_read),
+    do: "the user runs mix grasp.cover first, or starts a coverage run from the viewer"
+
+  defp runs("edit") do
+    "run_tests starts a run of tests by id, or of the tests the branch changed, and run_coverage a coverage run; both answer at once, and run_status reads the run's output while it runs and, once it has finished, each test's result with the first error and frame of every failure."
+  end
+
+  defp runs(_read) do
+    "run_status reads the output of a run the user started while it runs and, once it has finished, each test's result with the first error and frame of every failure. You cannot start a run in read mode: run_tests and run_coverage are not available, so when an answer needs one, tell the user to start it from the viewer's runs panel or a card's run button, or to switch the chat to edit mode."
+  end
 
   defp pull_request("edit", _reindex) do
     home = Grasp.Application.home() || File.cwd!()

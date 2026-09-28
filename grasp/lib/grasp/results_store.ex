@@ -20,6 +20,10 @@ defmodule Grasp.ResultsStore do
   resolution of one second, so a run writing the file within the second of the previous
   write leaves an mtime the poll cannot tell from the one it holds.
 
+  Every read records the moment it began (`read_at/0`), so a reader holding a finished
+  run can tell whether the document it would read was read after the run wrote it, and
+  reload it (`reload/0`) when not, without waiting for the store to hear the run finish.
+
   The mtime is read *before* the file, so a rewrite landing between the two leaves the
   stored mtime older than the file's and the next poll picks the rewritten content up.
 
@@ -32,6 +36,7 @@ defmodule Grasp.ResultsStore do
   require Logger
 
   @key {__MODULE__, :results}
+  @read_at_key {__MODULE__, :read_at}
   @topic "results"
   @poll_ms 2_000
 
@@ -63,6 +68,16 @@ defmodule Grasp.ResultsStore do
   @spec snapshot() :: {pos_integer(), Grasp.TestResults.document()} | nil
   def snapshot, do: :persistent_term.get(@key, nil)
 
+  @doc """
+  When the store began its last read of the file, whatever that read found, or `nil` before
+  the store has read it.
+
+  A write that finished before that moment is in what the store holds, unless a later
+  write replaced it or the file could not be read.
+  """
+  @spec read_at() :: DateTime.t() | nil
+  def read_at, do: :persistent_term.get(@read_at_key, nil)
+
   @doc "The results file being watched, whether or not it exists."
   @spec path() :: String.t()
   def path, do: GenServer.call(__MODULE__, :path)
@@ -90,6 +105,7 @@ defmodule Grasp.ResultsStore do
     # A store starts holding nothing: a document a previous start put there would otherwise
     # be read as this path's contents while this one is missing.
     :persistent_term.erase(@key)
+    :persistent_term.erase(@read_at_key)
     :ok = Grasp.Runs.subscribe_status()
     {_reply, state} = do_load(path, %{path: path, mtime: nil})
     schedule_poll()
@@ -132,6 +148,7 @@ defmodule Grasp.ResultsStore do
   def handle_info({:run_started, _run}, state), do: {:noreply, state}
 
   defp do_load(path, state) do
+    :persistent_term.put(@read_at_key, DateTime.utc_now())
     mtime = mtime(path)
 
     result =

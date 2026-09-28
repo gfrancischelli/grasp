@@ -34,6 +34,10 @@ defmodule Grasp.Agent.CommandTest do
 
     assert ["--tools", "Read,Grep,Glob" | rest] = rest
     assert ["--allowedTools", "mcp__grasp,Read,Grep,Glob" | rest] = rest
+
+    assert ["--disallowedTools", "mcp__grasp__run_tests,mcp__grasp__run_coverage" | rest] =
+             rest
+
     assert ["--max-turns", "60" | rest] = rest
     assert ["--append-system-prompt", system_prompt] = rest
     assert system_prompt =~ ~s(session: "s1")
@@ -55,6 +59,7 @@ defmodule Grasp.Agent.CommandTest do
            ] = rest
 
     assert List.last(argv) =~ "You may edit files under the project root and run mix."
+    refute "--disallowedTools" in argv
   end
 
   test "build/2 appends resume and model when they are set" do
@@ -110,11 +115,28 @@ defmodule Grasp.Agent.CommandTest do
   end
 
   test "system_prompt/3 starts runs through run_tests and run_coverage and reads run_status" do
-    prompt = Command.system_prompt("s1", "read", "mix grasp.index")
+    prompt = Command.system_prompt("s1", "edit", "mix grasp.index")
 
     assert prompt =~ "run_tests starts a run of tests by id, or of the tests the branch changed"
     assert prompt =~ "run_coverage a coverage run; both answer at once"
     assert prompt =~ "run_status reads the run's output while it runs"
+  end
+
+  test "system_prompt/3 in edit mode lets the agent start a coverage run" do
+    prompt = Command.system_prompt("s1", "edit", "mix grasp.index")
+
+    assert prompt =~ "the user runs mix grasp.cover first, or you start it with run_coverage"
+  end
+
+  test "system_prompt/3 in read mode reads runs through run_status and starts none" do
+    prompt = Command.system_prompt("s1", "read", "mix grasp.index")
+
+    assert prompt =~ "run_status reads the output of a run the user started while it runs"
+    assert prompt =~ "You cannot start a run in read mode"
+    assert prompt =~ "or to switch the chat to edit mode"
+    assert prompt =~ "or starts a coverage run from the viewer"
+    refute prompt =~ "run_tests starts a run"
+    refute prompt =~ "you start it with run_coverage"
   end
 
   test "system_prompt/3 sends a question about what a function ran through coverage" do

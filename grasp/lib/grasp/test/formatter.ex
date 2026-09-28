@@ -9,9 +9,12 @@ defmodule Grasp.Test.Formatter do
   the `:grasp, Grasp.Test.Formatter` application environment, in the external term format:
 
       %{
-        finished_at: "2026-09-28T12:00:00Z",
+        finished_at: "2026-09-28T12:00:00.123Z",
         tests: %{"SampleApp.TallyTest.\\"test init keeps the start count\\"/1" => result}
       }
+
+  `finished_at` is when the suite finished, in UTC to the millisecond, so a run that
+  finishes within the second it started still reads as finishing after its start.
 
   `mix grasp.test` reads that file in its own session and merges it into the results
   document (see `Grasp.TestResults`), adding what only the index knows. The file lands
@@ -79,7 +82,7 @@ defmodule Grasp.Test.Formatter do
   # it, so a failed write is reported and the formatter carries on.
   defp write_run(%{run_file: run_file, tests: tests}) when is_binary(run_file) do
     run = %{
-      finished_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+      finished_at: DateTime.utc_now() |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601(),
       tests: tests
     }
 

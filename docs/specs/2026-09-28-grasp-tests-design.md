@@ -431,9 +431,14 @@ test paths uncompared.
 - **The run machinery.** `Grasp.Runs` runs one command at a time — a test run (`mix
   grasp.test -- ID ...`) or a coverage run (`mix grasp.cover`), behind `:grasp,
   :runs_command`, default `["mix"]` — as a port on the executable found on `PATH`, given
-  its arguments as argv. It runs in the directory Grasp was started in, unless `:grasp,
-  :runs_root` names another, with the viewer VM's environment less `MIX_BUILD_PATH`, which
-  would redirect the suite's build. Its output, stderr merged, is broadcast a line at a
+  its arguments as argv. It runs in `:grasp, :runs_root` when that is set, and in Grasp's
+  home (`Grasp.Application.home/0`) otherwise: the directory Grasp was started in, or the
+  indexed project's root under `mix grasp.viewer`. It runs with the viewer VM's environment
+  less `MIX_BUILD_PATH`, which would redirect the suite's build. Both tasks are given
+  `--index`, the index the viewer holds, and `--out`, the document the viewer watches —
+  the results document for `mix grasp.test`, the coverage document for `mix grasp.cover` —
+  so a run resolves the ids the viewer checked in the index they were checked against and
+  writes where the viewer reads, whatever the project's own config names. Its output, stderr merged, is broadcast a line at a
   time, each numbered by its `seq`, and a run keeps its last 200 lines. A second start while
   one runs is refused with the running one. A cancel freezes the whole process tree the port
   started, read from the parent pids `ps` lists, terminates it and continues every process
@@ -449,7 +454,9 @@ test paths uncompared.
   to 4 000 characters; it has `cancel` while a run is under way and `run coverage`. While a
   run is under way every control that starts one is disabled and titled with the running
   command, and a start refused all the same shows the run under way. Starting a run opens
-  the panel. Keys: none.
+  the panel in the tab that started it; a run started elsewhere — by another tab or by the
+  agent — changes every tab's toolbar and shows in every tab's panel once it is opened, but
+  opens no panel. Keys: none.
 - **Badges.** A test card wears its latest fresh result — `passed`, `failed`, `skipped` or
   `invalid` — or `stale`; an `excluded` result says nothing about the test and reads as no
   result. The tests badge on a function card adds `· m failing`, counting the tests it lists
@@ -476,8 +483,12 @@ test paths uncompared.
   test run, each test it named and its status in the results document — `stale` for a
   result recorded against another version of the test, `none` when the run recorded
   nothing for it — a failure carrying its first error's message, `left`, `right` and the
-  deepest frame of its stacktrace in an indexed function. An MCP call does not wait for a
-  suite.
+  deepest frame of its stacktrace in an indexed function. A test run's statuses are read
+  from a results document read after the run finished: when the results store last read
+  its file before the finish, `run_status` reloads it first. An MCP call does not wait for a
+  suite. The chat agent in read mode is denied `run_tests` and `run_coverage` and keeps
+  `run_status`: it reads a run the user started, and starts none, since a run executes the
+  project's code.
 
 ### Known gaps (milestone 10.4)
 
@@ -504,10 +515,15 @@ test paths uncompared.
   outside the indexed span of its function — code compiled from another file, or a function
   the index holds at other lines than the ones the run compiled — opens its card with no
   line marked.
-- **A status read as a run finishes can answer `none`.** The store reloads the document when
-  it hears the run finish, and a `run_status` landing before that reload finds no result
-  recorded since the run started, so it answers `none` for tests the run did record; a
-  second read answers them.
+- **An index behind the test files runs whatever test the indexed line holds.** A test id
+  names the file and line the index recorded, and the dev server's reloader does not
+  reindex test files, so after an edit that moves tests the line can fall in another test
+  or in none. The named test then reads as excluded and keeps its previous result, and
+  `run_status` answers `none` for it, while the test that did run is recorded against the
+  hash of the old index's record and reads fresh until the next reindex.
+- **A viewer at an umbrella root cannot run tests.** Both tasks refuse at an umbrella root,
+  since each app runs its own suite, so every run such a viewer starts fails with that
+  refusal. `:grasp, :runs_root` pointed at one app runs that app's suite.
 - **The panel shows what the host's suite prints.** The output is the CLI formatter's and
   whatever the suite writes itself, so a noisy suite fills the 200 lines a run keeps.
 

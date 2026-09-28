@@ -3,7 +3,7 @@ defmodule GraspWeb.RunsLiveTest do
   # :persistent_term, so these tests share both and run alone.
   use GraspWeb.ConnCase, async: false
 
-  alias Grasp.{IndexStore, ResultsStore, Runs, Session, TestResults}
+  alias Grasp.{CoverageStore, IndexStore, ResultsStore, Runs, Session, TestResults}
 
   @fixture Path.expand("../../fixtures/index.json", __DIR__)
   @reply ~s|SampleApp.TallyTest."test handle_call/3 replies with the next number"/1|
@@ -78,7 +78,10 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#runs-coverage") |> render_click()
 
       assert_receive {:run_finished, %{kind: :coverage, argv: argv, exit_status: 0}}, 2_000
-      assert argv == Runs.command() ++ ["grasp.cover"]
+
+      assert argv ==
+               Runs.command() ++
+                 ["grasp.cover", "--index", IndexStore.path(), "--out", CoverageStore.path()]
 
       eventually(view, fn -> has_element?(view, "#runs .runs__status", "finished") end)
       assert has_element?(view, "#runs .runs__description", "mix grasp.cover")
@@ -240,7 +243,7 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#run-1") |> render_click()
 
       assert_receive {:run_finished, %{kind: :tests, argv: argv, exit_status: 0}}, 2_000
-      assert argv == Runs.command() ++ ["grasp.test", "--", @init]
+      assert argv == tests_argv([@init])
 
       refute has_element?(view, "#runs[hidden]")
       assert has_element?(view, "#runs .runs__description", "mix grasp.test #{@init}")
@@ -250,6 +253,10 @@ defmodule GraspWeb.RunsLiveTest do
 
       assert elements(view, "#runs-log .runs__line") == [
                "arg grasp.test",
+               "arg --index",
+               "arg #{IndexStore.path()}",
+               "arg --out",
+               "arg #{ResultsStore.path()}",
                "arg --",
                "arg #{@init}"
              ]
@@ -273,7 +280,7 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#card-1 .callers__run") |> render_click()
 
       assert_receive {:run_finished, %{argv: argv}}, 2_000
-      assert argv == Runs.command() ++ ["grasp.test", "--", @verified, @plain]
+      assert argv == tests_argv([@verified, @plain])
       assert has_element?(view, "#runs .runs__description", "mix grasp.test (2 tests)")
     end
 
@@ -287,7 +294,7 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#run-changed") |> render_click()
 
       assert_receive {:run_finished, %{argv: argv}}, 2_000
-      assert argv == Runs.command() ++ ["grasp.test", "--", @reply, @plain]
+      assert argv == tests_argv([@reply, @plain])
       refute has_element?(view, "#runs[hidden]")
     end
 
@@ -507,5 +514,10 @@ defmodule GraspWeb.RunsLiveTest do
         render(view)
         eventually(view, predicate, attempts - 1)
     end
+  end
+
+  defp tests_argv(ids) do
+    Runs.command() ++
+      ["grasp.test", "--index", IndexStore.path(), "--out", ResultsStore.path(), "--" | ids]
   end
 end

@@ -39,12 +39,13 @@ has a copy button.
 
 In `read-only` mode, the one it starts in, the agent's built-in tools are `Read`, `Grep` and
 `Glob`: it reads the project's files and reaches the index through Grasp's own tools, and it
-edits no file and runs no command of its own. Grasp's tools include `run_tests` and
-`run_coverage`, so in either mode the agent can start your test suite, as the runs panel
-does.
+edits no file and runs no command of its own. It is denied Grasp's `run_tests` and
+`run_coverage` too, since a run executes your project's code with the viewer's environment:
+it reads a run you started, and its results, through `run_status`, and asks you to start one
+from the runs panel or a card, or to switch to edit mode, when an answer needs a run.
 
-The panel's Mode select switches that. In `edit files` the agent also gets `Edit`, `Write`
-and a `Bash` narrowed to five commands: `mix`, `git status`, `git diff`, `git fetch` and
+The panel's Mode select switches that. In `edit files` the agent starts runs itself, as the
+runs panel does, and also gets `Edit`, `Write` and a `Bash` narrowed to five commands: `mix`, `git status`, `git diff`, `git fetch` and
 `gh pr view`. Nothing in that set changes the branch you have checked out. That is what makes
 "address all the comments and update the diagram afterwards" something you can ask for: the
 agent works a comment at a time — reads what the thread points at, makes the change, replies
@@ -127,16 +128,18 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
 - `run_tests` — start `mix grasp.test` on tests named by id, or with `changed: true` on the
   tests the branch added or modified. Every id must name a test the index holds, or nothing
   starts. It answers at once with the run it `started`, or with the one already `running`,
-  which is left to finish: one run goes at a time. See [Running tests](running-tests.md).
+  which is left to finish: one run goes at a time. The chat panel's agent has it in edit
+  mode only. See [Running tests](running-tests.md).
 - `run_coverage` — start `mix grasp.cover`, answering as `run_tests` does. Read the
-  coverage with `coverage` once it has finished.
+  coverage with `coverage` once it has finished. The chat panel's agent has it in edit mode
+  only.
 - `run_status` — what the runs are doing: `idle` before any; `running` with the run's last
   50 lines of output; or `last`, the last run's exit status and whether it was cancelled,
   and for a test run each test it named with its status — `passed`, `failed`, `skipped`,
   `excluded`, `invalid`, `stale`, or `none` when the run recorded nothing for it — a
   failure carrying its first error's message, `left` and `right`, and the deepest frame of
-  its stacktrace in a function the index holds. A read in the moment a run finishes can
-  answer `none` for a test the run recorded; read again.
+  its stacktrace in a function the index holds. The statuses are read after the run has
+  finished writing them, so a read the moment a run finishes answers the tests it recorded.
 - `list_modules` — modules with their file and the behaviours they implement.
 - `reload_index` — reload the index file and report what it now holds: the path, how many
   functions, how many the branch changed, and the git refs. Call it as soon as
@@ -210,6 +213,6 @@ without a `session` it carries none.
 - "Open PR 1251." Edit mode: `mix grasp.pr 1251`, `reload_index`, `list_changes`, then
   `set_cards` one group per flow.
 - "Publish the comments to the PR." `publish_comments`, in either mode.
-- "Run the tests this branch changed and show me what failed." `run_tests` with
+- "Run the tests this branch changed and show me what failed." Edit mode: `run_tests` with
   `changed: true`, `run_status` until the run has finished, then `set_cards` from each
   failing test down to the function its failure's frame names.

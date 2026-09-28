@@ -11,7 +11,7 @@ defmodule Grasp.TestResults do
             "status" => "failed",
             "time" => 1234,
             "run_id" => "5f2c…",
-            "finished_at" => "2026-09-28T12:00:00Z",
+            "finished_at" => "2026-09-28T12:00:00.123Z",
             "source_hash" => "9a1e…" | nil,
             "errors" => [
               %{

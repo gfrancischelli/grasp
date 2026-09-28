@@ -6,8 +6,8 @@ defmodule Grasp.Runs do
   A run is a port opened on the command's executable, resolved on `PATH` by
   `System.find_executable/1` and given its arguments as argv, so nothing goes near shell
   quoting. It runs in the project root: the `:root` option, the `:grasp, :runs_root` config,
-  and the directory Grasp started in (`Grasp.Application.home/0`) otherwise — the
-  checkout the reader opened, whose `.grasp/` the viewer reads. The command sees the
+  and Grasp's home (`Grasp.Application.home/0`) otherwise — the directory Grasp started
+  in, or the indexed project's root under `mix grasp.viewer`. The command sees the
   environment the viewer VM has — a database name the viewer's environment sets reaches
   the suite — with one exception: `MIX_BUILD_PATH` is removed. The tasks find their
   `ebin` paths in the project's default build, and a suite given an explicit build path
@@ -108,9 +108,14 @@ defmodule Grasp.Runs do
   Starts a test run of `test_ids`, as `start/3` does: `mix grasp.test` with each id an
   argument of its own, so an id's quotes and spaces reach the task as they are written.
 
-  The command in front of `grasp.test` is `command/0`'s. The ids follow a `--`, which ends
-  the task's switches, so no id is ever read as one whatever it starts with. The description
-  names the one test a run of one runs, and counts the tests of any other.
+  The command in front of `grasp.test` is `command/0`'s. The task is given `--index`, the
+  index the viewer holds (`Grasp.IndexStore.path/0`), and `--out`, the results document the
+  viewer watches (`Grasp.ResultsStore.path/0`), so it resolves the ids the viewer checked
+  against the index they were checked in and writes where the badges and `run_status` read,
+  whatever the project's own config names. The `:index` and `:out` options name others. The
+  ids follow a `--`, which ends the task's switches, so no id is ever read as one whatever
+  it starts with. The description names the one test a run of one runs, and counts the
+  tests of any other.
   """
   @spec start_tests([String.t(), ...], keyword()) ::
           {:ok, run()}
@@ -122,23 +127,35 @@ defmodule Grasp.Runs do
         ids -> "mix grasp.test (#{length(ids)} tests)"
       end
 
-    start(:tests, command() ++ ["grasp.test", "--" | test_ids],
+    paths = paths(opts, &Grasp.ResultsStore.path/0)
+
+    start(:tests, command() ++ ["grasp.test" | paths] ++ ["--" | test_ids],
       description: Keyword.get(opts, :description, description),
       root: opts[:root]
     )
   end
 
   @doc """
-  Starts a coverage run, as `start/3` does: `mix grasp.cover`, behind `command/0`'s command.
+  Starts a coverage run, as `start/3` does: `mix grasp.cover`, behind `command/0`'s command,
+  given `--index`, the index the viewer holds, and `--out`, the coverage document the viewer
+  watches (`Grasp.CoverageStore.path/0`), as `start_tests/2` gives the test task its paths.
+  The `:index` and `:out` options name others.
   """
   @spec start_coverage(keyword()) ::
           {:ok, run()}
           | {:error, {:running, run()} | :no_command | {:no_root, Path.t()}}
   def start_coverage(opts \\ []) do
-    start(:coverage, command() ++ ["grasp.cover"],
+    paths = paths(opts, &Grasp.CoverageStore.path/0)
+
+    start(:coverage, command() ++ ["grasp.cover" | paths],
       description: Keyword.get(opts, :description, "mix grasp.cover"),
       root: opts[:root]
     )
+  end
+
+  defp paths(opts, out) do
+    index = Keyword.get_lazy(opts, :index, &Grasp.IndexStore.path/0)
+    ["--index", index, "--out", Keyword.get_lazy(opts, :out, out)]
   end
 
   @doc """

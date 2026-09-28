@@ -5,7 +5,7 @@ defmodule Grasp.MCP.RunToolsTest do
 
   alias Anubis.Server.Frame
   alias Anubis.Server.Response
-  alias Grasp.{IndexStore, ResultsStore, Runs, TestResults}
+  alias Grasp.{CoverageStore, IndexStore, ResultsStore, Runs, TestResults}
   alias Grasp.MCP.Tools
 
   @fixture Path.expand("../../fixtures/index.json", __DIR__)
@@ -69,7 +69,7 @@ defmodule Grasp.MCP.RunToolsTest do
                "line_count" => 0
              } = run
 
-      assert run["argv"] == Runs.command() ++ ["grasp.test", "--", @init, @reply]
+      assert run["argv"] == tests_argv([@init, @reply])
       refute Map.has_key?(run, "finished_at")
       id = run["id"]
       assert_receive {:run_finished, %{id: ^id, exit_status: 0}}, 2_000
@@ -108,7 +108,7 @@ defmodule Grasp.MCP.RunToolsTest do
       on_exit(fn -> :ok = IndexStore.load(@fixture) end)
 
       assert %{"started" => %{"argv" => argv}} = ok!(Tools.RunTests, %{changed: true})
-      assert argv == Runs.command() ++ ["grasp.test", "--", @reply, @plain]
+      assert argv == tests_argv([@reply, @plain])
       assert_receive {:run_finished, _run}, 2_000
     end
 
@@ -130,14 +130,19 @@ defmodule Grasp.MCP.RunToolsTest do
       assert %{"started" => %{"kind" => "coverage", "description" => "mix grasp.cover"} = run} =
                ok!(Tools.RunCoverage)
 
-      assert run["argv"] == Runs.command() ++ ["grasp.cover"]
+      assert run["argv"] ==
+               Runs.command() ++
+                 ["grasp.cover", "--index", IndexStore.path(), "--out", CoverageStore.path()]
+
       assert_receive {:run_finished, %{kind: :coverage}}, 2_000
     end
   end
 
   describe "run_status" do
     test "answers idle before any run" do
-      # The server is the whole suite's, so only a fresh one has run nothing.
+      # The server is the whole suite's, so only a fresh one has run nothing. Restarting it
+      # is safe here: this module runs alone, the stores hear runs through PubSub rather than
+      # through the server's pid, and no other module reads the last run across tests.
       :ok = Supervisor.terminate_child(Grasp.Supervisor, Runs)
       {:ok, _pid} = Supervisor.restart_child(Grasp.Supervisor, Runs)
 
@@ -267,6 +272,71 @@ defmodule Grasp.MCP.RunToolsTest do
                ok!(Tools.RunStatus)
     end
 
+    test "answers a finished run's results before the store has heard it finish", %{
+      results: results
+    } do
+      staged = results <> ".staged"
+      on_exit(fn -> File.rm(staged) end)
+      write_results_when_staged(staged, results)
+
+      assert %{"started" => %{"id" => id}} = ok!(Tools.RunTests, %{test_ids: [@init]})
+      :ok = :sys.suspend(ResultsStore)
+      on_exit(fn -> :sys.resume(ResultsStore) end)
+      stage(staged, [@init], DateTime.utc_now())
+      assert_receive {:run_finished, %{id: ^id, exit_status: 0}}, 2_000
+
+      # The store holds the document from before the run, and has not read the one the run
+      # wrote: the answer waits for a read of it rather than answering from the old one.
+      assert ResultsStore.get() == nil
+      status = Task.async(fn -> ok!(Tools.RunStatus) end)
+      assert Task.yield(status, 200) == nil
+
+      :ok = :sys.resume(ResultsStore)
+
+      assert {:ok, %{"last" => %{"id" => ^id, "tests" => tests}}} = Task.yield(status, 2_000)
+      assert tests == [%{"id" => @init, "status" => "passed"}]
+    end
+
+    test "answers from the store without a read once it has read the run's results", %{
+      results: results
+    } do
+      staged = results <> ".staged"
+      on_exit(fn -> File.rm(staged) end)
+      write_results_when_staged(staged, results)
+
+      assert %{"started" => %{"id" => id}} = ok!(Tools.RunTests, %{test_ids: [@init]})
+      stage(staged, [@init], DateTime.utc_now())
+      assert_receive {:run_finished, %{id: ^id}}, 2_000
+      :ok = ResultsStore.reload()
+
+      :ok = :sys.suspend(ResultsStore)
+      on_exit(fn -> :sys.resume(ResultsStore) end)
+      status = Task.async(fn -> ok!(Tools.RunStatus) end)
+
+      assert {:ok, %{"last" => %{"tests" => [%{"id" => @init, "status" => "passed"}]}}} =
+               Task.yield(status, 1_000)
+    end
+
+    test "a result finishing in the millisecond the run started is the run's", %{
+      results: results
+    } do
+      assert %{"started" => %{"id" => id}} = ok!(Tools.RunTests, %{test_ids: [@init]})
+      assert_receive {:run_finished, %{id: ^id, started_at: started_at}}, 2_000
+
+      document =
+        TestResults.merge(nil, %{@init => %{"status" => "passed"}}, %{
+          run_id: "r1",
+          finished_at: started_at |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601(),
+          index: IndexStore.get()
+        })
+
+      :ok = TestResults.write(document, results)
+      :ok = ResultsStore.reload()
+
+      assert %{"last" => %{"tests" => [%{"id" => @init, "status" => "passed"}]}} =
+               ok!(Tools.RunStatus)
+    end
+
     test "a cancelled run answers a null exit status" do
       hold_the_run()
       assert %{"started" => %{"id" => id}} = ok!(Tools.RunTests, %{test_ids: [@init]})
@@ -278,6 +348,38 @@ defmodule Grasp.MCP.RunToolsTest do
 
       assert last["tests"] == [%{"id" => @init, "status" => "none"}]
     end
+  end
+
+  defp tests_argv(ids) do
+    Runs.command() ++
+      ["grasp.test", "--index", IndexStore.path(), "--out", ResultsStore.path(), "--" | ids]
+  end
+
+  # A stand-in for the task that writes the results document once the test has staged it,
+  # so the document carries a finish time taken after the run started.
+  defp write_results_when_staged(staged, results) do
+    Application.put_env(:grasp, :runs_command, [
+      "sh",
+      "-c",
+      ~S|while [ ! -f "$1" ]; do sleep 0.02; done; cp "$1" "$2"|,
+      "fake-mix",
+      staged,
+      results
+    ])
+  end
+
+  defp stage(staged, ids, finished_at) do
+    results = Map.new(ids, &{&1, %{"status" => "passed"}})
+
+    document =
+      TestResults.merge(nil, results, %{
+        run_id: "r1",
+        finished_at: DateTime.to_iso8601(finished_at),
+        index: IndexStore.get()
+      })
+
+    :ok = TestResults.write(document, staged <> ".tmp")
+    File.rename!(staged <> ".tmp", staged)
   end
 
   defp frame(module, function, arity, file, line),

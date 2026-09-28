@@ -15,6 +15,10 @@ defmodule Grasp.MCP.Tools.RunStatus do
     (`id`, `file`, `line`), `null` when none is;
   - `{"idle": true}` before any run.
 
+  A test run's statuses are read from a results document `Grasp.ResultsStore` read after the
+  run finished: when the store's last read began before the finish, the tool reloads it
+  first rather than answer from the document as it stood before the run wrote it.
+
   A test's id quotes its name, as in `SampleApp.CheckTest."test counts"/1`; read it, or
   the function its failure's frame names, with `get_function`.
   """
@@ -37,6 +41,8 @@ defmodule Grasp.MCP.Tools.RunStatus do
         Tools.reply(frame, %{"idle" => true})
 
       %{current: :idle, last: %{kind: :tests} = last} ->
+        read_since(last)
+
         case Tools.index() do
           {:ok, index} ->
             run = Map.put(Tools.run(last), "tests", tests(index, last))
@@ -52,6 +58,15 @@ defmodule Grasp.MCP.Tools.RunStatus do
       %{current: run} ->
         output = Enum.take(run.output, -@output_lines)
         Tools.reply(frame, %{"running" => Map.put(Tools.run(run), "output", output)})
+    end
+  end
+
+  # The store reloads the document once it hears the run finish, and a read landing before
+  # that would find the results as they stood before the run.
+  defp read_since(%{finished_at: finished_at}) do
+    case Grasp.ResultsStore.read_at() do
+      nil -> Grasp.ResultsStore.reload()
+      read_at -> if DateTime.before?(read_at, finished_at), do: Grasp.ResultsStore.reload()
     end
   end
 
@@ -91,11 +106,16 @@ defmodule Grasp.MCP.Tools.RunStatus do
   end
 
   # A result recorded before the run started belongs to an earlier run: this one recorded
-  # nothing for the test.
+  # nothing for the test. The formatter stamps a result to the millisecond, so the run's start
+  # is cut to the same resolution: a result finishing in the millisecond the run started
+  # would otherwise read as earlier than it.
   defp recorded_since?(%{"finished_at" => finished_at}, started_at) when is_binary(finished_at) do
     case DateTime.from_iso8601(finished_at) do
-      {:ok, finished_at, _offset} -> DateTime.compare(finished_at, started_at) != :lt
-      {:error, _reason} -> false
+      {:ok, finished_at, _offset} ->
+        not DateTime.before?(finished_at, DateTime.truncate(started_at, :millisecond))
+
+      {:error, _reason} ->
+        false
     end
   end
 
