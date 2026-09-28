@@ -98,6 +98,8 @@
           this.pushEvent("toggle_context_focused", {});
         } else if (e.key.toLowerCase() === "s") {
           window.dispatchEvent(new CustomEvent("grasp:toggle-signatures"));
+        } else if (e.key.toLowerCase() === "v") {
+          window.dispatchEvent(new CustomEvent("grasp:toggle-coverage"));
         } else if (e.key.toLowerCase() === "m") {
           window.dispatchEvent(new CustomEvent("grasp:toggle-modules"));
         } else if (e.key.toLowerCase() === "f") {
@@ -137,6 +139,7 @@
       this.zoomLevel = this.el.querySelector("#zoom-level");
       this.view = { x: MARGIN, y: MARGIN, scale: 1 };
       this.signatures = false;
+      this.coverage = false;
       this.modules = true;
       document.body.classList.toggle("grasp-modules", this.modules);
       this.frames = [];
@@ -167,6 +170,7 @@
       this.onZoomReset = () => this.resetZoom();
       this.onToggleSignatures = () => this.toggleSignatures();
       this.onToggleModules = () => this.toggleModules();
+      this.onToggleCoverage = () => this.toggleCoverage();
       this.onZoomFit = () => this.fit();
       this.onSpaceRelease = () => this.releaseSpace();
       this.el.addEventListener("wheel", this.onWheel, { passive: false });
@@ -182,6 +186,7 @@
       window.addEventListener("grasp:zoom-reset", this.onZoomReset);
       window.addEventListener("grasp:toggle-signatures", this.onToggleSignatures);
       window.addEventListener("grasp:toggle-modules", this.onToggleModules);
+      window.addEventListener("grasp:toggle-coverage", this.onToggleCoverage);
       window.addEventListener("grasp:zoom-fit", this.onZoomFit);
       window.addEventListener("blur", this.onSpaceRelease);
       document.addEventListener("visibilitychange", this.onSpaceRelease);
@@ -206,6 +211,7 @@
       this.draw();
     },
     updated() {
+      this.syncCoverageToggle();
       this.el.querySelectorAll(".node[style*='translate']").forEach((node) => node.style.translate = "");
       this.observeCards();
       this.placeCards();
@@ -240,6 +246,7 @@
       window.removeEventListener("grasp:zoom-reset", this.onZoomReset);
       window.removeEventListener("grasp:toggle-signatures", this.onToggleSignatures);
       window.removeEventListener("grasp:toggle-modules", this.onToggleModules);
+      window.removeEventListener("grasp:toggle-coverage", this.onToggleCoverage);
       window.removeEventListener("grasp:zoom-fit", this.onZoomFit);
       window.removeEventListener("blur", this.onSpaceRelease);
       document.removeEventListener("visibilitychange", this.onSpaceRelease);
@@ -247,6 +254,7 @@
       document.body.classList.remove("grasp-dragging");
       document.body.classList.remove("grasp-signatures");
       document.body.classList.remove("grasp-modules");
+      document.body.classList.remove("grasp-coverage");
       this.resizeObserver.disconnect();
       this.cardObserver.disconnect();
       if (this.remeasureFrame !== null) cancelAnimationFrame(this.remeasureFrame);
@@ -336,7 +344,7 @@
         return;
       }
       const control = e.target.closest(
-        "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules"
+        "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-coverage"
       );
       if (!control) return;
       e.stopPropagation();
@@ -347,6 +355,7 @@
       else if (control.id === "zoom-level") this.resetZoom();
       else if (control.id === "toggle-signatures") this.toggleSignatures();
       else if (control.id === "toggle-modules") this.toggleModules();
+      else if (control.id === "toggle-coverage") this.toggleCoverage();
       else this.fit();
     },
     // Signature mode. The class lives on <body>, which the server never renders, so a patch
@@ -372,6 +381,26 @@
       const button = document.getElementById("toggle-modules");
       if (button) button.setAttribute("aria-pressed", String(this.modules));
       this.draw();
+    },
+    // Coverage mode. The class lives on <body> and the button carries phx-update="ignore" for
+    // the reasons signature mode does. A stale card's note shows only in the mode, so a card
+    // may take another size with it.
+    toggleCoverage() {
+      const button = document.getElementById("toggle-coverage");
+      if (!this.coverage && button?.dataset.available !== "true") return;
+      this.coverage = !this.coverage;
+      this.markRemeasure();
+      document.body.classList.toggle("grasp-coverage", this.coverage);
+      if (button) button.setAttribute("aria-pressed", String(this.coverage));
+      this.draw();
+    },
+    // A patch writes only the data attributes of an ignored element, so `disabled` is carried
+    // over from `data-available` by hand, and a mode left on with nothing loaded is turned off.
+    syncCoverageToggle() {
+      const button = document.getElementById("toggle-coverage");
+      if (!button) return;
+      button.disabled = button.dataset.available !== "true";
+      if (button.disabled && this.coverage) this.toggleCoverage();
     },
     wheel(e) {
       if (e.target.closest?.(".toolbar")) return;

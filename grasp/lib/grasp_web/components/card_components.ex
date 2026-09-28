@@ -20,6 +20,11 @@ defmodule GraspWeb.CardComponents do
   menu. A row opens the calls between its test and the function, each record a caller of
   the next. The answers are the LiveView's, held in a `GraspWeb.TestReach`, so a card reads them
   rather than walking the index as it renders.
+
+  Coverage is read the same way, from a `GraspWeb.CardCoverage` the LiveView holds: a fresh
+  reading marks the body's counted lines and the clauses and arms never entered, and a stale
+  one puts `coverage stale` in the header and marks nothing. Both are drawn only while the
+  reader has the coverage mode on, which is the page's CSS and not the card's markup.
   """
 
   use GraspWeb, :html
@@ -32,6 +37,7 @@ defmodule GraspWeb.CardComponents do
   alias Grasp.Diff.Hunks
   alias Grasp.Index
   alias Grasp.Session.Forest
+  alias GraspWeb.CardCoverage
   alias GraspWeb.TestReach
 
   @stdlib_apps [:elixir, :logger, :eex, :ex_unit, :mix, :iex]
@@ -55,6 +61,11 @@ defmodule GraspWeb.CardComponents do
   attr :editor, :string, default: nil
   attr :callers_open, :integer, default: nil
   attr :test_reach, TestReach, doc: "the tests reaching each card's function", default: nil
+
+  attr :coverage, CardCoverage,
+    doc: "how each card's function reads in the coverage",
+    default: nil
+
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
   attr :composing, :map, doc: "the anchor a comment is being written at", default: nil
@@ -99,6 +110,7 @@ defmodule GraspWeb.CardComponents do
         editor={@editor}
         callers_open={@callers_open}
         test_reach={@test_reach}
+        coverage={@coverage}
         selected={@selected}
         comments={@comments}
         composing={@composing}
@@ -116,6 +128,11 @@ defmodule GraspWeb.CardComponents do
   attr :editor, :string, default: nil
   attr :callers_open, :integer, default: nil
   attr :test_reach, TestReach, doc: "the tests reaching each card's function", default: nil
+
+  attr :coverage, CardCoverage,
+    doc: "how each card's function reads in the coverage",
+    default: nil
+
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
   attr :composing, :map, doc: "the anchor a comment is being written at", default: nil
@@ -234,11 +251,16 @@ defmodule GraspWeb.CardComponents do
     # by definition, and says so by carrying no context at all.
     context = view == :diff && Forest.effective_context(card.context, loc(record))
 
+    # The reading is taken once per coverage document and index and held by the LiveView;
+    # a stale one tints nothing, since its counts describe a body other than this one.
+    coverage = CardCoverage.for_function(assigns.coverage, record["id"])
+
     highlight_opts = [
       card_id: card.id,
       open_calls: assigns.open_calls,
       external?: external?,
-      highlight: card.highlight
+      highlight: card.highlight,
+      coverage: if(is_map(coverage), do: coverage)
     ]
 
     # A thread names a line, not a rendered one: the code under it moves, so where each one
@@ -326,6 +348,7 @@ defmodule GraspWeb.CardComponents do
     assigns =
       assign(assigns,
         focused?: forest.focus == card.id,
+        coverage_stale?: coverage == :stale,
         lines: lines,
         placed: placed,
         aside: aside,
@@ -401,6 +424,13 @@ defmodule GraspWeb.CardComponents do
           <span :if={!@title.badge} class="card__kind">{@record["kind"]}</span>
         </h2>
         <span :if={@stats} class="card__stats">+{@stats.added} −{@stats.removed}</span>
+        <span
+          :if={@coverage_stale?}
+          class="card__coverage"
+          title="These counts describe another version of this function"
+        >
+          coverage stale
+        </span>
         <div class="card__tools">
           <a :if={@editor_href} class="card__file" href={@editor_href}>
             {@record["file"]}:{@record["span"]["start_line"]}

@@ -33,9 +33,10 @@ defmodule GraspWeb.ReviewLive do
   import GraspWeb.Palette
   import GraspWeb.Sidebar
 
-  alias Grasp.{Index, IndexStore, Links, Session}
+  alias Grasp.{CoverageStore, Index, IndexStore, Links, Session}
   alias Grasp.Session.Disk
   alias Grasp.Session.Forest
+  alias GraspWeb.CardCoverage
   alias GraspWeb.TestReach
 
   @groups GraspWeb.Sidebar.group_kinds()
@@ -68,6 +69,7 @@ defmodule GraspWeb.ReviewLive do
       :ok = Session.subscribe(name)
       :ok = Grasp.Agent.subscribe(name)
       :ok = IndexStore.subscribe()
+      :ok = CoverageStore.subscribe()
       :ok = Grasp.Comments.subscribe()
     end
 
@@ -81,6 +83,7 @@ defmodule GraspWeb.ReviewLive do
       index_path: IndexStore.path(),
       forest: forest,
       test_reach: TestReach.refresh(TestReach.new(), index, forest),
+      coverage: CardCoverage.refresh(CardCoverage.new(), CoverageStore.snapshot(), index, forest),
       sessions: Session.list(),
       session_menu_open?: false,
       new_session_name: "",
@@ -128,12 +131,20 @@ defmodule GraspWeb.ReviewLive do
      assign(socket,
        index: index,
        test_reach: TestReach.refresh(socket.assigns.test_reach, index, socket.assigns.forest),
+       coverage: refresh_coverage(socket.assigns.coverage, index, socket.assigns.forest),
        expanded_groups: default_expanded(index, open_threads(socket.assigns.name)),
        selected: MapSet.new(),
        expanded_folds: MapSet.new(),
        index_error: IndexStore.last_error(),
        index_path: IndexStore.path()
      )}
+  end
+
+  # Another coverage document reads every card again; each card whose reading differs
+  # re-renders, and the toolbar's toggle follows whether there is anything to show.
+  def handle_info(:coverage_reloaded, socket) do
+    %{coverage: held, index: index, forest: forest} = socket.assigns
+    {:noreply, assign(socket, coverage: refresh_coverage(held, index, forest))}
   end
 
   # A thread belongs to the session it was written in, so a change made in another tab on
@@ -984,11 +995,15 @@ defmodule GraspWeb.ReviewLive do
     assign(socket,
       forest: forest,
       test_reach: TestReach.refresh(socket.assigns.test_reach, socket.assigns.index, forest),
+      coverage: refresh_coverage(socket.assigns.coverage, socket.assigns.index, forest),
       selected: MapSet.filter(socket.assigns.selected, on_canvas?),
       expanded_folds:
         MapSet.filter(socket.assigns.expanded_folds, fn {id, _from} -> on_canvas?.(id) end)
     )
   end
+
+  defp refresh_coverage(held, index, forest),
+    do: CardCoverage.refresh(held, CoverageStore.snapshot(), index, forest)
 
   # The callers menu is addressed by the id of the card it hangs off, so one left open on a
   # card that is closing would have nothing to render against.
@@ -1280,6 +1295,21 @@ defmodule GraspWeb.ReviewLive do
           >
             signatures
           </button>
+          <%!-- The coverage mode is the hook's like signature mode. Only a data attribute of an
+          ignored element follows a patch, so whether a document is loaded travels as
+          `data-available` and the hook keeps `disabled` in step with it. --%>
+          <button
+            type="button"
+            id="toggle-coverage"
+            phx-update="ignore"
+            aria-pressed="false"
+            disabled={!CardCoverage.loaded?(@coverage)}
+            data-available={to_string(CardCoverage.loaded?(@coverage))}
+            data-tip="What the suite ran"
+            data-key="V"
+          >
+            coverage
+          </button>
           <%!-- Module clusters are the hook's too, and are drawn until the reader turns them
           off, so the button is rendered pressed and kept out of every patch. --%>
           <button
@@ -1413,6 +1443,7 @@ defmodule GraspWeb.ReviewLive do
               editor={@editor}
               callers_open={@callers_open}
               test_reach={@test_reach}
+              coverage={@coverage}
               selected={MapSet.member?(@selected, node.id)}
               comments={@comments}
               composing={@composing}

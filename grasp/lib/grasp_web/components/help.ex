@@ -63,6 +63,8 @@ defmodule GraspWeb.Help do
           <dd>Fold the unchanged lines.</dd>
           <dt><kbd>s</kbd></dt>
           <dd>Signatures instead of code.</dd>
+          <dt><kbd>v</kbd></dt>
+          <dd>What the suite ran, and the clauses it never entered.</dd>
           <dt><kbd>m</kbd></dt>
           <dd>Module frames round the cards.</dd>
           <dt><kbd>f</kbd></dt>

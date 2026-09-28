@@ -36,6 +36,12 @@
 // the one line that names it. The zoom decides nothing about it, so a canvas stays as it is
 // read wherever it is panned or zoomed to.
 //
+// Coverage mode is the same kind of mode, from the toolbar or with `v`: the hook puts
+// `grasp-coverage` on <body>, and app.css tints the lines the server marked as run or never
+// run and draws the clauses never entered. The toggle is disabled while no coverage is
+// loaded; the server says which through the button's `data-available`, the one kind of
+// attribute a patch still writes on an ignored element.
+//
 // A frame's title is a handle too: Ctrl+drag on it moves every card of that group at once.
 //
 // Inside a frame the cards of one module are framed together again, with the module's name
@@ -103,6 +109,7 @@ const Canvas = {
     this.zoomLevel = this.el.querySelector("#zoom-level")
     this.view = {x: MARGIN, y: MARGIN, scale: 1}
     this.signatures = false
+    this.coverage = false
     // Clusters are drawn until the reader turns them off, which is what the toolbar button
     // renders pressed.
     this.modules = true
@@ -149,6 +156,7 @@ const Canvas = {
     this.onZoomReset = () => this.resetZoom()
     this.onToggleSignatures = () => this.toggleSignatures()
     this.onToggleModules = () => this.toggleModules()
+    this.onToggleCoverage = () => this.toggleCoverage()
     this.onZoomFit = () => this.fit()
     this.onSpaceRelease = () => this.releaseSpace()
     this.el.addEventListener("wheel", this.onWheel, {passive: false})
@@ -164,6 +172,7 @@ const Canvas = {
     window.addEventListener("grasp:zoom-reset", this.onZoomReset)
     window.addEventListener("grasp:toggle-signatures", this.onToggleSignatures)
     window.addEventListener("grasp:toggle-modules", this.onToggleModules)
+    window.addEventListener("grasp:toggle-coverage", this.onToggleCoverage)
     window.addEventListener("grasp:zoom-fit", this.onZoomFit)
     // A hold that ends while the page is in the background never delivers its keyup, which
     // would leave the canvas panning on the next press.
@@ -204,6 +213,7 @@ const Canvas = {
   },
 
   updated() {
+    this.syncCoverageToggle()
     // The server has rendered the positions; drop any inline translate left by a drag.
     this.el
       .querySelectorAll(".node[style*='translate']")
@@ -243,6 +253,7 @@ const Canvas = {
     window.removeEventListener("grasp:zoom-reset", this.onZoomReset)
     window.removeEventListener("grasp:toggle-signatures", this.onToggleSignatures)
     window.removeEventListener("grasp:toggle-modules", this.onToggleModules)
+    window.removeEventListener("grasp:toggle-coverage", this.onToggleCoverage)
     window.removeEventListener("grasp:zoom-fit", this.onZoomFit)
     window.removeEventListener("blur", this.onSpaceRelease)
     document.removeEventListener("visibilitychange", this.onSpaceRelease)
@@ -250,6 +261,7 @@ const Canvas = {
     document.body.classList.remove("grasp-dragging")
     document.body.classList.remove("grasp-signatures")
     document.body.classList.remove("grasp-modules")
+    document.body.classList.remove("grasp-coverage")
     this.resizeObserver.disconnect()
     this.cardObserver.disconnect()
     if (this.remeasureFrame !== null) cancelAnimationFrame(this.remeasureFrame)
@@ -363,7 +375,7 @@ const Canvas = {
       return
     }
     const control = e.target.closest(
-      "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules",
+      "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-coverage",
     )
     if (!control) return
     // The zoom buttons and the signature toggle are the hook's alone, so nothing should reach
@@ -377,6 +389,7 @@ const Canvas = {
     else if (control.id === "zoom-level") this.resetZoom()
     else if (control.id === "toggle-signatures") this.toggleSignatures()
     else if (control.id === "toggle-modules") this.toggleModules()
+    else if (control.id === "toggle-coverage") this.toggleCoverage()
     else this.fit()
   },
 
@@ -406,6 +419,28 @@ const Canvas = {
     const button = document.getElementById("toggle-modules")
     if (button) button.setAttribute("aria-pressed", String(this.modules))
     this.draw()
+  },
+
+  // Coverage mode. The class lives on <body> and the button carries phx-update="ignore" for
+  // the reasons signature mode does. A stale card's note shows only in the mode, so a card
+  // may take another size with it.
+  toggleCoverage() {
+    const button = document.getElementById("toggle-coverage")
+    if (!this.coverage && button?.dataset.available !== "true") return
+    this.coverage = !this.coverage
+    this.markRemeasure()
+    document.body.classList.toggle("grasp-coverage", this.coverage)
+    if (button) button.setAttribute("aria-pressed", String(this.coverage))
+    this.draw()
+  },
+
+  // A patch writes only the data attributes of an ignored element, so `disabled` is carried
+  // over from `data-available` by hand, and a mode left on with nothing loaded is turned off.
+  syncCoverageToggle() {
+    const button = document.getElementById("toggle-coverage")
+    if (!button) return
+    button.disabled = button.dataset.available !== "true"
+    if (button.disabled && this.coverage) this.toggleCoverage()
   },
 
   wheel(e) {

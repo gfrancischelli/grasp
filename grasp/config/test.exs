@@ -34,6 +34,12 @@ config :grasp,
   comments_path:
     Path.join(System.tmp_dir!(), "grasp-test-#{System.os_time(:millisecond)}/comments.json")
 
+# Coverage is read from a temporary file of its own, which no test leaves behind: a store
+# watching the fixture directory would read whatever a stray run wrote there.
+config :grasp,
+  coverage_path:
+    Path.join(System.tmp_dir!(), "grasp-test-#{System.os_time(:millisecond)}/coverage.json")
+
 # And the sessions to a temporary directory of their own, one per run.
 config :grasp,
   sessions_dir:

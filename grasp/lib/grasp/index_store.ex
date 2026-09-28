@@ -182,11 +182,17 @@ defmodule Grasp.IndexStore do
 
   defp schedule_poll, do: Process.send_after(self(), :poll, @poll_ms)
 
+  @doc """
+  The index file the store watches unless started with a `:path` of its own: the
+  `:grasp, :index_path` config, and `.grasp/index.json` under `Grasp.Application.home/0`
+  when that is unset.
+  """
   # Home rather than the working directory: an index written for a worktree still belongs
   # to the reader's own checkout, and that is the directory the comments file, the sessions
   # and the reindexer's own idea of "this project" are all anchored to. Before Grasp has
   # started there is no home, and the working directory is the same thing.
-  defp configured_path do
+  @spec configured_path() :: Path.t()
+  def configured_path do
     Application.get_env(:grasp, :index_path) ||
       Path.join(Grasp.Application.home() || File.cwd!(), ".grasp/index.json")
   end

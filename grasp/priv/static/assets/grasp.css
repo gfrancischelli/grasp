@@ -35,6 +35,9 @@
   --diff-del-bg: #ffebe9;
   --diff-ins-fg: #1a7f37;
   --diff-del-fg: #cf222e;
+  --coverage-run-bg: color-mix(in oklch, #1a7f37 12%, transparent);
+  --coverage-missed-bg: color-mix(in oklch, #cf222e 14%, transparent);
+  --coverage-gap: #cf222e;
   --sidebar-width: 18rem;
   --code-size: 13px;
   --far-size: 10px;
@@ -397,6 +400,10 @@ kbd {
 }
 .toolbar button:hover {
   color: var(--fg);
+}
+.toolbar button:disabled {
+  color: var(--fg-faint);
+  cursor: default;
 }
 .toolbar button[aria-pressed=true] {
   color: var(--fg);
@@ -767,6 +774,15 @@ body.grasp-dragging .module__title {
   font-size: 12px;
   white-space: nowrap;
 }
+.card__coverage {
+  display: none;
+  color: var(--focus);
+  font-size: 12px;
+  white-space: nowrap;
+}
+body.grasp-coverage .card__coverage {
+  display: inline;
+}
 .card__view,
 .card__context,
 .card__collapse,
@@ -896,6 +912,27 @@ body.grasp-dragging .module__title {
 }
 .line[data-op=del] {
   background: var(--diff-del-bg);
+}
+:where(body.grasp-coverage) .line[data-coverage=run] {
+  background: var(--coverage-run-bg);
+}
+:where(body.grasp-coverage) .line[data-coverage=missed] {
+  background: var(--coverage-missed-bg);
+}
+:where(body.grasp-coverage) .line[data-gap] {
+  box-shadow: inset 3px 0 var(--coverage-gap);
+}
+.gap-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  user-select: none;
+}
+body:not(.grasp-coverage) .gap-label {
+  display: none;
 }
 .line[data-commented] {
   background: var(--accent-soft);
@@ -1126,6 +1163,7 @@ body.grasp-signatures #stage .card__title,
 body.grasp-signatures #stage .card__kind,
 body.grasp-signatures #stage .badge,
 body.grasp-signatures #stage .card__stats,
+body.grasp-signatures #stage .card__coverage,
 body.grasp-signatures #stage .card__tools {
   font-size: inherit;
 }

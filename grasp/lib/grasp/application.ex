@@ -1,8 +1,8 @@
 defmodule Grasp.Application do
   @moduledoc """
-  Supervision tree of Grasp: PubSub, the index store, the review comments store, the
-  session and agent registries and supervisors, the MCP server the `/mcp` route forwards
-  to, and — only when standalone — the viewer's own endpoint.
+  Supervision tree of Grasp: PubSub, the index store, the coverage store, the review
+  comments store, the session and agent registries and supervisors, the MCP server the
+  `/mcp` route forwards to, and — only when standalone — the viewer's own endpoint.
 
   The review comments and the saved sessions are the reader's own, so they are kept under
   the directory Grasp started in rather than under the project root the index names — a
@@ -80,6 +80,7 @@ defmodule Grasp.Application do
     core = [
       {Phoenix.PubSub, name: Grasp.PubSub},
       {Grasp.IndexStore, []},
+      {Grasp.CoverageStore, []},
       {Grasp.Comments, []},
       {Registry, keys: :unique, name: Grasp.SessionRegistry},
       {DynamicSupervisor, name: Grasp.SessionSupervisor, strategy: :one_for_one},

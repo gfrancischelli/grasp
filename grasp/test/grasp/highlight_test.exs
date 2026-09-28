@@ -423,6 +423,57 @@ defmodule Grasp.HighlightTest do
     assert LazyHTML.attribute(plain, "title") == []
   end
 
+  describe "coverage" do
+    @coverage %{lines: %{10 => "run", 11 => "missed"}, gaps: %{11 => "arm"}}
+
+    test "a counted line says whether it ran, and an uncounted one says nothing" do
+      html = render(coverage: @coverage)
+
+      assert LazyHTML.attribute(LazyHTML.query(html, ".line[data-line='10']"), "data-coverage") ==
+               ["run"]
+
+      assert LazyHTML.attribute(LazyHTML.query(html, ".line[data-line='11']"), "data-coverage") ==
+               ["missed"]
+
+      assert LazyHTML.query(html, ".line[data-line='12'][data-coverage]") |> Enum.count() == 0
+      assert LazyHTML.query(html, ".line[data-line='13'][data-coverage]") |> Enum.count() == 0
+    end
+
+    test "the first line of a gap carries its kind and words for a screen reader" do
+      html = render(coverage: @coverage)
+
+      assert LazyHTML.attribute(LazyHTML.query(html, ".line[data-gap]"), "data-gap") == ["arm"]
+
+      assert html |> LazyHTML.query(".line[data-line='11'] .gap-label") |> LazyHTML.text() ==
+               "never entered"
+
+      assert LazyHTML.query(html, ".gap-label") |> Enum.count() == 1
+    end
+
+    test "without coverage no line is marked" do
+      html = render_string(@record, [])
+
+      refute html =~ "data-coverage"
+      refute html =~ "data-gap"
+      refute html =~ "never entered"
+    end
+
+    test "in a diff only the inserted lines carry the tint; a gap is marked on a kept line too" do
+      coverage = %{lines: %{5 => "run", 6 => "missed"}, gaps: %{6 => "clause"}}
+      html = @diff_record |> render_diff(coverage: coverage) |> LazyHTML.from_fragment()
+
+      assert LazyHTML.attribute(LazyHTML.query(html, ".line[data-op='ins']"), "data-coverage") ==
+               ["run"]
+
+      assert LazyHTML.query(html, ".line[data-op='eq'][data-coverage]") |> Enum.count() == 0
+      assert LazyHTML.query(html, ".line[data-op='del'][data-coverage]") |> Enum.count() == 0
+
+      assert LazyHTML.attribute(LazyHTML.query(html, ".line[data-line='6']"), "data-gap") == [
+               "clause"
+             ]
+    end
+  end
+
   describe "diff_lines/2" do
     test "a deleted line is an old-side entry addressing its base line" do
       {:ok, index} = Grasp.Index.load(@fixture)

@@ -42,7 +42,12 @@ defmodule Grasp.Highlight do
   computed for. Without the table (a unit test with no store running) every render parses.
 
   A card's `highlight` — the call to outline or the range of lines to shade — is applied
-  as the HTML is built, after the cache, and so is never part of what is memoised.
+  as the HTML is built, after the cache, and so is never part of what is memoised, and so
+  is its `coverage`: a counted line carries `data-coverage="run|missed"`, and the first line
+  of a clause or arm never entered carries `data-gap="clause|arm"` and a visually hidden
+  `never entered` after its gutter. In a diff only an inserted line carries
+  `data-coverage`; a gap is marked on the line of the current source that begins it,
+  inserted or kept.
 
   `signature/1` renders a single line — the function's head, which is all a far-out card
   shows — from the same cached pieces, without the gutter and without the call spans.
@@ -84,8 +89,19 @@ defmodule Grasp.Highlight do
           open_calls: open_calls(),
           external?: (String.t() -> boolean()),
           highlight: nil | %{optional(String.t()) => String.t() | [integer()]},
-          commented: MapSet.t({:new | :old, pos_integer()})
+          commented: MapSet.t({:new | :old, pos_integer()}),
+          coverage: nil | coverage()
         ]
+
+  @typedoc """
+  What a card's coverage marks on its lines: `lines` names each counted line of the current
+  source `"run"` or `"missed"`, and `gaps` the first line of each clause or arm never
+  entered, `"clause"` or `"arm"`.
+  """
+  @type coverage :: %{
+          lines: %{pos_integer() => String.t()},
+          gaps: %{pos_integer() => String.t()}
+        }
 
   @typedoc """
   One rendered line: its `html`, the line number it is addressed by, which side of the diff
@@ -131,6 +147,7 @@ defmodule Grasp.Highlight do
     first_line = record["span"]["start_line"]
     highlight = Keyword.get(opts, :highlight)
     commented = Keyword.get(opts, :commented, MapSet.new())
+    coverage = Keyword.get(opts, :coverage)
     body = body_builder(record, opts)
 
     # Lines are driven by the source, not by the tokens: a blank line carries no piece, and
@@ -139,7 +156,7 @@ defmodule Grasp.Highlight do
 
     for line <- first_line..last_line do
       html =
-        ~s(<span class="line" data-line="#{line}"#{highlighted_line(highlight, line)}#{commented_line(commented, :new, line)}>#{gutter(card_id, :new, line, line)}#{body.(line)}</span>)
+        ~s(<span class="line" data-line="#{line}"#{highlighted_line(highlight, line)}#{commented_line(commented, :new, line)}#{covered_line(coverage, line)}#{gap_line(coverage, line)}>#{gutter(card_id, :new, line, line)}#{gap_label(coverage, line)}#{body.(line)}</span>)
 
       %{side: :new, line: line, op: :eq, html: html}
     end
@@ -183,6 +200,7 @@ defmodule Grasp.Highlight do
     card_id = Keyword.fetch!(opts, :card_id)
     highlight = Keyword.get(opts, :highlight)
     commented = Keyword.get(opts, :commented, MapSet.new())
+    coverage = Keyword.get(opts, :coverage)
     body = body_builder(record, opts)
 
     base_by_line =
@@ -204,8 +222,10 @@ defmodule Grasp.Highlight do
           {[%{side: :old, line: base, op: :del, html: html} | acc], current, base + 1}
 
         {op, _text}, {acc, current, base} ->
+          covered = if op == :ins, do: covered_line(coverage, current), else: ""
+
           html =
-            ~s(<span class="line" data-op="#{op}" data-line="#{current}"#{highlighted_line(highlight, current)}#{commented_line(commented, :new, current)}>#{gutter(card_id, :new, current, current)}<span class="op">#{mark(op)}</span>#{body.(current)}</span>)
+            ~s(<span class="line" data-op="#{op}" data-line="#{current}"#{highlighted_line(highlight, current)}#{commented_line(commented, :new, current)}#{covered}#{gap_line(coverage, current)}>#{gutter(card_id, :new, current, current)}#{gap_label(coverage, current)}<span class="op">#{mark(op)}</span>#{body.(current)}</span>)
 
           {[%{side: :new, line: current, op: op, html: html} | acc], current + 1,
            if(op == :eq, do: base + 1, else: base)}
@@ -625,6 +645,32 @@ defmodule Grasp.Highlight do
   defp commented_line(commented, side, line) do
     if MapSet.member?(commented, {side, line}), do: ~s( data-commented="true"), else: ""
   end
+
+  defp covered_line(%{lines: lines}, line) do
+    case Map.fetch(lines, line) do
+      {:ok, reading} -> ~s( data-coverage="#{reading}")
+      :error -> ""
+    end
+  end
+
+  defp covered_line(nil, _line), do: ""
+
+  defp gap_line(%{gaps: gaps}, line) do
+    case Map.fetch(gaps, line) do
+      {:ok, kind} -> ~s( data-gap="#{kind}")
+      :error -> ""
+    end
+  end
+
+  defp gap_line(nil, _line), do: ""
+
+  # The marker is drawn by CSS, which a screen reader does not read; the words are the same
+  # mark for one.
+  defp gap_label(%{gaps: gaps}, line) do
+    if Map.has_key?(gaps, line), do: ~s(<span class="gap-label">never entered</span>), else: ""
+  end
+
+  defp gap_label(nil, _line), do: ""
 
   defp wrap_calls(pieces, ranges, card_id, open, external?, highlighted_call) do
     pieces

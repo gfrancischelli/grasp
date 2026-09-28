@@ -69,6 +69,9 @@ const Keys = {
         // Signature mode is the Canvas hook's, so this is hook to hook through the DOM rather
         // than a round trip to the server.
         window.dispatchEvent(new CustomEvent("grasp:toggle-signatures"))
+      } else if (e.key.toLowerCase() === "v") {
+        // Coverage mode is the Canvas hook's, like signature mode.
+        window.dispatchEvent(new CustomEvent("grasp:toggle-coverage"))
       } else if (e.key.toLowerCase() === "m") {
         // The module frames are the Canvas hook's, like signature mode. The bare letter alone:
         // ⌘M is the sidebar, and it has already returned above.

@@ -37,6 +37,11 @@
   --diff-del-bg: #ffebe9;
   --diff-ins-fg: #1a7f37;
   --diff-del-fg: #cf222e;
+  /* Coverage: a line the suite ran, one it never ran, and the mark on a clause or arm it
+     never entered. */
+  --coverage-run-bg: color-mix(in oklch, #1a7f37 12%, transparent);
+  --coverage-missed-bg: color-mix(in oklch, #cf222e 14%, transparent);
+  --coverage-gap: #cf222e;
   --sidebar-width: 18rem;
   --code-size: 13px;
   /* What a counter-scaled label measures on screen at any zoom: see body.grasp-signatures. */
@@ -121,6 +126,7 @@ kbd { font-family: var(--mono); background: var(--bg-sunken); border: 1px solid 
 .toolbar { font-size: 13px; position: absolute; inset-block-end: var(--space-m); inset-inline-start: 50%; translate: -50% 0; z-index: 5; display: flex; align-items: center; gap: var(--space-xs); background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: var(--space-xs) var(--space-s); }
 .toolbar button { padding: var(--space-xs) var(--space-s); color: var(--fg-muted); }
 .toolbar button:hover { color: var(--fg); }
+.toolbar button:disabled { color: var(--fg-faint); cursor: default; }
 .toolbar button[aria-pressed="true"] { color: var(--fg); background: var(--bg-sunken); border-radius: 4px; }
 .toolbar__sep { align-self: stretch; width: 1px; background: var(--border); margin-inline: var(--space-xs); }
 .toolbar__zoom { min-width: 3.5em; text-align: center; color: var(--fg-muted); cursor: pointer; font-variant-numeric: tabular-nums; }
@@ -245,6 +251,8 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .callers__heading { padding: var(--space-xs) var(--space-s) 2px; border-top: 1px solid var(--border); margin-top: var(--space-xs); color: var(--fg-subtle); font-size: 11px; }
 .callers__heading:first-child { border-top: 0; margin-top: 0; }
 .card__stats { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
+.card__coverage { display: none; color: var(--focus); font-size: 12px; white-space: nowrap; }
+body.grasp-coverage .card__coverage { display: inline; }
 .card__view, .card__context, .card__collapse, .card__close { padding: 0 var(--space-xs); color: var(--fg-muted); }
 .card__view:hover, .card__context:hover { color: var(--accent); }
 .card__close:hover { color: var(--danger); }
@@ -285,6 +293,17 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .call[data-highlight="true"] { box-shadow: 0 0 0 2px var(--accent); border-radius: 2px; }
 .line[data-op="ins"] { background: var(--diff-ins-bg); }
 .line[data-op="del"] { background: var(--diff-del-bg); }
+/* Coverage mode, from the toolbar's `coverage` button and the `v` key: the lines the server
+   marked are tinted and the clauses never entered are marked only while <body> carries
+   `grasp-coverage`. The body class adds no specificity, so a commented, pointed-at or
+   selected line still reads as one, and the tint outranks the diff's own. */
+:where(body.grasp-coverage) .line[data-coverage="run"] { background: var(--coverage-run-bg); }
+:where(body.grasp-coverage) .line[data-coverage="missed"] { background: var(--coverage-missed-bg); }
+:where(body.grasp-coverage) .line[data-gap] { box-shadow: inset 3px 0 var(--coverage-gap); }
+/* The gap's words are for a screen reader: the bar is what the eye reads, and the words stay
+   out of a copied selection. Outside the mode there is nothing to read. */
+.gap-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; user-select: none; }
+body:not(.grasp-coverage) .gap-label { display: none; }
 /* A line an open thread covers, so a comment written over a range reads as one block of
    code rather than as a remark hanging off its last line. */
 .line[data-commented] { background: var(--accent-soft); }
@@ -359,7 +378,7 @@ body.grasp-signatures #stage .card { min-width: 0; max-width: none; }
    inside takes the header's size instead of its own: a file path rendered at 3px beside a
    legible title is no more use than the body that was dropped. */
 body.grasp-signatures #stage .card__header { font-size: calc(var(--far-size) / var(--zoom, 1)); gap: calc(var(--space-s) / var(--zoom, 1)); padding: calc(var(--space-xs) / var(--zoom, 1)) calc(var(--space-m) / var(--zoom, 1)); }
-body.grasp-signatures #stage .card__title, body.grasp-signatures #stage .card__kind, body.grasp-signatures #stage .badge, body.grasp-signatures #stage .card__stats, body.grasp-signatures #stage .card__tools { font-size: inherit; }
+body.grasp-signatures #stage .card__title, body.grasp-signatures #stage .card__kind, body.grasp-signatures #stage .badge, body.grasp-signatures #stage .card__stats, body.grasp-signatures #stage .card__coverage, body.grasp-signatures #stage .card__tools { font-size: inherit; }
 body.grasp-signatures #stage .card__kind { margin-inline-start: calc(var(--space-s) / var(--zoom, 1)); }
 body.grasp-signatures #stage .card__tools { gap: calc(var(--space-s) / var(--zoom, 1)); }
 body.grasp-signatures #stage .badge { padding: 0 calc(var(--space-s) / var(--zoom, 1)); }
