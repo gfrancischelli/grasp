@@ -227,22 +227,50 @@ test paths uncompared.
 - **Reach.** `Grasp.Index.tests_for(index, id, max_hops \\ 4)` answers the tests that reach
   a function: a breadth-first walk backwards from it over the callers the index already
   holds — every resolved call, `route` and `enqueue` edges included — through any record,
-  for up to `max_hops` hops, collecting each test met at its shortest distance, as
-  `[%{test: id, hops: n}]`, nearest first and then by id. A setup met on the way counts for
-  every test of its module, at the setup's distance. Walking back from the few functions a
-  reader looks at is cheaper than walking forward from every test on every index load, and
-  answers the same question.
-- **Card.** A function card reached by any test wears a `n tests` badge in its header; the
-  callers menu gains a Tests section listing them, nearest first with the hop count. A test
+  visiting each once, for up to `max_hops` hops, collecting each test met at its shortest
+  distance, as `[%{test: id, hops: n}]`, nearest first and then by id. A test calling the
+  function directly is one hop away. A setup met on the way counts for every test of its
+  module, at the setup's distance, unless that test is nearer by another path. A removed
+  test or setup runs nothing, so it is never collected and credits no test. An id the index
+  does not define answers `[]`. Walking back from the few functions a reader looks at is
+  cheaper than walking forward from every test on every index load, and answers the same
+  question.
+- **Card.** A function card reached by any test wears a `n tests` badge in its header, and
+  the badge opens the callers menu. The menu gains a Tests section listing them, nearest
+  first, each row titled by its `describe` and name and marked `direct` or `n hops`. A test
   one hop away opens as a caller does; a farther test opens the path to it — the records of
   a shortest backward path of calls (`Grasp.Index.path_back/4`), each opened as a caller of
-  the next, so every edge the canvas draws is a call. A test reached through its module's
-  setup opens the path to the setup. A card no test reaches wears nothing.
-- **PR mode.** In the Changes group every changed application function no test reaches is
-  marked `untested`, and an **Untested changes** group lists them. Under each changed
-  function the Changes group lists the changed tests that reach it, so code and tests
-  changed together read as pairs.
-- **MCP.** `tests_for(function_id, max_hops?)` and `untested_changes()`.
+  the next, so every edge the canvas draws is a call; a folded card on the path unfolds. A
+  test reached nearest through its module's setup opens the path to the setup; one met at
+  the same hop as such a setup opens its own path. A test or setup card, and a card no test
+  reaches, wears no badge. The canvas walks again only when the index's generation or the
+  set of functions on the canvas differs.
+- **PR mode.** A changed application function is one the branch added or modified that is
+  not a test or a setup and lies outside the project's `test_paths`; a removed function has
+  no body for a test to reach and is never one. In the Changes group every changed
+  application function no test reaches within four hops is marked `untested`, and an
+  **Untested changes** group lists them, open whenever it has any. Under each changed
+  application function the Changes group lists the added or modified tests that reach it,
+  nearest first, so code and tests changed together read as pairs; a row opens the test's
+  card as a root. Both answers are computed once, when the index is built from its
+  document, so every render of the review reads them as they stand (`Index.untested_changes/1`,
+  `Index.changed_tests/2`).
+- **MCP.** `tests_for(function_id, max_hops)` — `max_hops` from 1 to 8, default 4 —
+  answers `%{"id", "tests"}`, each test with its `id`, `name`, `describe`, `file` and
+  `hops`. `untested_changes()` answers `%{"functions"}`, each with its `id`, `file` and
+  `change`; it is empty for an index built without a base ref. The agent's system prompt
+  names both for questions about tests.
+
+### Known gaps (milestone 10.2)
+
+- **Reach is static.** A test that reaches a function only through a dynamic call —
+  `apply/3`, a function passed as a value, a behaviour dispatched at runtime — or through a
+  test double is not counted.
+- **Reach stops at four hops.** A function further than four call edges from every test
+  reads as untested, and its card wears no badge.
+- **A setup credits every test of its module.** A test that reaches a function only through
+  its module's setup is counted for every test of the module, whether or not that test's
+  own body needs the function.
 
 ## Coverage (milestone 10.3)
 

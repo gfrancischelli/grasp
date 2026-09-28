@@ -102,6 +102,13 @@ defmodule Grasp.Agent.CommandTest do
     assert prompt =~ "find_paths"
   end
 
+  test "system_prompt/3 sends a question about tests through tests_for and untested_changes" do
+    prompt = Command.system_prompt("s1", "read", "mix grasp.index")
+
+    assert prompt =~ "tests_for lists the tests that reach a function"
+    assert prompt =~ "untested_changes lists the changed functions no test reaches"
+  end
+
   test "system_prompt/3 explains what a comment is and how a thread is closed, in both modes" do
     for mode <- ["read", "edit"] do
       prompt = Command.system_prompt("s1", mode, "mix grasp.index")

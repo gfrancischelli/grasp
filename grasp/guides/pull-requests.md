@@ -62,6 +62,11 @@ Grasp in — so a review outlives the tree it was written against.
   function under its module with an `added` / `modified` / `removed` badge. Clicking one
   opens it as a card, from which the call chain opens as usual. The line under the project
   name says what the review is against, `main…feature`.
+- **Untested changes** lists every function the branch added or modified that no test
+  reaches within four calls, open on arrival whenever there is one, and the same functions
+  are marked `untested` in Changes. Under each changed function, Changes lists the tests the
+  branch added or modified that reach it, so a change and its tests read as a pair (see
+  [Reviewing](reviewing.md)).
 - **A card wears its badge too**, and a modified one counts its lines (`+3 −1`) beside the
   title. The palette carries the same badge, so a search says which hits are part of the
   change.

@@ -154,6 +154,32 @@ helpers it defines; a support module under the test paths — a case template, a
 listed there too, and none of them in the Modules group. Clicking a test opens its card. The
 palette finds a test by the words of its module, `describe` and name.
 
+### Tested by
+
+A function card that any test reaches wears an `n tests` badge in its header. A test reaches
+a function when it calls it, or calls something that does, within four calls; a `setup`
+block reaching it counts for every test of its module. A test or setup card wears no such
+badge, and neither does a card no test reaches.
+
+The badge opens the callers menu, which lists the tests under a **Tests** heading after the
+callers, nearest first, each titled by its `describe` and name and marked `direct` or with
+the number of calls between them. A direct test opens to the card's left as a caller does. A
+farther one opens the whole path back to it, each function on the way opened as a caller of
+the next, so every edge the canvas draws is a call; a folded card on the path unfolds. A
+test that reaches the function only through its module's `setup` opens the path to that
+setup.
+
+In a review against a base ref, every function the branch added or modified that no test
+reaches is marked `untested` in the Changes group, and an **Untested changes** group, open
+whenever it has any, lists them. Under each changed function the Changes group lists the
+tests the branch added or modified that reach it, so code and tests changed together read
+as pairs; clicking one opens the test's card. Tests, setups, removed functions and files
+under the test paths are never counted as untested.
+
+Reach is read from the calls the compiler saw: a test that reaches a function only through
+`apply/3`, a function passed as a value, a behaviour dispatched at runtime or a test double
+is not counted, and a function more than four calls from every test reads as untested.
+
 ## Edges
 
 An edge runs from a card to each card its open calls reach, one line per callee however many

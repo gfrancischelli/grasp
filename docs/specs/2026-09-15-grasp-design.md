@@ -1371,6 +1371,13 @@ first reference. Results are JSON text content, so any MCP client can read them.
   `base_ref`, `branch` and `head` (the last three null without git). An agent that has just
   rebuilt the index calls it before `list_changes`, so it never reads the file the rebuild
   replaced. A file that does not load is a tool error carrying the store's reason.
+- Tests add two read tools (see [the tests design](2026-09-28-grasp-tests-design.md),
+  Tested by). `tests_for(function_id, max_hops?)` answers the function's `id` and the
+  `tests` that reach it within `max_hops` call edges (1 to 8, default 4), nearest first,
+  each with its `id`, `name`, `describe`, `file` and `hops`; an unknown id is a tool error
+  naming it. `untested_changes()` answers `functions`, the application functions the
+  branch added or modified that no test reaches within four hops, sorted by id, each with
+  its `id`, `file` and `change` — empty for an index built without a base ref.
 
 Registering in Claude Code:
 
@@ -1762,6 +1769,13 @@ request switches the working tree" is closed.
      `test`, `setup` and `describe` read as definitions with quoted test ids, a request in a
      test drawn as a route edge, test files classified against the base, and test cards whose
      signature mode reads their assertions, listed in a Tests group of their own (see
+     [the tests design](2026-09-28-grasp-tests-design.md)).
+   - Milestone 10.2: tested by — a backward walk over the callers answers which tests reach
+     a function within four hops, a card reached by any wears an `n tests` badge and lists
+     them in its callers menu, where a farther test opens the calls between them, PR mode
+     marks the changes no test reaches and gathers them in an Untested changes group, pairs
+     each change with the changed tests that reach it, and the MCP tools `tests_for` and
+     `untested_changes` answer the same (see
      [the tests design](2026-09-28-grasp-tests-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
