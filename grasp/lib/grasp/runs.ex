@@ -7,14 +7,18 @@ defmodule Grasp.Runs do
   `System.find_executable/1` and given its arguments as argv, so nothing goes near shell
   quoting. It runs in the project root: the `:root` option, the `:grasp, :runs_root` config,
   and the directory Grasp started in (`Grasp.Application.home/0`) otherwise — the
-  checkout the reader opened, whose `.grasp/` the viewer reads. The port is given no
-  environment of its own, so the command sees the environment the viewer VM has, a
-  `DB_PREFIX` the viewer started with included. `MIX_ENV` is not set here either: the
-  commands choose it for the suites they start (`MIX_ENV=test`), and set it over whatever
-  the viewer's environment holds.
+  checkout the reader opened, whose `.grasp/` the viewer reads. The command sees the
+  environment the viewer VM has — a database name the viewer's environment sets reaches
+  the suite — with one exception: `MIX_BUILD_PATH` is removed. The tasks find their
+  `ebin` paths in the project's default build, and a suite given an explicit build path
+  compiles its test build into it, over whatever build that path holds. `MIX_ENV` is not
+  set here: the commands choose it for the suites they start (`MIX_ENV=test`), and set it
+  over whatever the viewer's environment holds.
 
   Output arrives in line mode with stderr merged into stdout; a line longer than the port's
-  limit arrives in chunks that are joined until its end. Every line is broadcast on the
+  limit arrives in chunks that are joined until its end, or until they reach sixteen times
+  the limit, which is broadcast as a line of its own so output that never ends a line
+  cannot grow without bound. Every line is broadcast on the
   `"runs"` topic as `{:run_output, id, line}` as it arrives, and a run keeps its last 200
   lines. A run starting broadcasts `{:run_started, run}` and a run ending, by exiting or by
   being cancelled, `{:run_finished, run}`.
@@ -28,17 +32,22 @@ defmodule Grasp.Runs do
   is under way. Closing a port does not stop its program, and the commands run here start
   programs of their own — both tasks run the suite in a VM of its own — so a cancel
   stops the whole process tree the port started (`Grasp.Runs.ProcessTree`) and closes the
-  port after. The server traps exits, so a server that is stopped or crashes takes its run
+  port after. A cancel that lands once the program has exited, while its last output is
+  still arriving, signals nothing — the pid may already name another process — and
+  finishes the run with the program's status rather than as cancelled. The server traps
+  exits, so a server that is stopped or crashes takes its run
   with it rather than leaving a suite running with nobody to read it.
   """
 
   use GenServer
+  require Logger
 
   alias Grasp.Runs.ProcessTree
 
   @topic "runs"
   @kept_lines 200
   @line_limit 65_536
+  @buffer_limit 16 * @line_limit
 
   @type kind :: :tests | :coverage
   @type run :: %{
@@ -76,7 +85,9 @@ defmodule Grasp.Runs do
   root that is not a directory `{:error, {:no_root, root}}`.
 
   Options: `:description`, what the run is to a reader, the command line when absent;
-  `:root`, the directory it runs in (see the module doc).
+  `:root`, the directory it runs in (see the module doc); `:process_table`, the
+  `t:Grasp.Runs.ProcessTree.reader/0` a cancel reads the process table with,
+  `Grasp.Runs.ProcessTree.read_table/0` by default.
   """
   @spec start(kind(), [String.t(), ...], keyword()) ::
           {:ok, run()}
@@ -111,6 +122,8 @@ defmodule Grasp.Runs do
        run: nil,
        port: nil,
        os_pid: nil,
+       parent: nil,
+       process_table: nil,
        exit_status: nil,
        buffer: "",
        output: [],
@@ -144,7 +157,8 @@ defmodule Grasp.Runs do
             :stderr_to_stdout,
             {:line, @line_limit},
             {:args, args},
-            {:cd, root}
+            {:cd, root},
+            {:env, [{~c"MIX_BUILD_PATH", false}]}
           ])
 
         {:os_pid, os_pid} = Port.info(port, :os_pid)
@@ -163,6 +177,8 @@ defmodule Grasp.Runs do
           | run: run,
             port: port,
             os_pid: os_pid,
+            parent: ProcessTree.parent(os_pid),
+            process_table: Keyword.get(opts, :process_table, &ProcessTree.read_table/0),
             exit_status: nil,
             buffer: "",
             output: [],
@@ -181,8 +197,9 @@ defmodule Grasp.Runs do
   def handle_call(:cancel, _from, %{run: nil} = state), do: {:reply, :idle, state}
 
   def handle_call(:cancel, _from, state) do
+    code = state.exit_status
     state = halt(state)
-    state = finish(state, nil, true)
+    state = finish(state, code, code == nil)
     {:reply, {:ok, state.last}, state}
   end
 
@@ -195,8 +212,13 @@ defmodule Grasp.Runs do
   def handle_info({port, {:data, {:eol, chunk}}}, %{port: port} = state),
     do: {:noreply, line(%{state | buffer: ""}, state.buffer <> chunk)}
 
-  def handle_info({port, {:data, {:noeol, chunk}}}, %{port: port} = state),
-    do: {:noreply, %{state | buffer: state.buffer <> chunk}}
+  def handle_info({port, {:data, {:noeol, chunk}}}, %{port: port} = state) do
+    buffer = state.buffer <> chunk
+
+    if byte_size(buffer) >= @buffer_limit,
+      do: {:noreply, line(%{state | buffer: ""}, buffer)},
+      else: {:noreply, %{state | buffer: buffer}}
+  end
 
   def handle_info({port, {:exit_status, code}}, %{port: port} = state),
     do: {:noreply, %{state | exit_status: code}}
@@ -234,8 +256,18 @@ defmodule Grasp.Runs do
     end
   end
 
+  # The tree is killed only while the program has not reported its exit: once it has, its
+  # pid can name another process. A kill that raises has continued what it stopped, and
+  # the run still ends and reports.
   defp halt(state) do
-    ProcessTree.kill(state.os_pid)
+    if state.exit_status == nil do
+      try do
+        ProcessTree.kill(state.os_pid, parent: state.parent, table: state.process_table)
+      catch
+        kind, reason ->
+          Logger.warning("grasp: could not stop the run: #{Exception.format(kind, reason)}")
+      end
+    end
 
     try do
       Port.close(state.port)
@@ -243,7 +275,7 @@ defmodule Grasp.Runs do
       ArgumentError -> :ok
     end
 
-    %{state | port: nil, os_pid: nil, buffer: ""}
+    %{state | port: nil, os_pid: nil, parent: nil, process_table: nil, buffer: ""}
   end
 
   defp finish(state, code, cancelled?) do
@@ -259,6 +291,8 @@ defmodule Grasp.Runs do
       | run: nil,
         port: nil,
         os_pid: nil,
+        parent: nil,
+        process_table: nil,
         exit_status: nil,
         buffer: "",
         output: [],

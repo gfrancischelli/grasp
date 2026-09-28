@@ -2,7 +2,10 @@ defmodule Grasp.RunsTest do
   # One run at a time is the point of the server, so the tests share it and run alone.
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Grasp.Runs
+  alias Grasp.Runs.ProcessTree
 
   setup do
     root = Path.join(System.tmp_dir!(), "grasp-runs-#{System.unique_integer([:positive])}")
@@ -109,6 +112,87 @@ defmodule Grasp.RunsTest do
     assert %{current: :idle, last: nil} = Runs.status()
   end
 
+  for failure <- [:error, :raise] do
+    test "a table that cannot be read mid-walk continues every process it stopped (#{failure})",
+         %{root: root} do
+      second_reading = second_reading(unquote(failure))
+      calls = :counters.new(1, [])
+
+      table = fn ->
+        :counters.add(calls, 1, 1)
+        if :counters.get(calls, 1) == 1, do: ProcessTree.read_table(), else: second_reading.()
+      end
+
+      {:ok, %{id: id}} =
+        Runs.start(
+          :tests,
+          ["sh", "-c", ~S|trap "" TERM; echo $$; while :; do sleep 0.2; done|],
+          root: root,
+          process_table: table
+        )
+
+      shell = receive_line(id)
+      on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(shell)]) end)
+      Process.sleep(100)
+
+      capture_log(fn ->
+        assert {:ok, %{id: ^id, cancelled?: true}} = Runs.cancel()
+      end)
+
+      assert_receive {:run_finished, %{id: ^id, cancelled?: true}}
+      assert :counters.get(calls, 1) == 2
+
+      # The shell ignores SIGTERM, so it outlives the cancel; stopped, it would sit in `T`
+      # and fork no further sleep.
+      Process.sleep(500)
+      {:ok, table} = ProcessTree.read_table()
+      tree = ProcessTree.tree(shell, nil, table)
+      assert MapSet.size(tree) >= 1
+      for pid <- tree, do: refute(stat(pid) =~ "T")
+    end
+  end
+
+  test "a cancel once the program has exited signals nothing and keeps its status", %{
+    root: root
+  } do
+    {:ok, %{id: id}} = Runs.start(:tests, ["sh", "-c", "echo $$; exec sleep 30"], root: root)
+    sleeper = receive_line(id)
+    on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(sleeper)]) end)
+
+    send(Runs, {:sys.get_state(Runs).port, {:exit_status, 7}})
+
+    assert {:ok, %{id: ^id, exit_status: 7, cancelled?: false}} = Runs.cancel()
+    Process.sleep(100)
+    assert alive?(sleeper)
+    refute stat(sleeper) =~ "T"
+  end
+
+  test "the viewer's build path does not reach the command", %{root: root} do
+    previous = System.get_env("MIX_BUILD_PATH")
+    System.put_env("MIX_BUILD_PATH", Path.join(root, "_build"))
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("MIX_BUILD_PATH", previous),
+        else: System.delete_env("MIX_BUILD_PATH")
+    end)
+
+    {:ok, %{id: id}} =
+      Runs.start(:tests, ["sh", "-c", ~S|echo "[${MIX_BUILD_PATH-unset}]"|], root: root)
+
+    assert_receive {:run_output, ^id, "[unset]"}, 2_000
+  end
+
+  test "output that never ends a line is broadcast in bounded pieces", %{root: root} do
+    {:ok, %{id: id}} =
+      Runs.start(:tests, ["sh", "-c", "head -c 1048586 /dev/zero | tr '\\0' a; echo"], root: root)
+
+    assert_receive {:run_output, ^id, first}, 5_000
+    assert byte_size(first) == 1_048_576
+    assert_receive {:run_output, ^id, rest}, 5_000
+    assert rest == String.duplicate("a", 10)
+  end
+
   test "cancel with nothing running answers idle" do
     assert Runs.cancel() == :idle
   end
@@ -201,6 +285,14 @@ defmodule Grasp.RunsTest do
       _gone when tries == 0 -> flunk("the runs server did not restart")
       _gone -> Process.sleep(20) && assert_restarted(previous, tries - 1)
     end
+  end
+
+  defp second_reading(:error), do: fn -> {:error, :unreadable} end
+  defp second_reading(:raise), do: fn -> raise "the table is gone" end
+
+  defp stat(pid) do
+    {out, _status} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(pid)])
+    String.trim(out)
   end
 
   defp pgid(pid) do
