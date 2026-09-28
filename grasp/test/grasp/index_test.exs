@@ -243,7 +243,7 @@ defmodule Grasp.IndexTest do
       %{fixture: index}
     end
 
-    test "lists every module holding tests or setups by file, setups apart, tests by describe",
+    test "lists every module of the suite by file: setups, tests by describe, then helpers",
          %{fixture: index} do
       assert [tally, routes, sample_case] = Index.tests(index)
 
@@ -253,6 +253,7 @@ defmodule Grasp.IndexTest do
       assert [{"handle_call/3", [reply]}, {nil, [init]}] = tally.describes
       assert reply["id"] =~ "replies with the next number"
       assert init["id"] =~ "init keeps the start count"
+      assert ids(tally.helpers) == ["SampleApp.TallyTest.init_with/1"]
 
       assert routes.module == "SampleAppWeb.RoutesTest"
       assert [{nil, [plain, verified]}] = routes.describes
@@ -260,6 +261,36 @@ defmodule Grasp.IndexTest do
       assert verified["test"]["name"] == "a verified path reaches the controller"
 
       assert %{module: "SampleApp.SampleCase", describes: [], setups: [_setup]} = sample_case
+      assert ids(sample_case.helpers) == ["SampleApp.SampleCase.conn_for/1"]
+    end
+
+    test "lists a support module holding no test and no setup, with its helpers" do
+      record = %{
+        "id" => "MyApp.Factory.build/1",
+        "kind" => "def",
+        "module" => "MyApp.Factory",
+        "name" => "build",
+        "arity" => 1,
+        "file" => "test/support/factory.ex",
+        "span" => %{"start_line" => 2, "end_line" => 2}
+      }
+
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "project" => %{"test_paths" => ["test"]},
+          "modules" => [
+            %{"name" => "MyApp.Factory", "file" => "test/support/factory.ex"},
+            %{"name" => "MyApp.Wallets", "file" => "lib/my_app/wallets.ex"}
+          ],
+          "functions" => [record]
+        })
+
+      assert [%{module: "MyApp.Factory", file: "test/support/factory.ex"} = factory] =
+               Index.tests(index)
+
+      assert %{setups: [], describes: []} = factory
+      assert ids(factory.helpers) == ["MyApp.Factory.build/1"]
     end
 
     test "is empty for an index built without tests", %{index: index} do

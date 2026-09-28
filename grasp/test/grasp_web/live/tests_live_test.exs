@@ -57,6 +57,11 @@ defmodule GraspWeb.TestsLiveTest do
                "assert {:reply, 42, 42} = Counter.handle_call(:next, self(), start)"
              )
 
+      assert has_element?(
+               view,
+               "#card-1 .card__assertions[title='handle_call/3 › replies with the next number']"
+             )
+
       refute has_element?(view, "#card-1 .card__assertion", "@tag")
       refute has_element?(view, "#card-1 .card__assertion", "test \"replies")
     end
@@ -138,6 +143,55 @@ defmodule GraspWeb.TestsLiveTest do
              )
 
       refute has_element?(view, "#tests button[phx-value-id='#{@plain}']")
+    end
+
+    test "lists a module's helpers after its tests, and each opens its card", %{view: view} do
+      view
+      |> element("#tests button.module[phx-value-module='SampleApp.TallyTest']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "#tests .tests__describe + .tests__helpers button.fn[phx-value-id='SampleApp.TallyTest.init_with/1']",
+               "init_with/1"
+             )
+
+      view
+      |> element("#tests button.module[phx-value-module='SampleApp.SampleCase']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "#tests .tests__helpers button.fn[phx-value-id='SampleApp.SampleCase.conn_for/1']",
+               "conn_for/1"
+             )
+
+      view
+      |> element("#tests button[phx-value-id='SampleApp.SampleCase.conn_for/1']")
+      |> render_click()
+
+      assert has_element?(view, "#card-1[data-function-id='SampleApp.SampleCase.conn_for/1']")
+      refute has_element?(view, "#modules button.module", "SampleApp.SampleCase")
+    end
+
+    test "keeps its open module apart from the module list's", %{view: view} do
+      view
+      |> element("#modules button.module[phx-value-module='SampleApp.Greeter']")
+      |> render_click()
+
+      view
+      |> element("#tests button.module[phx-value-module='SampleApp.TallyTest']")
+      |> render_click()
+
+      assert has_element?(view, "#modules button.fn", "greet/2")
+      assert has_element?(view, "#tests button.fn--test", "init keeps the start count")
+
+      view
+      |> element("#modules button.module[phx-value-module='SampleApp.Greeter']")
+      |> render_click()
+
+      refute has_element?(view, "#modules button.fn", "greet/2")
+      assert has_element?(view, "#tests button.fn--test", "init keeps the start count")
     end
 
     test "opens a test's card as a root", %{view: view} do

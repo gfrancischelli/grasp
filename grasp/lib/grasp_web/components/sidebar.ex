@@ -17,10 +17,12 @@ defmodule GraspWeb.Sidebar do
 
   After the entry points comes the Tests group, present when the index holds test records:
   one row per test module in file order, opening into its setup callbacks and then its tests
-  under their `describe` names, each test named as it is written. A test drives the system
-  from outside as an entry point does, and clicking one opens its card as a root of its
-  own. A module written under the project's test paths is listed there and not in the
-  module list, which is the code under review.
+  under their `describe` names, each test named as it is written, and last the helpers it
+  defines. A test drives the system from outside as an entry point does, and clicking one
+  opens its card as a root of its own. Every module `Grasp.Index.tests/1` lists — a test
+  module, or a support module written under the project's test paths — is listed there and
+  not in the module list, which is the code under review. The group keeps its own open
+  module, apart from the module list's.
 
   A review against a base ref leads with what the branch did: a Changes group above the
   entry points, listing every added, modified and removed function under its module with
@@ -203,19 +205,20 @@ defmodule GraspWeb.Sidebar do
   attr :comments, :map, required: true
   attr :expanded, MapSet, required: true
   attr :expanded_module, :string, default: nil
+  attr :expanded_test_module, :string, default: nil
 
   def entry_groups(assigns) do
     index = assigns.index
     changes = Index.changed_functions(index)
     threads = open_threads(assigns.comments)
     tests = Index.tests(index)
+    suite = MapSet.new(tests, & &1.module)
 
     assigns =
       assign(assigns,
         groups: groups(index),
-        # A module written under the test paths is listed with its tests, not beside the code
-        # it tests.
-        modules: Enum.reject(Index.modules(index), &Index.test_file?(index, &1["file"])),
+        # A module of the test suite is listed with its tests, not beside the code it tests.
+        modules: Enum.reject(Index.modules(index), &(&1["name"] in suite)),
         tests: tests,
         test_count:
           tests |> Enum.flat_map(& &1.describes) |> Enum.map(&length(elem(&1, 1))) |> Enum.sum(),
@@ -319,14 +322,18 @@ defmodule GraspWeb.Sidebar do
           <nav id="tests">
             <div :for={test_module <- @tests} class="module-group">
               <button
-                class={["module", @expanded_module == test_module.module && "module--open"]}
+                class={[
+                  "module",
+                  @expanded_test_module == test_module.module && "module--open"
+                ]}
                 phx-click="expand_module"
                 phx-value-module={test_module.module}
+                phx-value-group="tests"
                 title={test_module.file}
               >
                 {test_module.module}
               </button>
-              <div :if={@expanded_module == test_module.module} class="tests">
+              <div :if={@expanded_test_module == test_module.module} class="tests">
                 <ul :if={test_module.setups != []} class="fns">
                   <li :for={setup <- test_module.setups}>
                     <.test_row record={setup} />
@@ -340,6 +347,11 @@ defmodule GraspWeb.Sidebar do
                     </li>
                   </ul>
                 </div>
+                <ul :if={test_module.helpers != []} class="fns tests__helpers">
+                  <li :for={helper <- test_module.helpers}>
+                    <.test_row record={helper} />
+                  </li>
+                </ul>
               </div>
             </div>
           </nav>
@@ -383,8 +395,9 @@ defmodule GraspWeb.Sidebar do
 
   attr :record, :map, required: true
 
-  # A test row sits under its module and its describe, so it reads as the name alone; a
-  # setup row is the only one that says what kind it is.
+  # A row of the Tests group sits under its module and its describe, so a test reads as its
+  # name alone and a helper as its name and arity; a setup row is the only one that says what
+  # kind it is.
   defp test_row(assigns) do
     ~H"""
     <button

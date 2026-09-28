@@ -450,10 +450,18 @@ defmodule GraspWeb.CardComponents do
       <p :if={!@title.badge} class="card__signature lumis" title={@signature}>{@signature_html}</p>
       <%!-- A test's promise is its assertions, so those are what a far-out test card reads
       under its title; a test asserting nothing, and a setup, are the title alone. --%>
-      <div :if={@assertions != []} class="card__signature card__assertions lumis">
-        <p :for={{line, html} <- @assertions} class="card__assertion" data-line={line}>
-          {html}
-        </p>
+      <%!-- An assertion keeps the line breaks its source has, so each is preformatted. --%>
+      <div
+        :if={@assertions != []}
+        class="card__signature card__assertions lumis"
+        title={@signature}
+      >
+        <pre
+          :for={{lines, html} <- @assertions}
+          class="card__assertion"
+          data-line={lines.first}
+          data-end-line={lines.last}
+        >{html}</pre>
       </div>
       <%!-- The lines are rendered one at a time so a thread can sit between two of them.
       Whitespace between the children here is ordinary white-space, which the body does not

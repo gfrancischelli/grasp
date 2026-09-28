@@ -698,7 +698,7 @@ defmodule Grasp.HighlightTest do
   end
 
   describe "assertions/1" do
-    test "gives a test's assertion lines, numbered as the file numbers them and highlighted" do
+    test "gives a test's assertions, numbered as the file numbers them and highlighted" do
       {:ok, index} = Grasp.Index.load(@fixture)
 
       {:ok, record} =
@@ -707,7 +707,7 @@ defmodule Grasp.HighlightTest do
           ~s|SampleApp.TallyTest."test handle_call/3 replies with the next number"/1|
         )
 
-      assert [{13, html}] = Highlight.assertions(record)
+      assert [{13..13//1, html}] = Highlight.assertions(record)
       doc = html |> Phoenix.HTML.safe_to_string() |> LazyHTML.from_fragment()
 
       assert LazyHTML.text(doc) ==
@@ -717,55 +717,81 @@ defmodule Grasp.HighlightTest do
       assert LazyHTML.query(doc, "span.call") |> Enum.count() == 0
     end
 
-    test "reads assert, refute and the assert_/refute_ calls, and nothing else" do
-      source =
-        Enum.join(
-          [
-            ~s|  test "x" do|,
-            "    assert_value = 1",
-            "    assert x == 1",
-            "    refute y",
-            "    assert_receive {:done, _}",
-            "    refute_received :late",
-            "    Helpers.assert_ok(z)",
-            "    conn |> assert_element(\"a\")",
-            "    assertion = 2",
-            "    assert(z)",
-            "  end"
-          ],
-          "\n"
-        )
+    test "reads an assertion broken over several lines whole, without its indentation" do
+      source = """
+        test "x" do
+          resp = call()
 
-      record = %{"id" => "M.t/1", "span" => %{"start_line" => 1}, "source" => source}
+          assert %{
+                   status: 200,
+                   body: "ok"
+                 } = resp
+        end
+      """
 
-      lines =
-        record
-        |> Highlight.assertions()
-        |> Enum.map(fn {line, html} ->
-          {line,
-           html |> Phoenix.HTML.safe_to_string() |> LazyHTML.from_fragment() |> LazyHTML.text()}
-        end)
+      assert [{13..16//1, html}] = assertions_of(source, 10)
 
-      assert lines == [
-               {3, "assert x == 1"},
-               {4, "refute y"},
-               {5, "assert_receive {:done, _}"},
-               {6, "refute_received :late"},
-               {7, "Helpers.assert_ok(z)"},
-               {10, "assert(z)"}
-             ]
+      assert text(html) ==
+               "assert %{\n         status: 200,\n         body: \"ok\"\n       } = resp"
     end
 
-    test "is empty for a test asserting nothing" do
-      record = %{
-        "id" => "M.t/1",
-        "span" => %{"start_line" => 1},
-        "source" => ~s|  test "x" do\n    :ok\n  end|
-      }
+    test "reads assert, refute, the assert_/refute_ calls and a piped stage" do
+      source = """
+        test "x" do
+          assert_value = 1
+          assert x == 1
+          refute y
+          assert_receive {:done, _}
+          conn
+          |> get("/x")
+          |> assert_element("a")
+          assertion = 2
+          assert(z)
+        end
+      """
 
-      assert Highlight.assertions(record) == []
+      assert assertions_of(source, 1) |> Enum.map(fn {range, html} -> {range, text(html)} end) ==
+               [
+                 {3..3//1, "assert x == 1"},
+                 {4..4//1, "refute y"},
+                 {5..5//1, "assert_receive {:done, _}"},
+                 {6..8//1, ~s[conn\n|> get("/x")\n|> assert_element("a")]},
+                 {10..10//1, "assert(z)"}
+               ]
+    end
+
+    test "is one range for an assertion nested in another's function" do
+      source = """
+        test "x" do
+          assert_raise ArgumentError, fn ->
+            assert f(1)
+          end
+        end
+      """
+
+      assert [{2..4//1, _html}] = assertions_of(source, 1)
+    end
+
+    test "is empty for a test asserting nothing, and for a source that does not parse" do
+      assert assertions_of(~s|  test "x" do\n    :ok\n  end|, 1) == []
+      assert assertions_of(~s|  test "x" do\n    assert (|, 1) == []
     end
   end
+
+  defp assertions_of(source, first_line) do
+    id = "M.t#{System.unique_integer([:positive])}/1"
+
+    record = %{
+      "id" => id,
+      "span" => %{"start_line" => first_line},
+      "source" => String.trim_trailing(source)
+    }
+
+    Highlight.assertions(record)
+  end
+
+  defp text(html),
+    do: html |> Phoenix.HTML.safe_to_string() |> LazyHTML.from_fragment() |> LazyHTML.text()
 
   describe "signature_line/1" do
     test "numbers the head as the file numbers it, past the docs above it" do

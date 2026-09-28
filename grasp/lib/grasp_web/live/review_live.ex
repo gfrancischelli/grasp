@@ -80,6 +80,7 @@ defmodule GraspWeb.ReviewLive do
       session_menu_open?: false,
       new_session_name: "",
       expanded_module: nil,
+      expanded_test_module: nil,
       expanded_groups: default_expanded(index, length(Grasp.Comments.list())),
       callers_open: nil,
       renaming_group: nil,
@@ -152,6 +153,13 @@ defmodule GraspWeb.ReviewLive do
         else: MapSet.put(groups, group)
 
     {:noreply, assign(socket, expanded_groups: toggled)}
+  end
+
+  # The Tests group keeps its own open module, so a test module and the code it tests can be
+  # read open side by side.
+  def handle_event("expand_module", %{"module" => module, "group" => "tests"}, socket) do
+    expanded = if socket.assigns.expanded_test_module == module, do: nil, else: module
+    {:noreply, assign(socket, expanded_test_module: expanded)}
   end
 
   def handle_event("expand_module", %{"module" => module}, socket) do
@@ -1175,6 +1183,7 @@ defmodule GraspWeb.ReviewLive do
           comments={@comments}
           expanded={@expanded_groups}
           expanded_module={@expanded_module}
+          expanded_test_module={@expanded_test_module}
         />
       </aside>
       <section class="canvas" id="canvas" phx-hook="Canvas">

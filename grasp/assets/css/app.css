@@ -237,9 +237,9 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .card__view:hover, .card__context:hover { color: var(--accent); }
 .card__close:hover { color: var(--danger); }
 .card__signature { display: none; margin: 0; padding: var(--space-s) var(--space-m); font-weight: 600; white-space: nowrap; }
-/* A test card's assertions are several lines of code under its title, read as code rather
-   than as a head. */
-.card__assertion { margin: 0; font-weight: 400; }
+/* A test card's assertions are code under its title, each kept to the lines it spans in the
+   source, read as code rather than as a head. */
+.card__assertion { margin: 0; font: inherit; font-weight: 400; white-space: pre; }
 /* A drag along the gutter selects lines, not text: the body stops being selectable for as
    long as the button is down, so the drag leaves no smeared text range behind it. */
 .card .card__body[data-selecting] { user-select: none; }

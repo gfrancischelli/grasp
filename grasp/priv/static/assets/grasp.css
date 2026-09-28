@@ -746,7 +746,9 @@ body.grasp-dragging .module__title {
 }
 .card__assertion {
   margin: 0;
+  font: inherit;
   font-weight: 400;
+  white-space: pre;
 }
 .card .card__body[data-selecting] {
   user-select: none;

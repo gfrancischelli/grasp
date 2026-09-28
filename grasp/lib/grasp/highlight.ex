@@ -46,8 +46,8 @@ defmodule Grasp.Highlight do
 
   `signature/1` renders a single line — the function's head, which is all a far-out card
   shows — from the same cached pieces, without the gutter and without the call spans.
-  `assertions/1` renders a test's assertion lines the same way, which is what a far-out test
-  card shows in place of a head.
+  `assertions/1` renders a test's assertions the same way, each over the lines it spans,
+  which is what a far-out test card shows in place of a head.
 
   `render_diff/2` renders the same lines against the record's `base_source`, interleaving
   the lines the branch deleted. The base side is a second parse memoised under the function
@@ -58,11 +58,6 @@ defmodule Grasp.Highlight do
   require Logger
 
   @cache :grasp_highlight_cache
-
-  # The first token of the line: `assert`, `refute`, or a name starting `assert_`/`refute_`,
-  # optionally called through an alias, and followed by what opens a call's arguments — not
-  # by the `=` of a variable that happens to share the prefix.
-  @assertion ~r/\A\s*(?:[A-Z]\w*\.)*(?:assert|refute)(?:_\w*[?!]?)?(?:\(|\s+(?!=[^=~])|\z)/
 
   @definition_prefixes [
     "def ",
@@ -323,46 +318,127 @@ defmodule Grasp.Highlight do
   end
 
   @doc """
-  The assertion lines of a test record, in source order, each as `{line number in the file,
-  highlighted HTML}`.
+  The assertions of a test record, in source order, each as `{lines, highlighted HTML}`,
+  `lines` being the range of file lines it spans.
 
-  An assertion line is one whose first token is `assert` or `refute`, or a call whose name
-  starts with `assert_` or `refute_` — `assert_receive`, a project's `assert_element`, the
-  same name called through a module alias. The HTML is the line's tokens from the memoised
-  parse, trimmed of the indentation the line was written at, with no gutter and no call
-  spans, the way `signature/1` renders a head. A record with no such line gives `[]`.
+  An assertion is a call named `assert` or `refute`, or one whose name starts with `assert_`
+  or `refute_` — `assert_receive`, a project's `assert_element` — written as a local or
+  imported call or as a stage of a `|>` pipeline, found by parsing the source rather than by
+  reading its lines, so an assertion the formatter broke over several lines is read whole. A
+  piped assertion starts on the line its pipeline starts on, where the subject it asserts on
+  is written. Assertions whose lines overlap — one nested inside another's function — are
+  one range. A variable that shares the prefix (`assert_value = 1`) is not a call and is not
+  an assertion.
+
+  The HTML is the range's lines from the memoised parse joined by newlines, with the
+  indentation they share taken off, no gutter and no call spans, the way `signature/1`
+  renders a head. A record with no assertion, or whose source does not parse, gives `[]`.
   """
-  @spec assertions(map()) :: [{pos_integer(), Phoenix.HTML.safe()}]
+  @spec assertions(map()) :: [{Range.t(), Phoenix.HTML.safe()}]
   def assertions(record) do
     {source, first_line, id} = signature_source(record)
 
-    numbers =
-      for {text, line} <- source |> source_lines() |> Enum.with_index(first_line),
-          Regex.match?(@assertion, text),
-          do: line
+    case assertion_ranges(source, first_line) do
+      [] ->
+        []
 
-    if numbers == [] do
-      []
-    else
-      by_line = source |> pieces(first_line, id, language(record)) |> Enum.group_by(& &1.line)
+      ranges ->
+        texts =
+          source
+          |> source_lines()
+          |> Enum.with_index(first_line)
+          |> Map.new(fn {text, line} -> {line, text} end)
 
-      for line <- numbers do
-        html =
-          by_line
-          |> Map.get(line, [])
-          |> trim_leading_pieces()
-          |> Enum.map_join(&token_html/1)
+        by_line = source |> pieces(first_line, id, language(record)) |> Enum.group_by(& &1.line)
 
-        {line, {:safe, html}}
-      end
+        for range <- ranges do
+          indent =
+            range
+            |> Enum.map(&Map.get(texts, &1, ""))
+            |> Enum.reject(&(String.trim(&1) == ""))
+            |> Enum.map(&(String.length(&1) - String.length(String.trim_leading(&1))))
+            |> Enum.min(fn -> 0 end)
+
+          html =
+            Enum.map_join(range, "\n", fn line ->
+              by_line
+              |> Map.get(line, [])
+              |> drop_columns(indent)
+              |> Enum.map_join(&token_html/1)
+            end)
+
+          {range, {:safe, html}}
+        end
     end
   end
 
-  defp trim_leading_pieces(pieces) do
-    case Enum.drop_while(pieces, &blank_piece?/1) do
-      [first | rest] -> [%{first | text: String.trim_leading(first.text)} | rest]
-      [] -> []
+  defp assertion_ranges(source, first_line) do
+    case Sourceror.parse_string(source) do
+      {:ok, ast} ->
+        {_ast, ranges} =
+          Macro.prewalk(ast, [], fn node, acc ->
+            case assertion_range(node) do
+              %Sourceror.Range{start: start, end: finish} ->
+                {node, [{start[:line], finish[:line]} | acc]}
+
+              nil ->
+                {node, acc}
+            end
+          end)
+
+        ranges
+        |> Enum.sort()
+        |> Enum.reduce([], fn
+          {first, last}, [{open_first, open_last} | rest] when first <= open_last ->
+            [{open_first, max(last, open_last)} | rest]
+
+          range, merged ->
+            [range | merged]
+        end)
+        |> Enum.reverse()
+        |> Enum.map(fn {first, last} -> (first + first_line - 1)..(last + first_line - 1)//1 end)
+
+      {:error, _reason} ->
+        []
     end
+  end
+
+  # A pipeline stage is the call on the right of `|>`, and the pipeline is what it spans; any
+  # other call counts by its own range.
+  defp assertion_range({:|>, _meta, [_subject, {name, _call_meta, args}]} = node)
+       when is_atom(name) and is_list(args) do
+    if assertion_name?(name), do: Sourceror.get_range(node)
+  end
+
+  defp assertion_range({name, _meta, args} = node) when is_atom(name) and is_list(args) do
+    if assertion_name?(name), do: Sourceror.get_range(node)
+  end
+
+  defp assertion_range(_node), do: nil
+
+  defp assertion_name?(name) do
+    case Atom.to_string(name) do
+      "assert" -> true
+      "refute" -> true
+      "assert_" <> _rest -> true
+      "refute_" <> _rest -> true
+      _other -> false
+    end
+  end
+
+  # Takes the first `count` columns off a line's pieces, which the caller has measured as
+  # indentation, so only whitespace is cut.
+  defp drop_columns(pieces, count) do
+    pieces
+    |> Enum.flat_map(fn piece ->
+      length = String.length(piece.text)
+
+      cond do
+        piece.col > count -> [piece]
+        piece.col + length - 1 <= count -> []
+        true -> [%{piece | text: String.slice(piece.text, (count - piece.col + 1)..-1//1)}]
+      end
+    end)
   end
 
   # Which text the head is read from, how its lines are numbered and under which key its

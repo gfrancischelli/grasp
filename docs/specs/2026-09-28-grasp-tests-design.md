@@ -122,11 +122,17 @@ modified test has a diff.
 
 - A test card wears a `test` badge and titles itself with the test's name, the `describe`
   above it in the header's module slot; a setup card wears `setup`.
-- In signature mode a test card shows its name and, under it, its assertion lines — each
-  line whose first token is `assert`, `refute` or an `assert_*`/`refute_*` call — in place
-  of its body, so a zoomed-out canvas reads what each test promises.
+- In signature mode a test card shows its name and, under it, its assertions in place of
+  its body, so a zoomed-out canvas reads what each test promises. An assertion is found by
+  parsing the test's source: every call named `assert` or `refute`, or whose name starts
+  with `assert_` or `refute_`, written as a local or imported call or as the right-hand side
+  of a `|>`. Each is shown over the full range of lines it spans — a piped one from the line
+  its pipeline starts on — highlighted as code, in source order, with overlapping ranges
+  merged. A source that does not parse shows no assertions, and the card its title alone.
 - The sidebar has a **Tests** group listing test modules by file, each opening into its
-  tests, grouped by `describe`. The palette finds tests by name.
+  tests, grouped by `describe`, and then the helpers it defines. A support module under the
+  test paths is listed there too, and neither is listed among the modules under review. The
+  palette finds tests by name.
 
 ### Known gaps
 

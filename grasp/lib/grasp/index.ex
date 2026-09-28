@@ -215,39 +215,57 @@ defmodule Grasp.Index do
 
   @typedoc """
   One test module as the sidebar lists it: its name, the file it is written in, its setup
-  callbacks in source order and its tests grouped under their `describe` — `nil` for the
-  tests written outside any — each group placed where its first test is, its tests in
-  source order.
+  callbacks in source order, its tests grouped under their `describe` — `nil` for the tests
+  written outside any — each group placed where its first test is, its tests in source
+  order, and its helpers: every other function it defines, in source order.
   """
   @type test_module :: %{
           module: String.t(),
           file: String.t(),
           setups: [function_record()],
-          describes: [{String.t() | nil, [function_record()]}]
+          describes: [{String.t() | nil, [function_record()]}],
+          helpers: [function_record()]
         }
 
   @doc """
-  Every module holding test or setup records, sorted by file and then by name.
+  Every module of the test suite, sorted by file and then by name.
 
-  A record is a test when its `kind` is `"test"` and a setup when it is `"setup"`; a module
-  holding only setups — a case template's callback — is listed too, since its setup runs in
-  every test that uses it. An index built without tests returns `[]`.
+  A module belongs to the suite when it holds a test or a setup record — a record of kind
+  `"test"` or `"setup"` — or when the file it is written in lies under the project's
+  `test_paths`, which is where a case template or a factory module lives. Whatever else such
+  a module defines is one of its helpers. An index built without tests returns `[]`.
   """
   @spec tests(t()) :: [test_module()]
   def tests(%__MODULE__{} = index) do
-    index.functions
-    |> Map.values()
-    |> Enum.filter(&(&1["kind"] in ["test", "setup"]))
-    |> Enum.sort_by(&{&1["span"]["start_line"], &1["id"]})
-    |> Enum.group_by(& &1["module"])
-    |> Enum.map(fn {module, [first | _] = records} ->
-      {setups, tests} = Enum.split_with(records, &(&1["kind"] == "setup"))
+    records =
+      index.functions
+      |> Map.values()
+      |> Enum.sort_by(&{&1["span"]["start_line"], &1["id"]})
+      |> Enum.group_by(& &1["module"])
+
+    files =
+      for module <- index.modules, test_file?(index, module["file"]), into: %{} do
+        {module["name"], module["file"]}
+      end
+
+    suite =
+      for {module, module_records} <- records,
+          Enum.any?(module_records, &(&1["kind"] in ["test", "setup"])),
+          into: files,
+          do: {module, files[module] || hd(module_records)["file"]}
+
+    suite
+    |> Enum.map(fn {module, file} ->
+      module_records = Map.get(records, module, [])
+      {setups, rest} = Enum.split_with(module_records, &(&1["kind"] == "setup"))
+      {tests, helpers} = Enum.split_with(rest, &(&1["kind"] == "test"))
 
       %{
         module: module,
-        file: first["file"],
+        file: file,
         setups: setups,
-        describes: group_in_order(tests, &get_in(&1, ["test", "describe"]))
+        describes: group_in_order(tests, &get_in(&1, ["test", "describe"])),
+        helpers: helpers
       }
     end)
     |> Enum.sort_by(&{&1.file, &1.module})
