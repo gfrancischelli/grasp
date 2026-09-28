@@ -5,6 +5,7 @@ defmodule Grasp.Index.BuilderTest do
 
   @fixture Path.expand("../../fixtures/sample_app", __DIR__)
   @grasp_build "_build/grasp"
+  @next_number ~S(SampleApp.TallyTest."test handle_call/3 replies with the next number"/1)
   @untouched [
     "_build/dev/lib/sample_app/ebin/Elixir.SampleApp.Greeter.beam",
     "_build/dev/lib/sample_app/.mix/compile.elixir"
@@ -59,7 +60,101 @@ defmodule Grasp.Index.BuilderTest do
 
   test "reports what it wrote", %{output: output} do
     assert output =~
-             ~r/Grasp index written to .*grasp-sample-\d+\.json \(\d+ functions, \d+ calls, \d+ hidden\)/
+             ~r/Grasp index written to .*grasp-sample-\d+\.json \(\d+ functions, \d+ calls, \d+ hidden, 4 tests\)/
+  end
+
+  describe "the project's tests" do
+    test "are records of their own kind, carrying ExUnit's names", %{index: index} do
+      {:ok, test} = Grasp.Index.fetch_function(index, @next_number)
+
+      assert test["kind"] == "test"
+      assert test["file"] == "test/sample_app/tally_test.exs"
+      assert test["arity"] == 1
+
+      assert test["test"] == %{
+               "describe" => "handle_call/3",
+               "name" => "replies with the next number",
+               "tags" => ["tally"]
+             }
+
+      assert %{"kind" => "remote"} = call(test, "SampleApp.Counter.handle_call/3")
+
+      assert @next_number in Grasp.Index.callers(index, "SampleApp.Counter.handle_call/3")
+    end
+
+    test "keep their setups, helpers and the support files' functions", %{index: index} do
+      {:ok, setup} = Grasp.Index.fetch_function(index, "SampleApp.TallyTest.__ex_unit_setup_0/1")
+      assert setup["kind"] == "setup"
+      refute Map.has_key?(setup, "test")
+
+      {:ok, helper} = Grasp.Index.fetch_function(index, "SampleApp.TallyTest.init_with/1")
+      assert helper["kind"] == "defp"
+      assert call(helper, "SampleApp.Counter.init/1")
+
+      {:ok, conn_for} = Grasp.Index.fetch_function(index, "SampleApp.SampleCase.conn_for/1")
+      assert conn_for["file"] == "test/support/sample_case.ex"
+      assert call(conn_for, "Phoenix.ConnTest.build_conn/0")
+
+      {:ok, case_setup} =
+        Grasp.Index.fetch_function(index, "SampleApp.SampleCase.__ex_unit_setup_0/1")
+
+      assert call(case_setup, "SampleApp.SampleCase.conn_for/1")
+
+      {:ok, request} =
+        Grasp.Index.fetch_function(
+          index,
+          ~S(SampleAppWeb.RoutesTest."test a plain path reaches the controller"/1)
+        )
+
+      assert call(request, "Phoenix.ConnTest.get/2")
+    end
+
+    test "never read the test helper", %{index: index} do
+      refute Enum.any?(Grasp.Index.modules(index), &(&1["file"] == "test/test_helper.exs"))
+    end
+
+    test "are named in the project block", %{index: index} do
+      assert index.project["test_paths"] == ["test"]
+    end
+
+    test "are traced in a build directory of their own" do
+      assert File.dir?(Path.join([@fixture, "_build/grasp_test/lib/sample_app/ebin"]))
+    end
+
+    test "are left out with --no-tests" do
+      {output, index} = index!(["--no-tests"])
+
+      refute output =~ "tracing tests"
+      refute output =~ "tests)"
+      refute Map.has_key?(index.project, "test_paths")
+
+      refute Enum.any?(index.functions, fn {_id, record} ->
+               record["kind"] in ["test", "setup"]
+             end)
+
+      assert {:ok, _greet} = Grasp.Index.fetch_function(index, "SampleApp.Greeter.greet/2")
+    end
+
+    test "that do not compile are reported and leave the application's records" do
+      broken = Path.join(@fixture, "test/sample_app/broken_test.exs")
+
+      File.write!(
+        broken,
+        "defmodule SampleApp.BrokenTest do\n  use ExUnit.Case\n  test \"x\", do: nope()\nend\n"
+      )
+
+      try do
+        {output, index} = index!([])
+
+        assert output =~ "grasp: tests not indexed:"
+        assert output =~ "test/sample_app/broken_test.exs"
+        refute Map.has_key?(index.project, "test_paths")
+        refute Enum.any?(index.functions, fn {_id, record} -> record["kind"] == "test" end)
+        assert {:ok, _greet} = Grasp.Index.fetch_function(index, "SampleApp.Greeter.greet/2")
+      after
+        File.rm!(broken)
+      end
+    end
   end
 
   test "records project metadata", %{index: index} do
@@ -375,6 +470,22 @@ defmodule Grasp.Index.BuilderTest do
     |> File.read!()
     |> then(&Regex.scan(~r/^\s+"([^"]+)":/m, &1, capture: :all_but_first))
     |> List.flatten()
+  end
+
+  defp index!(args) do
+    out = Path.join(System.tmp_dir!(), "grasp-sample-#{System.unique_integer([:positive])}.json")
+
+    {output, status} =
+      System.cmd("mix", ["grasp.index", "--out", out | args],
+        cd: @fixture,
+        env: [{"MIX_ENV", "dev"}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
+    {:ok, index} = Grasp.Index.load(out)
+    File.rm!(out)
+    {output, index}
   end
 
   # Size as well as mtime: a rebuild inside the same second would leave the mtime alone.

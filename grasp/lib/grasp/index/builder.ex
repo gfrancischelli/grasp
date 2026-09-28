@@ -41,6 +41,7 @@ defmodule Grasp.Index.Builder do
     Join,
     Resolve,
     Templates,
+    TestTrace,
     Tracer
   }
 
@@ -49,7 +50,8 @@ defmodule Grasp.Index.Builder do
           functions: non_neg_integer(),
           calls: non_neg_integer(),
           hidden_calls: non_neg_integer(),
-          changed: non_neg_integer()
+          changed: non_neg_integer(),
+          tests: non_neg_integer()
         }
 
   @type extracted :: %{
@@ -79,8 +81,15 @@ defmodule Grasp.Index.Builder do
   `:base` compares the project against a git ref: every record is classified by
   `Grasp.Index.Changes` and the functions the ref holds that the project no longer
   defines are written as removed records. An unresolvable ref aborts the run.
+
+  When the project has a `test/` directory its tests are traced too, by
+  `Grasp.Index.TestTrace`, unless `:tests` is `false`. The test files and test-only support
+  files are extracted and joined as the application's files are, and their records go
+  through classification and route resolution with the application's. The project block
+  then names `"test_paths"`, so a reader knows which records are tests. A trace that fails
+  is reported and leaves the index the application's alone.
   """
-  @spec run(out: String.t(), base: String.t()) :: {:ok, summary()}
+  @spec run(out: String.t(), base: String.t(), tests: boolean()) :: {:ok, summary()}
   def run(opts) do
     out = Keyword.get(opts, :out, ".grasp/index.json")
     config = Mix.Project.config()
@@ -101,14 +110,22 @@ defmodule Grasp.Index.Builder do
     report_skipped(detected.skipped)
     entries = Enum.map(detected.entry_points, &entry_point_json/1)
 
-    records = functions |> classify(base, paths) |> Resolve.resolve(entries)
+    tests = trace_tests(root, paths, functions, Keyword.get(opts, :tests, true))
+
+    records = (functions ++ tests.records) |> classify(base, paths) |> Resolve.resolve(entries)
+
+    project =
+      Map.merge(
+        %{"app" => to_string(config[:app]), "root" => root, "elixirc_paths" => paths},
+        tests.project
+      )
 
     document =
       document(
         records,
-        extracted.modules,
+        extracted.modules ++ tests.modules,
         %{detected | entry_points: entries},
-        %{"app" => to_string(config[:app]), "root" => root, "elixirc_paths" => paths},
+        project,
         git_info(root, base)
       )
 
@@ -120,7 +137,8 @@ defmodule Grasp.Index.Builder do
        functions: length(records),
        calls: records |> Enum.map(&length(&1.calls)) |> Enum.sum(),
        hidden_calls: records |> Enum.map(&length(&1.hidden_calls)) |> Enum.sum(),
-       changed: Enum.count(records, &(Map.get(&1, :change, "unchanged") != "unchanged"))
+       changed: Enum.count(records, &(Map.get(&1, :change, "unchanged") != "unchanged")),
+       tests: Enum.count(records, &(&1.kind == :test))
      }}
   end
 
@@ -177,15 +195,14 @@ defmodule Grasp.Index.Builder do
   a function the base commit had, and an entry point pointing at one would lead nowhere.
   """
   @spec entry_points(atom() | nil, [Join.function_record()]) :: detected()
-  def entry_points(app, records) do
-    indexed =
-      for record <- records,
-          not Map.get(record, :removed, false),
-          arity <- record.arities,
-          into: MapSet.new(),
-          do: Join.function_id(record.module, record.name, arity)
+  def entry_points(app, records), do: EntryPoints.detect(app, indexed_ids(records))
 
-    EntryPoints.detect(app, indexed)
+  defp indexed_ids(records) do
+    for record <- records,
+        not Map.get(record, :removed, false),
+        arity <- record.arities,
+        into: MapSet.new(),
+        do: Join.function_id(record.module, record.name, arity)
   end
 
   @doc """
@@ -369,6 +386,38 @@ defmodule Grasp.Index.Builder do
       Code.put_compiler_option(:parser_options, previous_parser)
     end
   end
+
+  @no_tests %{records: [], modules: [], project: %{}}
+
+  # The application's ids are handed to the join, because a test's calls reach out of the
+  # files being joined: a hidden call into an application function is kept only when the
+  # join knows the index holds that function.
+  defp trace_tests(root, paths, functions, true) do
+    if File.dir?(Path.join(root, "test")) do
+      Mix.shell().info("grasp: tracing tests (MIX_ENV=test)")
+
+      case TestTrace.run(root, paths) do
+        {:ok, trace} ->
+          extracted = extract(root, trace.files)
+          report_failures(extracted.failures)
+
+          %{
+            records:
+              Join.join(extracted.definitions, trace.events, known_ids: indexed_ids(functions)),
+            modules: extracted.modules,
+            project: %{"test_paths" => ["test"]}
+          }
+
+        {:error, output} ->
+          Mix.shell().error("grasp: tests not indexed: #{output}")
+          @no_tests
+      end
+    else
+      @no_tests
+    end
+  end
+
+  defp trace_tests(_root, _paths, _functions, false), do: @no_tests
 
   defp extract_file(file, relative) do
     case File.read(file) do

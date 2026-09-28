@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Grasp.Index do
   @moduledoc """
   Builds the Grasp index for the current Mix project.
 
-      mix grasp.index [--out PATH] [--base REF] [--build-path PATH]
+      mix grasp.index [--out PATH] [--base REF] [--build-path PATH] [--no-tests]
 
   Forces a full recompile with a compiler tracer attached, so every call the compiler
   resolves is recorded with its position, then writes the JSON document the Grasp viewer
@@ -29,6 +29,10 @@ defmodule Mix.Tasks.Grasp.Index do
     * `--base` - a git ref to compare against. Each function is marked added, modified,
       unchanged or removed against the merge base of `REF` and `HEAD`, and the functions
       that commit defines and this one no longer does are written as removed records.
+    * `--no-tests` - leaves the project's tests out. Without it, a project with a `test/`
+      directory has its tests traced in the test environment, in a build directory of
+      their own, `_build/grasp_test` (see `Grasp.Index.TestTrace`), and written as records
+      beside the application's.
     * `--build-path` - the build directory to compile in. Defaults to `_build/grasp`.
       Naming the project's own build directory runs the build in this session instead of
       a subprocess.
@@ -40,7 +44,13 @@ defmodule Mix.Tasks.Grasp.Index do
 
   use Mix.Task
 
-  @switches [out: :string, base: :string, build_path: :string, in_build_path: :boolean]
+  @switches [
+    out: :string,
+    base: :string,
+    build_path: :string,
+    in_build_path: :boolean,
+    tests: :boolean
+  ]
   @default_build_path "_build/grasp"
 
   @impl Mix.Task
@@ -62,14 +72,17 @@ defmodule Mix.Tasks.Grasp.Index do
   end
 
   defp build(opts) do
-    {:ok, summary} = Grasp.Index.Builder.run(Keyword.take(opts, [:out, :base]))
+    {:ok, summary} = Grasp.Index.Builder.run(Keyword.take(opts, [:out, :base, :tests]))
 
     Mix.shell().info(
       "Grasp index written to #{summary.path} " <>
-        "(#{summary.functions} functions, #{summary.calls} calls, #{summary.hidden_calls} hidden)" <>
-        changed_against(opts[:base], summary)
+        "(#{summary.functions} functions, #{summary.calls} calls, #{summary.hidden_calls} hidden" <>
+        tests(summary) <> ")" <> changed_against(opts[:base], summary)
     )
   end
+
+  defp tests(%{tests: 0}), do: ""
+  defp tests(%{tests: tests}), do: ", #{tests} tests"
 
   # A build directory of its own starts as a copy of the one the project already has, so
   # the first run compiles the project rather than every dependency it carries. The copy

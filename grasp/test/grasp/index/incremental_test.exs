@@ -14,6 +14,7 @@ defmodule Grasp.Index.IncrementalTest do
   @template "lib/sample_app_web/greet_html/show.html.heex"
   @controller "lib/sample_app_web/greet_controller.ex"
   @mount "SampleAppWeb.HelloLive.mount/3"
+  @plain_request ~S(SampleAppWeb.RoutesTest."test a plain path reaches the controller"/1)
 
   @changed_greeter ~S'''
   defmodule SampleApp.Greeter do
@@ -126,6 +127,48 @@ defmodule Grasp.Index.IncrementalTest do
 
       before = by_id(Enum.reject(document["functions"], &(&1["file"] == @greeter)))
       assert by_id(Enum.reject(updated["functions"], &(&1["file"] == @greeter))) == before
+    end
+
+    test "keeps every test record and resolves the routes a test requests",
+         %{document: document, root: root, events: events} do
+      tests = Enum.filter(document["functions"], &String.starts_with?(&1["file"], "test/"))
+      assert Enum.any?(tests, &(&1["kind"] == "test"))
+      assert Enum.any?(tests, &(&1["kind"] == "setup"))
+
+      requesting =
+        map_record(document, @plain_request, fn record ->
+          site = %{
+            "path" => ["again"],
+            "verb" => "GET",
+            "range" => %{"start" => [6, 22], "end" => [6, 30]}
+          }
+
+          Map.put(record, "route_sites", [site])
+        end)
+
+      {:ok, updated} = update(requesting, root, [@greeter], events)
+
+      assert updated["project"]["test_paths"] == ["test"]
+
+      assert by_id(Enum.reject(tests, &(&1["id"] == @plain_request))) ==
+               updated["functions"]
+               |> Enum.filter(&String.starts_with?(&1["file"], "test/"))
+               |> Enum.reject(&(&1["id"] == @plain_request))
+               |> by_id()
+
+      request = fetch(updated, @plain_request)
+      kept = fetch(document, @plain_request)
+
+      assert Map.delete(request, "calls") ==
+               Map.delete(%{kept | "route_sites" => request["route_sites"]}, "calls")
+
+      assert Enum.filter(request["calls"], &(&1["kind"] != "route")) == kept["calls"]
+
+      assert %{
+               "kind" => "route",
+               "target" => "SampleAppWeb.GreetController.again/2",
+               "route" => %{"verb" => "GET", "path" => "/again"}
+             } = Enum.find(request["calls"], &(&1["kind"] == "route"))
     end
 
     test "orders records and modules by file and by where in the file they start",

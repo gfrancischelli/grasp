@@ -1335,6 +1335,396 @@
         1
       ],
       "arity": 1,
+      "base_source": null,
+      "calls": [
+        {
+          "kind": "local",
+          "range": {
+            "end": [
+              15,
+              25
+            ],
+            "start": [
+              15,
+              17
+            ]
+          },
+          "target": "SampleApp.SampleCase.conn_for/1"
+        }
+      ],
+      "change": "unchanged",
+      "file": "test/support/sample_case.ex",
+      "hidden_calls": [],
+      "id": "SampleApp.SampleCase.__ex_unit_setup_0/1",
+      "kind": "setup",
+      "module": "SampleApp.SampleCase",
+      "name": "__ex_unit_setup_0",
+      "removed": false,
+      "route_sites": [],
+      "source": "  setup do\n    {:ok, conn: conn_for(\"sample-case\")}\n  end",
+      "span": {
+        "end_line": 16,
+        "start_line": 14
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
+      "base_source": null,
+      "calls": [
+        {
+          "kind": "remote",
+          "range": {
+            "end": [
+              21,
+              29
+            ],
+            "start": [
+              21,
+              5
+            ]
+          },
+          "target": "Plug.Conn.put_req_header/3"
+        },
+        {
+          "kind": "remote",
+          "range": {
+            "end": [
+              21,
+              57
+            ],
+            "start": [
+              21,
+              30
+            ]
+          },
+          "target": "Phoenix.ConnTest.build_conn/0"
+        }
+      ],
+      "change": "unchanged",
+      "file": "test/support/sample_case.ex",
+      "hidden_calls": [],
+      "id": "SampleApp.SampleCase.conn_for/1",
+      "kind": "def",
+      "module": "SampleApp.SampleCase",
+      "name": "conn_for",
+      "removed": false,
+      "route_sites": [],
+      "source": "  @doc \"A test connection carrying `label` as its request id.\"\n  @spec conn_for(String.t()) :: Plug.Conn.t()\n  def conn_for(label) do\n    Plug.Conn.put_req_header(Phoenix.ConnTest.build_conn(), \"x-request-id\", label)\n  end",
+      "span": {
+        "end_line": 22,
+        "start_line": 18
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
+      "base_source": null,
+      "calls": [],
+      "change": "unchanged",
+      "file": "test/sample_app/tally_test.exs",
+      "hidden_calls": [],
+      "id": "SampleApp.TallyTest.__ex_unit_setup_0/1",
+      "kind": "setup",
+      "module": "SampleApp.TallyTest",
+      "name": "__ex_unit_setup_0",
+      "removed": false,
+      "route_sites": [],
+      "source": "  setup do\n    {:ok, start: 41}\n  end",
+      "span": {
+        "end_line": 8,
+        "start_line": 6
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
+      "base_source": null,
+      "calls": [
+        {
+          "kind": "imported_macro",
+          "range": {
+            "end": [
+              13,
+              13
+            ],
+            "start": [
+              13,
+              7
+            ]
+          },
+          "target": "ExUnit.Assertions.assert/1"
+        },
+        {
+          "kind": "remote",
+          "range": {
+            "end": [
+              13,
+              52
+            ],
+            "start": [
+              13,
+              33
+            ]
+          },
+          "target": "SampleApp.Counter.handle_call/3"
+        }
+      ],
+      "change": "unchanged",
+      "file": "test/sample_app/tally_test.exs",
+      "hidden_calls": [],
+      "id": "SampleApp.TallyTest.\"test handle_call/3 replies with the next number\"/1",
+      "kind": "test",
+      "module": "SampleApp.TallyTest",
+      "name": "test handle_call/3 replies with the next number",
+      "removed": false,
+      "route_sites": [],
+      "source": "    @tag :tally\n    test \"replies with the next number\", %{start: start} do\n      assert {:reply, 42, 42} = Counter.handle_call(:next, self(), start)\n    end",
+      "span": {
+        "end_line": 14,
+        "start_line": 11
+      },
+      "test": {
+        "describe": "handle_call/3",
+        "name": "replies with the next number",
+        "tags": [
+          "tally"
+        ]
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
+      "base_source": null,
+      "calls": [
+        {
+          "kind": "imported_macro",
+          "range": {
+            "end": [
+              18,
+              11
+            ],
+            "start": [
+              18,
+              5
+            ]
+          },
+          "target": "ExUnit.Assertions.assert/1"
+        },
+        {
+          "kind": "local",
+          "range": {
+            "end": [
+              18,
+              21
+            ],
+            "start": [
+              18,
+              12
+            ]
+          },
+          "target": "SampleApp.TallyTest.init_with/1"
+        }
+      ],
+      "change": "unchanged",
+      "file": "test/sample_app/tally_test.exs",
+      "hidden_calls": [],
+      "id": "SampleApp.TallyTest.\"test init keeps the start count\"/1",
+      "kind": "test",
+      "module": "SampleApp.TallyTest",
+      "name": "test init keeps the start count",
+      "removed": false,
+      "route_sites": [],
+      "source": "  test \"init keeps the start count\" do\n    assert init_with(7) == {:ok, 7}\n  end",
+      "span": {
+        "end_line": 19,
+        "start_line": 17
+      },
+      "test": {
+        "describe": null,
+        "name": "init keeps the start count",
+        "tags": []
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
+      "base_source": null,
+      "calls": [
+        {
+          "kind": "remote",
+          "range": {
+            "end": [
+              21,
+              42
+            ],
+            "start": [
+              21,
+              30
+            ]
+          },
+          "target": "SampleApp.Counter.init/1"
+        }
+      ],
+      "change": "unchanged",
+      "file": "test/sample_app/tally_test.exs",
+      "hidden_calls": [],
+      "id": "SampleApp.TallyTest.init_with/1",
+      "kind": "defp",
+      "module": "SampleApp.TallyTest",
+      "name": "init_with",
+      "removed": false,
+      "route_sites": [],
+      "source": "  defp init_with(count), do: Counter.init(count)",
+      "span": {
+        "end_line": 21,
+        "start_line": 21
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
+      "base_source": null,
+      "calls": [
+        {
+          "kind": "imported_macro",
+          "range": {
+            "end": [
+              6,
+              11
+            ],
+            "start": [
+              6,
+              5
+            ]
+          },
+          "target": "ExUnit.Assertions.assert/1"
+        },
+        {
+          "kind": "imported_macro",
+          "range": {
+            "end": [
+              6,
+              15
+            ],
+            "start": [
+              6,
+              12
+            ]
+          },
+          "target": "Phoenix.ConnTest.get/2"
+        }
+      ],
+      "change": "unchanged",
+      "file": "test/sample_app_web/routes_test.exs",
+      "hidden_calls": [],
+      "id": "SampleAppWeb.RoutesTest.\"test a plain path reaches the controller\"/1",
+      "kind": "test",
+      "module": "SampleAppWeb.RoutesTest",
+      "name": "test a plain path reaches the controller",
+      "removed": false,
+      "route_sites": [],
+      "source": "  test \"a plain path reaches the controller\", %{conn: conn} do\n    assert get(conn, \"/again\").status in 200..599\n  end",
+      "span": {
+        "end_line": 7,
+        "start_line": 5
+      },
+      "test": {
+        "describe": null,
+        "name": "a plain path reaches the controller",
+        "tags": []
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
+      "base_source": null,
+      "calls": [
+        {
+          "kind": "imported_macro",
+          "range": {
+            "end": [
+              10,
+              11
+            ],
+            "start": [
+              10,
+              5
+            ]
+          },
+          "target": "ExUnit.Assertions.assert/1"
+        },
+        {
+          "kind": "imported_macro",
+          "range": {
+            "end": [
+              10,
+              16
+            ],
+            "start": [
+              10,
+              12
+            ]
+          },
+          "target": "Phoenix.ConnTest.post/3"
+        }
+      ],
+      "change": "unchanged",
+      "file": "test/sample_app_web/routes_test.exs",
+      "hidden_calls": [],
+      "id": "SampleAppWeb.RoutesTest.\"test a verified path reaches the controller\"/1",
+      "kind": "test",
+      "module": "SampleAppWeb.RoutesTest",
+      "name": "test a verified path reaches the controller",
+      "removed": false,
+      "route_sites": [
+        {
+          "path": [
+            "greet"
+          ],
+          "range": {
+            "end": [
+              10,
+              33
+            ],
+            "start": [
+              10,
+              23
+            ]
+          },
+          "verb": "GET"
+        }
+      ],
+      "source": "  test \"a verified path reaches the controller\", %{conn: conn} do\n    assert post(conn, ~p\"/greet\", %{\"name\" => \"Ada\"}).status in 200..599\n  end",
+      "span": {
+        "end_line": 11,
+        "start_line": 9
+      },
+      "test": {
+        "describe": null,
+        "name": "a verified path reaches the controller",
+        "tags": []
+      }
+    },
+    {
+      "arities": [
+        1
+      ],
+      "arity": 1,
       "base_source": "  def whisper(text) do\n    String.downcase(text)\n  end",
       "calls": [],
       "change": "removed",
@@ -1480,6 +1870,24 @@
       "file": "lib/sample_app_web/router.ex",
       "line": 1,
       "name": "SampleAppWeb.Router"
+    },
+    {
+      "behaviours": [],
+      "file": "test/support/sample_case.ex",
+      "line": 1,
+      "name": "SampleApp.SampleCase"
+    },
+    {
+      "behaviours": [],
+      "file": "test/sample_app/tally_test.exs",
+      "line": 1,
+      "name": "SampleApp.TallyTest"
+    },
+    {
+      "behaviours": [],
+      "file": "test/sample_app_web/routes_test.exs",
+      "line": 1,
+      "name": "SampleAppWeb.RoutesTest"
     }
   ],
   "project": {
@@ -1487,7 +1895,10 @@
     "elixirc_paths": [
       "lib"
     ],
-    "root": "/tmp/sample_app"
+    "root": "/tmp/sample_app",
+    "test_paths": [
+      "test"
+    ]
   },
   "version": 1
 }
