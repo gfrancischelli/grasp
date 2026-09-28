@@ -212,6 +212,10 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .badge--change[data-change="modified"] { background: var(--accent-soft); color: var(--accent); }
 .badge--change[data-change="removed"] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .badge--test { background: color-mix(in oklch, var(--diff-ins-fg) 14%, transparent); color: var(--diff-ins-fg); }
+/* Drawn as a badge and addressed apart from them: `.badge` names what a function is, and this
+   says what reaches it, a count that opens the callers menu. */
+.card__tests { padding: 1px var(--space-s); border: 0; border-radius: 999px; background: color-mix(in oklch, var(--diff-ins-fg) 8%, transparent); color: var(--diff-ins-fg); font-family: var(--mono); font-size: 11px; white-space: nowrap; cursor: pointer; }
+.card__tests:hover, .card__tests[aria-expanded="true"] { background: color-mix(in oklch, var(--diff-ins-fg) 20%, transparent); }
 .card--removed .card__header { background: var(--diff-del-bg); }
 /* An added function reads as green from the header down, the way a removed one reads as red:
    the badge alone is easy to miss on a canvas of many cards. */
@@ -232,6 +236,10 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .card__callers ul { position: absolute; z-index: 2; margin: var(--space-xs) 0 0; padding: var(--space-xs); list-style: none; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); max-height: 16rem; overflow: auto; }
 .caller { display: block; width: 100%; text-align: start; padding: 2px var(--space-s); white-space: nowrap; }
 .caller:hover { color: var(--accent); }
+.caller--test { display: flex; gap: var(--space-s); justify-content: space-between; }
+.caller__hops { color: var(--fg-subtle); }
+.callers__heading { padding: var(--space-xs) var(--space-s) 2px; border-top: 1px solid var(--border); margin-top: var(--space-xs); color: var(--fg-subtle); font-size: 11px; }
+.callers__heading:first-child { border-top: 0; margin-top: 0; }
 .card__stats { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
 .card__view, .card__context, .card__collapse, .card__close { padding: 0 var(--space-xs); color: var(--fg-muted); }
 .card__view:hover, .card__context:hover { color: var(--accent); }

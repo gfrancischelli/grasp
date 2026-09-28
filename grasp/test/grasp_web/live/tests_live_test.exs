@@ -205,6 +205,82 @@ defmodule GraspWeb.TestsLiveTest do
     end
   end
 
+  describe "a function card reached by tests" do
+    @greet "SampleApp.Greeter.greet/2"
+    @handle_call "SampleApp.Counter.handle_call/3"
+    @verified ~s|SampleAppWeb.RoutesTest."test a verified path reaches the controller"/1|
+
+    test "wears the number of tests reaching it in its header", %{view: view} do
+      render_click(view, "open_root", %{"id" => @greet})
+      render_click(view, "open_root", %{"id" => @handle_call})
+
+      assert has_element?(view, "#card-1 .card__header .card__tests", "2 tests")
+      assert has_element?(view, "#card-2 .card__header .card__tests", "1 test")
+    end
+
+    test "wears nothing when no test reaches it, and a test card wears nothing", %{view: view} do
+      render_click(view, "open_root", %{"id" => "SampleApp.Application.start/2"})
+      render_click(view, "open_root", %{"id" => @reply})
+
+      assert has_element?(view, "#card-1")
+      refute has_element?(view, "#card-1 .card__tests")
+      refute has_element?(view, "#card-2 .card__tests")
+    end
+
+    test "lists the tests after the callers, nearest first with their hops", %{view: view} do
+      render_click(view, "open_root", %{"id" => @greet})
+      view |> element("#card-1 .card__tests") |> render_click()
+
+      assert has_element?(view, "#card-1 .card__callers-toggle[aria-expanded='true']")
+      assert has_element?(view, "#card-1 .card__callers li:last-of-type .caller--test")
+      refute has_element?(view, "#card-1 .card__callers li:first-child .caller--test")
+
+      assert rows(view, 1) == [
+               {"a verified path reaches the controller", "2 hops"},
+               {"a plain path reaches the controller", "3 hops"}
+             ]
+
+      render_click(view, "open_root", %{"id" => @handle_call})
+      view |> element("#card-2 .card__callers-toggle") |> render_click()
+
+      refute has_element?(view, "#card-1 .card__callers ul")
+      assert rows(view, 2) == [{"handle_call/3 › replies with the next number", "direct"}]
+    end
+
+    test "opens a test's card as a caller opens", %{view: view} do
+      render_click(view, "open_root", %{"id" => @greet})
+      view |> element("#card-1 .card__tests") |> render_click()
+
+      view
+      |> element("#card-1 .caller--test[phx-value-caller='#{@verified}']")
+      |> render_click()
+
+      assert has_element?(view, "#card-2[data-function-id='#{@verified}'][data-focused='true']")
+      assert has_element?(view, "#card-2 .badge--test[data-test-kind='test']")
+      assert has_element?(view, "#node-2[data-depth='0']")
+      assert has_element?(view, "#node-1[data-depth='1']")
+      refute has_element?(view, "#card-1 .card__callers ul")
+    end
+
+    test "keeps its badge through a move", %{view: view} do
+      render_click(view, "open_root", %{"id" => @greet})
+      render_click(view, "move_cards", %{"cards" => ["1"], "dx" => "40", "dy" => "8"})
+
+      assert has_element?(view, "#card-1 .card__tests", "2 tests")
+    end
+  end
+
+  defp rows(view, card) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("#card-#{card} .caller--test")
+    |> Enum.map(fn row ->
+      {row |> LazyHTML.query(".caller__test") |> LazyHTML.text() |> String.trim(),
+       row |> LazyHTML.query(".caller__hops") |> LazyHTML.text() |> String.trim()}
+    end)
+  end
+
   describe "an id the index does not hold" do
     test "a stub for a test's id reads its module and quoted name", %{view: view} do
       gone = ~s|SampleApp.TallyTest."test handle_call/3 answers nothing"/1|

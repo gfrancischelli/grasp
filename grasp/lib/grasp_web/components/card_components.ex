@@ -14,6 +14,11 @@ defmodule GraspWeb.CardComponents do
   lines where a function card shows its head. A setup callback wears `setup` and is titled
   `setup` or `setup_all`. The node's `data-module` is read from the record, so a test
   clusters with its module whatever its name holds.
+
+  A function card that tests reach wears `n tests` in its header, and its callers menu lists
+  those tests after the callers, nearest first with the hops between; the badge opens the
+  menu. The answers are the LiveView's, held in a `GraspWeb.TestReach`, so a card reads them
+  rather than walking the index as it renders.
   """
 
   use GraspWeb, :html
@@ -26,6 +31,7 @@ defmodule GraspWeb.CardComponents do
   alias Grasp.Diff.Hunks
   alias Grasp.Index
   alias Grasp.Session.Forest
+  alias GraspWeb.TestReach
 
   @stdlib_apps [:elixir, :logger, :eex, :ex_unit, :mix, :iex]
   @badge_labels %{
@@ -47,6 +53,7 @@ defmodule GraspWeb.CardComponents do
   attr :open_calls, :map, required: true
   attr :editor, :string, default: nil
   attr :callers_open, :integer, default: nil
+  attr :test_reach, TestReach, doc: "the tests reaching each card's function", default: nil
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
   attr :composing, :map, doc: "the anchor a comment is being written at", default: nil
@@ -90,6 +97,7 @@ defmodule GraspWeb.CardComponents do
         open_calls={@open_calls}
         editor={@editor}
         callers_open={@callers_open}
+        test_reach={@test_reach}
         selected={@selected}
         comments={@comments}
         composing={@composing}
@@ -106,6 +114,7 @@ defmodule GraspWeb.CardComponents do
   attr :open_calls, :map, required: true
   attr :editor, :string, default: nil
   attr :callers_open, :integer, default: nil
+  attr :test_reach, TestReach, doc: "the tests reaching each card's function", default: nil
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
   attr :composing, :map, doc: "the anchor a comment is being written at", default: nil
@@ -324,6 +333,7 @@ defmodule GraspWeb.CardComponents do
         diffable?: diffable?,
         stats: diffable? && Diff.stats(record["base_source"], record["source"]),
         callers: Index.callers(index, record["id"]),
+        tests: tests_reaching(assigns.test_reach, card.function_id),
         entries: Index.entry_points_for(index, record["id"]),
         title: title,
         signature: signature(record),
@@ -374,6 +384,17 @@ defmodule GraspWeb.CardComponents do
           {badge_label(entry)}
         </span>
         <.test_badge kind={@title.badge} />
+        <button
+          :if={@tests != []}
+          type="button"
+          class="card__tests"
+          phx-click="toggle_callers"
+          phx-value-card={@card.id}
+          aria-expanded={to_string(@callers_open == @card.id)}
+          title="Tests reaching this function"
+        >
+          {count_label(length(@tests), "test")}
+        </button>
         <h2 class="card__title">
           <span class="card__module">{@title.module}{@title.separator}</span><span class="card__fn">{@title.name}</span>
           <span :if={!@title.badge} class="card__kind">{@record["kind"]}</span>
@@ -386,8 +407,9 @@ defmodule GraspWeb.CardComponents do
           <span :if={!@editor_href} class="card__file">
             {@record["file"]}:{@record["span"]["start_line"]}
           </span>
-          <div :if={@callers != []} class="card__callers">
+          <div :if={@callers != [] or @tests != []} class="card__callers">
             <button
+              :if={@callers != []}
               class="card__callers-toggle"
               phx-click="toggle_callers"
               phx-value-card={@card.id}
@@ -404,6 +426,18 @@ defmodule GraspWeb.CardComponents do
                   phx-value-caller={caller}
                 >
                   {caller}
+                </button>
+              </li>
+              <li :if={@tests != []} class="callers__heading">Tests</li>
+              <li :for={reach <- @tests}>
+                <button
+                  class="caller caller--test"
+                  phx-click="open_caller"
+                  phx-value-card={@card.id}
+                  phx-value-caller={reach.test}
+                >
+                  <span class="caller__test">{test_row_title(@index, reach.test)}</span>
+                  <span class="caller__hops">{hops_label(reach.hops)}</span>
                 </button>
               </li>
             </ul>
@@ -586,6 +620,32 @@ defmodule GraspWeb.CardComponents do
   # title nor the body carries, so it is shown in full.
   defp badge_label(%{"kind" => "route", "label" => label}), do: label
   defp badge_label(%{"kind" => kind}), do: Map.get(@badge_labels, kind, kind)
+
+  defp tests_reaching(nil, _function_id), do: []
+  defp tests_reaching(reach, function_id), do: TestReach.for_function(reach, function_id)
+
+  defp count_label(1, noun), do: "1 #{noun}"
+  defp count_label(count, noun), do: "#{count} #{noun}s"
+
+  defp hops_label(1), do: "direct"
+  defp hops_label(hops), do: "#{hops} hops"
+
+  # A row names its test as the test's own card titles it, less the module: every row of the
+  # menu is a test, and the describe is the part that tells two of them apart.
+  defp test_row_title(index, test_id) do
+    case Index.fetch_function(index, test_id) do
+      {:ok, %{"kind" => "test"} = record} ->
+        title = title(record)
+        describe = is_map(record["test"]) && record["test"]["describe"]
+        if describe, do: describe <> title.separator <> title.name, else: title.name
+
+      {:ok, record} ->
+        title(record).name
+
+      :error ->
+        test_id
+    end
+  end
 
   defp stub_card(assigns) do
     # The title is split the way a full card's is, so that the frame round the cluster can

@@ -36,6 +36,7 @@ defmodule GraspWeb.ReviewLive do
   alias Grasp.{Index, IndexStore, Links, Session}
   alias Grasp.Session.Disk
   alias Grasp.Session.Forest
+  alias GraspWeb.TestReach
 
   @groups GraspWeb.Sidebar.group_kinds()
   @no_command "claude command not found; set GRASP_AGENT_COMMAND"
@@ -71,13 +72,15 @@ defmodule GraspWeb.ReviewLive do
     end
 
     index = IndexStore.get()
+    forest = Session.get(name)
 
     assign(socket,
       name: name,
       index: index,
       index_error: IndexStore.last_error(),
       index_path: IndexStore.path(),
-      forest: Session.get(name),
+      forest: forest,
+      test_reach: TestReach.refresh(TestReach.new(), index, forest),
       sessions: Session.list(),
       session_menu_open?: false,
       new_session_name: "",
@@ -105,7 +108,7 @@ defmodule GraspWeb.ReviewLive do
 
   @impl true
   def handle_info({:session, name, %Forest{} = forest}, %{assigns: %{name: name}} = socket) do
-    socket = socket |> assign(forest: forest) |> prune_to_forest(forest)
+    socket = put_forest(socket, forest)
     {:noreply, push_event(socket, "focus", %{id: forest.focus})}
   end
 
@@ -124,6 +127,7 @@ defmodule GraspWeb.ReviewLive do
     {:noreply,
      assign(socket,
        index: index,
+       test_reach: TestReach.refresh(socket.assigns.test_reach, index, socket.assigns.forest),
        expanded_groups: default_expanded(index, open_threads(socket.assigns.name)),
        selected: MapSet.new(),
        expanded_folds: MapSet.new(),
@@ -196,7 +200,8 @@ defmodule GraspWeb.ReviewLive do
     {:noreply,
      socket
      |> close_overlays()
-     |> assign(callers_open: open, forest: Session.focus(socket.assigns.name, id))}
+     |> assign(callers_open: open)
+     |> put_forest(Session.focus(socket.assigns.name, id))}
   end
 
   # Shift+click, which the canvas hook turns into this rather than into a focus: the card is
@@ -655,7 +660,7 @@ defmodule GraspWeb.ReviewLive do
             forest
         end
 
-      {:noreply, socket |> assign(forest: forest) |> prune_to_forest(forest)}
+      {:noreply, put_forest(socket, forest)}
     else
       _nothing_to_open -> {:noreply, socket}
     end
@@ -942,13 +947,18 @@ defmodule GraspWeb.ReviewLive do
 
   defp clear_selection(socket), do: assign(socket, selected: MapSet.new())
 
+  # Every forest this tab draws arrives through here, so the tests reaching its cards are
+  # held against the forest they were taken for; `TestReach` walks the index again only when
+  # the canvas holds another set of functions.
   # A card off the canvas takes this tab's gestures about it with it, however it left: this
   # tab's own close, another tab's, or an agent's over MCP. Ids are never reused, so nothing
   # is ever put back in by accident.
-  defp prune_to_forest(socket, %Forest{} = forest) do
+  defp put_forest(socket, %Forest{} = forest) do
     on_canvas? = &Map.has_key?(forest.cards, &1)
 
     assign(socket,
+      forest: forest,
+      test_reach: TestReach.refresh(socket.assigns.test_reach, socket.assigns.index, forest),
       selected: MapSet.filter(socket.assigns.selected, on_canvas?),
       expanded_folds:
         MapSet.filter(socket.assigns.expanded_folds, fn {id, _from} -> on_canvas?.(id) end)
@@ -1038,7 +1048,7 @@ defmodule GraspWeb.ReviewLive do
           Session.open_root(name, id)
       end
 
-    {:noreply, socket |> assign(forest: forest) |> reset_palette()}
+    {:noreply, socket |> put_forest(forest) |> reset_palette()}
   end
 
   # The edge an opened card gains is identified by the spelling the caller's own source uses,
@@ -1086,8 +1096,7 @@ defmodule GraspWeb.ReviewLive do
   # the returned forest is assigned here only to make the change visible before the
   # broadcast arrives (which matters in tests, where the view may not be connected).
   defp mutate(socket, fun) do
-    forest = fun.(socket.assigns.name)
-    {:noreply, socket |> assign(forest: forest) |> prune_to_forest(forest)}
+    {:noreply, put_forest(socket, fun.(socket.assigns.name))}
   end
 
   # What a PR-mode review is against, as the two ends of the comparison. A detached head has
@@ -1378,6 +1387,7 @@ defmodule GraspWeb.ReviewLive do
               open_calls={Map.get(@open_calls, node.id, %{})}
               editor={@editor}
               callers_open={@callers_open}
+              test_reach={@test_reach}
               selected={MapSet.member?(@selected, node.id)}
               comments={@comments}
               composing={@composing}

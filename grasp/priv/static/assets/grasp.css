@@ -643,6 +643,21 @@ body.grasp-dragging .module__title {
   background: color-mix(in oklch, var(--diff-ins-fg) 14%, transparent);
   color: var(--diff-ins-fg);
 }
+.card__tests {
+  padding: 1px var(--space-s);
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--diff-ins-fg) 8%, transparent);
+  color: var(--diff-ins-fg);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.card__tests:hover,
+.card__tests[aria-expanded=true] {
+  background: color-mix(in oklch, var(--diff-ins-fg) 20%, transparent);
+}
 .card--removed .card__header {
   background: var(--diff-del-bg);
 }
@@ -717,6 +732,25 @@ body.grasp-dragging .module__title {
 }
 .caller:hover {
   color: var(--accent);
+}
+.caller--test {
+  display: flex;
+  gap: var(--space-s);
+  justify-content: space-between;
+}
+.caller__hops {
+  color: var(--fg-subtle);
+}
+.callers__heading {
+  padding: var(--space-xs) var(--space-s) 2px;
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-xs);
+  color: var(--fg-subtle);
+  font-size: 11px;
+}
+.callers__heading:first-child {
+  border-top: 0;
+  margin-top: 0;
 }
 .card__stats {
   color: var(--fg-muted);
