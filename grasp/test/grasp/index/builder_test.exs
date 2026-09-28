@@ -11,7 +11,12 @@ defmodule Grasp.Index.BuilderTest do
     "_build/dev/lib/sample_app/.mix/compile.elixir"
   ]
 
+  @broken "test/sample_app/broken_test.exs"
+
   setup_all do
+    # A run killed inside the broken-test case leaves its file behind, and every later index
+    # of the fixture would then trace no tests.
+    File.rm(Path.join(@fixture, @broken))
     out = Path.join(System.tmp_dir!(), "grasp-sample-#{System.unique_integer([:positive])}.json")
     env = [{"MIX_ENV", "dev"}]
 
@@ -136,7 +141,7 @@ defmodule Grasp.Index.BuilderTest do
     end
 
     test "that do not compile are reported and leave the application's records" do
-      broken = Path.join(@fixture, "test/sample_app/broken_test.exs")
+      broken = Path.join(@fixture, @broken)
 
       File.write!(
         broken,
@@ -147,7 +152,7 @@ defmodule Grasp.Index.BuilderTest do
         {output, index} = index!([])
 
         assert output =~ "grasp: tests not indexed:"
-        assert output =~ "test/sample_app/broken_test.exs"
+        assert output =~ @broken
         refute Map.has_key?(index.project, "test_paths")
         refute Enum.any?(index.functions, fn {_id, record} -> record["kind"] == "test" end)
         assert {:ok, _greet} = Grasp.Index.fetch_function(index, "SampleApp.Greeter.greet/2")

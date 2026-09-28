@@ -19,10 +19,10 @@ holds for test records unless this document says otherwise.
 - **The test trace runs in the test environment, without Grasp as a test dependency.** Test
   files compile only under `MIX_ENV=test`, against dependencies a host declares for tests
   alone, and Grasp is a dev-only dependency. The full build therefore starts one extra
-  subprocess, `MIX_ENV=test mix run --no-start --no-compile`, with Grasp's own compiled
-  beams — `grasp` and `sourceror` from the dev build — prepended to its code path, the
-  tracer installed, and the test files required without running a test. The host changes
-  nothing. Measured on a 258-file suite: 15 s, 115 000 events from 6 600 test-side
+  subprocess, `MIX_ENV=test mix run --no-start`, which compiles the project before Grasp's
+  own compiled beams — `grasp`'s `ebin` from the dev build — are prepended to its code path,
+  then has the tracer installed and the test files required without running a test. The
+  host changes nothing. Measured on a 258-file suite: 15 s, 115 000 events from 6 600 test-side
   functions.
 - **Coverage and runs use the host's own `mix test`.** Grasp never runs a test itself: it
   runs the host's test command, with Grasp's beams on the path the same way, so the suite
@@ -42,16 +42,18 @@ project has a `test/` directory; `--no-tests` skips it. The dev indexer starts t
 trace as a subprocess:
 
 ```
-MIX_ENV=test MIX_BUILD_PATH=_build/grasp_test mix run --no-start --no-compile <script>
+MIX_ENV=test MIX_BUILD_PATH=_build/grasp_test mix run --no-start <script>
 ```
 
 - `_build/grasp_test` is seeded from `_build/test` the first time it is missing, as
   `_build/grasp` is seeded from `_build/dev`, so a dev server and a `mix test` run are never
-  compiled under. The script compiles the project first (`Mix.Task.run("compile")`) with no
-  tracer installed, so an unchanged tree compiles nothing.
+  compiled under. `mix run` compiles the project before the script starts, with no tracer
+  installed and Grasp absent from the code path, so an unchanged tree compiles nothing and
+  the test build is the one `mix test` compiles: a host's `Code.ensure_loaded?(Grasp.Router)`
+  guard reads false there.
 - The script is a file Grasp ships in `priv/`, run by path. It prepends the dev build's
-  `grasp` and `sourceror` `ebin` directories to the code path, installs
-  `Grasp.Index.Tracer`, sets `ignore_module_conflict: true`, starts ExUnit with
+  `grasp` `ebin` directory — the only one it needs, since extraction runs in the parent — to
+  the code path, installs `Grasp.Index.Tracer`, sets `ignore_module_conflict: true`, starts ExUnit with
   `autorun: false`, and requires, with `Kernel.ParallelCompiler.require/2`, the test-only
   support files — the files under the test environment's `elixirc_paths` that the dev
   environment's do not include (`test/support`) — and then every `test/**/*_test.exs`.

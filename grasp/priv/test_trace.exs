@@ -1,11 +1,13 @@
 # Traces a project's tests without running them. `Grasp.Index.TestTrace` runs this file in
 # the project's test environment:
 #
-#     MIX_ENV=test mix run --no-start --no-compile test_trace.exs \
-#       EVENTS_FILE GRASP_EBIN SOURCEROR_EBIN DEV_PATHS
+#     MIX_ENV=test mix run --no-start test_trace.exs EVENTS_FILE GRASP_EBIN DEV_PATHS
 #
-# DEV_PATHS is the dev environment's `elixirc_paths`, joined by commas. The project is
-# compiled first with no tracer, so an unchanged tree compiles nothing. The tracer is then
+# DEV_PATHS is the dev environment's `elixirc_paths`, joined by commas. `mix run` compiles the
+# dependencies and the project before this script starts, with no tracer installed and with
+# Grasp absent from the code path, so an unchanged tree compiles nothing and a host guard such
+# as `Code.ensure_loaded?(Grasp.Router)` reads false in the test build, as it does in
+# `mix test`. Grasp's ebin goes on the path only after that compile. The tracer is then
 # installed and the test-only support files — the `.ex` files the test environment compiles
 # and the dev environment does not — are required, followed by every `test/**/*_test.exs`.
 # Requiring a test file defines its module and registers its tests with an ExUnit that is
@@ -17,19 +19,12 @@
 # format. A file that does not compile stops the script with a non-zero status, after the
 # compiler has printed its errors.
 
-[events_file, grasp_ebin, sourceror_ebin, dev_paths] = System.argv()
+[events_file, grasp_ebin, dev_paths] = System.argv()
 
-# Only these two directories: the host's own dependencies — its `jason`, its `phoenix` — keep
-# the versions the test environment compiled.
-Code.prepend_path(sourceror_ebin)
+# Grasp's ebin alone: the tracer calls nothing outside Elixir and itself, and every module the
+# host's dependencies provide keeps the version the test environment compiled.
 Code.prepend_path(grasp_ebin)
 {:module, _} = Code.ensure_loaded(Grasp.Index.Tracer)
-
-# `--no-compile` reached the dependencies' load paths too, so they are loaded again with
-# compilation allowed: a build directory seeded from nothing holds no compiled dependency.
-Mix.Task.reenable("deps.loadpaths")
-Mix.Task.reenable("loadpaths")
-Mix.Task.run("compile")
 
 root = File.cwd!()
 dev_roots = dev_paths |> String.split(",", trim: true) |> Enum.map(&(Path.expand(&1, root) <> "/"))

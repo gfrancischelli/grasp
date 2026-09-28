@@ -7,10 +7,11 @@ defmodule Grasp.Index.TestTrace do
   that builds the index. `run/3` starts one subprocess instead:
 
       MIX_ENV=test MIX_BUILD_PATH=_build/grasp_test \\
-        mix run --no-start --no-compile priv/test_trace.exs EVENTS GRASP_EBIN SOURCEROR_EBIN DEV_PATHS
+        mix run --no-start priv/test_trace.exs EVENTS GRASP_EBIN DEV_PATHS
 
-  The script prepends the `ebin` directories of the running session's `grasp` and
-  `sourceror` to the test session's code path, compiles the project, installs
+  `mix run` compiles the project before the script starts, with Grasp absent from the test
+  session's code path, so the test build is the one `mix test` would compile. The script
+  then prepends the `ebin` directory of the running session's `grasp`, installs
   `Grasp.Index.Tracer` and requires the test-only support files and every
   `test/**/*_test.exs` without running a test. It writes the events those files produced,
   and the files themselves, to `EVENTS` in the external term format; this module reads that
@@ -38,7 +39,7 @@ defmodule Grasp.Index.TestTrace do
   Returns the events recorded in the test files and test-only support files, each naming
   its file relative to `root`, and those files; or `{:error, output}` with the
   subprocess's output when a test file does not compile, and a message when the running
-  session has no compiled `grasp` or `sourceror` to lend the test environment.
+  session has no compiled `grasp` to lend the test environment.
 
   `opts[:runner]` replaces `System.cmd/3`.
   """
@@ -47,20 +48,17 @@ defmodule Grasp.Index.TestTrace do
     runner = Keyword.get(opts, :runner, &System.cmd/3)
     build = Path.join(root, @build)
 
-    with {:ok, grasp_ebin} <- ebin(:grasp, "Elixir.Grasp.Index.Tracer.beam"),
-         {:ok, sourceror_ebin} <- ebin(:sourceror, "Elixir.Sourceror.beam") do
-      seed(Path.join(root, @source_build), build)
+    with {:ok, grasp_ebin} <- ebin(:grasp, "Elixir.Grasp.Index.Tracer.beam") do
+      seed(root)
       File.mkdir_p!(build)
       events_file = Path.join(build, "events-#{System.unique_integer([:positive])}.bin")
 
       args = [
         "run",
         "--no-start",
-        "--no-compile",
         script(),
         events_file,
         grasp_ebin,
-        sourceror_ebin,
         Enum.join(dev_paths, ",")
       ]
 
@@ -107,10 +105,13 @@ defmodule Grasp.Index.TestTrace do
     end
   end
 
-  defp seed(source, build) do
+  defp seed(root) do
+    source = Path.join(root, @source_build)
+    build = Path.join(root, @build)
     staging = build <> ".seeding"
 
     if not File.dir?(build) and File.dir?(source) do
+      Mix.shell().info("grasp: seeding #{@build} from #{@source_build}")
       File.rm_rf!(staging)
       File.cp_r!(source, staging)
       File.rename!(staging, build)

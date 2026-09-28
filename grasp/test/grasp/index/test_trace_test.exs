@@ -1,5 +1,5 @@
 defmodule Grasp.Index.TestTraceTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: true, group: :mix_shell
 
   alias Grasp.Index.TestTrace
 
@@ -27,7 +27,7 @@ defmodule Grasp.Index.TestTraceTest do
 
     runner = fn command, args, opts ->
       send(parent, {:ran, command, args, opts})
-      File.write!(Enum.at(args, 4), :erlang.term_to_binary(trace))
+      File.write!(Enum.at(args, 3), :erlang.term_to_binary(trace))
       {"", 0}
     end
 
@@ -39,19 +39,18 @@ defmodule Grasp.Index.TestTraceTest do
     assert [
              "run",
              "--no-start",
-             "--no-compile",
              script,
              events_file,
              grasp_ebin,
-             sourceror_ebin,
              "lib,web"
            ] = args
+
+    refute "--no-compile" in args
 
     assert script == TestTrace.script()
     assert File.regular?(script)
     assert Path.dirname(events_file) == build
     assert grasp_ebin == Path.join(to_string(:code.lib_dir(:grasp)), "ebin")
-    assert sourceror_ebin == Path.join(to_string(:code.lib_dir(:sourceror)), "ebin")
 
     assert opts[:cd] == root
     assert opts[:env] == [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", build}]
@@ -64,7 +63,11 @@ defmodule Grasp.Index.TestTraceTest do
     File.mkdir_p!(Path.join(root, "_build/test/lib/sample_app/ebin"))
     File.write!(Path.join(root, "_build/test/lib/sample_app/ebin/marker"), "compiled")
 
+    previous = Mix.shell()
+    Mix.shell(Mix.Shell.Process)
+    on_exit(fn -> Mix.shell(previous) end)
     assert {:ok, _trace} = TestTrace.run(root, ["lib"], runner: writing_runner())
+    assert_received {:mix_shell, :info, ["grasp: seeding _build/grasp_test from _build/test"]}
 
     seeded = Path.join(root, "_build/grasp_test/lib/sample_app/ebin/marker")
     assert File.read!(seeded) == "compiled"
@@ -85,7 +88,7 @@ defmodule Grasp.Index.TestTraceTest do
     parent = self()
 
     runner = fn _command, args, _opts ->
-      events_file = Enum.at(args, 4)
+      events_file = Enum.at(args, 3)
       send(parent, {:events_file, events_file})
       File.write!(events_file, :erlang.term_to_binary(%{events: [], files: []}))
       {"== Compilation error in file test/broken_test.exs ==\n", 1}
@@ -105,7 +108,7 @@ defmodule Grasp.Index.TestTraceTest do
 
   defp writing_runner do
     fn _command, args, _opts ->
-      File.write!(Enum.at(args, 4), :erlang.term_to_binary(%{events: [], files: []}))
+      File.write!(Enum.at(args, 3), :erlang.term_to_binary(%{events: [], files: []}))
       {"", 0}
     end
   end
