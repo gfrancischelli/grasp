@@ -194,6 +194,71 @@ defmodule Grasp.MCP.ToolsTest do
     end
   end
 
+  describe "tests_for" do
+    test "lists the tests reaching a function, nearest first, with their names and files" do
+      {:reply, resp, _} =
+        Tools.TestsFor.execute(%{function_id: "SampleApp.Counter.handle_call/3"}, %Frame{})
+
+      refute resp.isError
+
+      assert json!(resp) == %{
+               "id" => "SampleApp.Counter.handle_call/3",
+               "tests" => [
+                 %{
+                   "id" =>
+                     ~s|SampleApp.TallyTest."test handle_call/3 replies with the next number"/1|,
+                   "name" => "replies with the next number",
+                   "describe" => "handle_call/3",
+                   "file" => "test/sample_app/tally_test.exs",
+                   "hops" => 1
+                 }
+               ]
+             }
+    end
+
+    test "counts hops up to max_hops, four by default" do
+      {:reply, resp, _} =
+        Tools.TestsFor.execute(%{function_id: "SampleApp.Counter.init/1"}, %Frame{})
+
+      assert %{"tests" => [%{"hops" => 2, "describe" => nil} = test]} = json!(resp)
+      assert test["name"] == "init keeps the start count"
+
+      {:reply, resp, _} =
+        Tools.TestsFor.execute(%{function_id: "SampleApp.Counter.init/1", max_hops: 1}, %Frame{})
+
+      assert json!(resp)["tests"] == []
+    end
+
+    test "answers under the canonical id, and an unknown id is a tool error" do
+      {:reply, resp, _} =
+        Tools.TestsFor.execute(%{function_id: "SampleApp.Greeter.greet/1"}, %Frame{})
+
+      assert json!(resp)["id"] == @greet
+
+      {:reply, %Response{isError: true} = resp, _} =
+        Tools.TestsFor.execute(%{function_id: "Nope.f/0"}, %Frame{})
+
+      assert [%{"text" => "unknown function: Nope.f/0"}] = resp.content
+    end
+  end
+
+  describe "untested_changes" do
+    test "lists the changed application functions no test reaches, sorted by id" do
+      {:reply, resp, _} = Tools.UntestedChanges.execute(%{}, %Frame{})
+
+      refute resp.isError
+
+      assert json!(resp) == %{
+               "functions" => [
+                 %{"id" => @nested, "file" => "lib/sample_app/greeter.ex", "change" => "added"}
+               ]
+             }
+
+      {:reply, resp, _} = Tools.TestsFor.execute(%{function_id: @shout}, %Frame{})
+      assert [_ | _] = json!(resp)["tests"]
+    end
+  end
+
   describe "the card lookup" do
     test "answers the card, or the message a tool replies with when there is none" do
       name = "t-#{System.unique_integer([:positive])}"
@@ -226,6 +291,8 @@ defmodule Grasp.MCP.ToolsTest do
       refute "from" in (Tools.FindPaths.input_schema()["required"] || [])
       refute Tools.ListEntryPoints.input_schema()["required"]
       refute Tools.ListChanges.input_schema()["required"]
+      assert Tools.TestsFor.input_schema()["required"] == ["function_id"]
+      refute Tools.UntestedChanges.input_schema()["required"]
     end
 
     test "state each bounded field's default and maximum" do
@@ -235,6 +302,15 @@ defmodule Grasp.MCP.ToolsTest do
                "How many results to return; default 20, maximum 100"
 
       assert properties["limit"]["maximum"] == 100
+
+      properties = Tools.TestsFor.input_schema()["properties"]
+
+      assert properties["max_hops"]["description"] ==
+               "How many call edges a test may be away; default 4, maximum 8"
+
+      assert properties["max_hops"]["minimum"] == 1
+      assert properties["max_hops"]["maximum"] == 8
+      assert properties["function_id"]["description"] =~ "a test's id quotes its name"
     end
   end
 end

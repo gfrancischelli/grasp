@@ -524,6 +524,85 @@ defmodule Grasp.IndexTest do
     end
   end
 
+  describe "untested_changes/1" do
+    test "is the added and modified application functions no test reaches, sorted by id" do
+      index =
+        reach_index([
+          changed(record("MyApp.Wallets.debit/2"), "modified"),
+          changed(record("MyApp.Wallets.credit/2"), "added"),
+          changed(record("MyApp.Wallets.audit/1"), "added"),
+          changed(record("MyApp.Wallets.close/1"), "unchanged"),
+          record("MyApp.Wallets.open/1"),
+          changed(
+            test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"]),
+            "added"
+          )
+        ])
+
+      assert ids(Index.untested_changes(index)) == [
+               "MyApp.Wallets.audit/1",
+               "MyApp.Wallets.debit/2"
+             ]
+    end
+
+    test "leaves out removed functions, tests, setups and functions under the test paths" do
+      helper =
+        "MyApp.Factory.build/1"
+        |> record("MyApp.Factory")
+        |> Map.put("file", "test/support/factory.ex")
+        |> changed("added")
+
+      removed =
+        "MyApp.Wallets.gone/0"
+        |> record()
+        |> Map.put("removed", true)
+        |> changed("removed")
+
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "project" => %{"test_paths" => ["test"]},
+          "functions" => [
+            helper,
+            removed,
+            changed(record("MyApp.Wallets.lone/0"), "modified"),
+            changed(test_record("MyApp.WalletsTest", "credits", []), "added"),
+            changed(setup_record("MyApp.WalletsTest", []), "added")
+          ]
+        })
+
+      assert ids(Index.untested_changes(index)) == ["MyApp.Wallets.lone/0"]
+    end
+
+    test "counts a function reached only past the default bound as untested" do
+      chain =
+        for n <- 0..4 do
+          calls = if n == 0, do: [], else: ["MyApp.C.f#{n - 1}/0"]
+          changed(record("MyApp.C.f#{n}/0", "MyApp.C", calls), "modified")
+        end
+
+      index = reach_index(chain ++ [test_record("MyApp.CTest", "far", ["MyApp.C.f4/0"])])
+
+      assert ids(Index.untested_changes(index)) == ["MyApp.C.f0/0"]
+    end
+
+    test "answers nothing for an index built without a base ref" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.debit/2"),
+          test_record("MyApp.WalletsTest", "credits", [])
+        ])
+
+      assert Index.untested_changes(index) == []
+    end
+
+    test "is the fixture's added function no test reaches" do
+      {:ok, index} = Index.load("test/fixtures/index.json")
+
+      assert ids(Index.untested_changes(index)) == ["SampleApp.Greeter.Nested.hello/0"]
+    end
+  end
+
   describe "path_back/4" do
     test "is the function and the test when the test calls it" do
       test = test_id("MyApp.WalletsTest", "credits")
@@ -690,6 +769,8 @@ defmodule Grasp.IndexTest do
       "calls" => Enum.map(calls, &%{"target" => &1, "kind" => "remote"})
     }
   end
+
+  defp changed(record, change), do: Map.put(record, "change", change)
 
   defp test_id(module, name), do: ~s|#{module}."test #{name}"/1|
 

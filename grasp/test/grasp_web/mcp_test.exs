@@ -16,7 +16,7 @@ defmodule GraspWeb.MCPTest do
                 get_function get_session group_cards highlight_card list_changes list_comments
                 list_entry_points list_modules list_sessions open_card publish_comments
                 reload_index rename_group reply_comment resolve_comment search_functions
-                set_cards set_view ungroup_cards)
+                set_cards set_view tests_for ungroup_cards untested_changes)
 
     assert Enum.all?(result["tools"], &(&1["description"] not in [nil, ""]))
 
@@ -29,6 +29,42 @@ defmodule GraspWeb.MCPTest do
     assert [%{"type" => "text", "text" => text}] = result["content"]
     assert %{"callees" => callees} = Jason.decode!(text)
     assert "SampleApp.Formatter.wrap/1" in callees
+  end
+
+  @tag capture_log: true
+  test "tests_for and untested_changes answer over the endpoint", %{conn: conn} do
+    {conn, session} = initialize(conn)
+
+    result =
+      rpc(conn, session, "tools/call", %{
+        "name" => "tests_for",
+        "arguments" => %{"function_id" => "SampleApp.Counter.init/1"}
+      })
+
+    refute result["isError"]
+    assert [%{"type" => "text", "text" => text}] = result["content"]
+
+    assert %{"id" => "SampleApp.Counter.init/1", "tests" => [%{"hops" => 2}]} =
+             Jason.decode!(text)
+
+    conn =
+      post_json(conn, session, %{
+        "jsonrpc" => "2.0",
+        "id" => System.unique_integer([:positive]),
+        "method" => "tools/call",
+        "params" => %{
+          "name" => "tests_for",
+          "arguments" => %{"function_id" => "SampleApp.Counter.init/1", "max_hops" => 9}
+        }
+      })
+
+    assert %{"error" => %{"message" => "Invalid params"}} = decode(conn)
+
+    result = rpc(conn, session, "tools/call", %{"name" => "untested_changes", "arguments" => %{}})
+
+    refute result["isError"]
+    assert [%{"type" => "text", "text" => text}] = result["content"]
+    assert %{"functions" => [_ | _]} = Jason.decode!(text)
   end
 
   test "cards set over MCP are what the review page renders", %{conn: conn} do

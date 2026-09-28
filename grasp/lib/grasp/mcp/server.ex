@@ -20,6 +20,8 @@ defmodule Grasp.MCP.Server do
   component(Tools.FindPaths)
   component(Tools.ListEntryPoints)
   component(Tools.ListChanges)
+  component(Tools.TestsFor)
+  component(Tools.UntestedChanges)
   component(Tools.ReloadIndex)
   component(Tools.ListModules)
   component(Tools.ListSessions)

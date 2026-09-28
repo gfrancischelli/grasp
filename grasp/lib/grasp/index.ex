@@ -235,6 +235,26 @@ defmodule Grasp.Index do
     index |> functions() |> Enum.filter(&(&1["change"] in ~w(added modified removed)))
   end
 
+  @doc """
+  The application functions the branch added or modified that no test reaches within
+  `tests_for/3`'s default bound, sorted by id.
+
+  A function counts when `changed_functions/1` lists it as added or modified, it is not a
+  test or a setup, and its file lies outside the project's `test_paths`. A removed function
+  has no body left for a test to reach, so it never counts. An index built without a base
+  ref marks no function added or modified and answers `[]`.
+  """
+  @spec untested_changes(t()) :: [function_record()]
+  def untested_changes(%__MODULE__{} = index) do
+    index
+    |> changed_functions()
+    |> Enum.filter(fn record ->
+      record["change"] in ~w(added modified) and record["removed"] != true and
+        record["kind"] not in ["test", "setup"] and not test_file?(index, record["file"]) and
+        tests_for(index, record["id"]) == []
+    end)
+  end
+
   @typedoc """
   One test module as the sidebar lists it: its name, the file it is written in, its setup
   callbacks in source order, its tests grouped under their `describe` — `nil` for the tests
