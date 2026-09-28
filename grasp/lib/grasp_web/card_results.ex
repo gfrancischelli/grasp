@@ -20,13 +20,18 @@ defmodule GraspWeb.CardResults do
   (`GraspWeb.TestReach`) whose fresh result is `"failed"` or `"invalid"`: either is a test
   that did not pass.
 
-  A test whose fresh result is `"failed"` also holds its errors, read with `failures/2`,
-  which the card draws under its lines and `open failure` walks. They are the result's,
-  read with it and gone with it: a stale result or any other status holds none.
+  A test whose fresh result is `"failed"` also holds its failure (`failure/2`): its errors,
+  each read against the index once as the panel the card draws under its lines — the line
+  it belongs under and its trace, `Grasp.TestFailure` — and the chain of the first error,
+  which `open failure` opens and whose emptiness says the card offers nothing to open. They
+  are taken with the reading and kept with it, so a render reads them and walks no
+  stacktrace; they are the result's, gone with it: a stale result or any other status holds
+  none.
   """
 
   alias Grasp.Index
   alias Grasp.Session.Forest
+  alias Grasp.TestFailure
   alias Grasp.TestResults
   alias GraspWeb.TestReach
 
@@ -35,19 +40,28 @@ defmodule GraspWeb.CardResults do
 
   defstruct results: nil, index: nil, readings: %{}, failures: %{}
 
+  @typedoc """
+  A failed test's errors, the panel each is drawn as, and the first error's chain.
+  """
+  @type failure :: %{
+          errors: [map()],
+          panels: [%{error: map(), line: pos_integer() | nil, trace: [TestFailure.frame()]}],
+          chain: [TestFailure.step()]
+        }
+
   @typedoc "What a card wears for its function's results."
   @type reading :: :none | {:result, String.t()} | {:failing, pos_integer()}
 
   @typedoc """
   The readings, keyed by function id, taken against the results document of generation
   `results` (`nil` when none is loaded) and the index of generation `index`, and the errors
-  of each test among them whose fresh result is `"failed"`.
+  of each test among them whose fresh result is `"failed"`, as `t:failure/0`.
   """
   @type t :: %__MODULE__{
           results: pos_integer() | nil,
           index: non_neg_integer() | nil,
           readings: %{String.t() => reading()},
-          failures: %{String.t() => [map()]}
+          failures: %{String.t() => failure()}
         }
 
   @doc "Holds no readings, against no results."
@@ -92,7 +106,7 @@ defmodule GraspWeb.CardResults do
         failures:
           Map.merge(
             kept_failures,
-            for({id, {_reading, [_ | _] = errors}} <- taken, into: %{}, do: {id, errors})
+            for({id, {_reading, %{} = failure}} <- taken, into: %{}, do: {id, failure})
           )
       }
     end
@@ -110,33 +124,40 @@ defmodule GraspWeb.CardResults do
   empty for anything else.
   """
   @spec failures(t() | nil, String.t()) :: [map()]
-  def failures(%__MODULE__{failures: failures}, function_id),
-    do: Map.get(failures, function_id, [])
+  def failures(held, function_id) do
+    case failure(held, function_id) do
+      %{errors: errors} -> errors
+      nil -> []
+    end
+  end
 
-  def failures(nil, _function_id), do: []
+  @doc "`function_id`'s fresh failure, as `t:failure/0`; nil for anything else."
+  @spec failure(t() | nil, String.t()) :: failure() | nil
+  def failure(%__MODULE__{failures: failures}, function_id), do: Map.get(failures, function_id)
+  def failure(nil, _function_id), do: nil
 
-  defp read(nil, _index, _reach, _id), do: {:none, []}
-  defp read(_document, nil, _reach, _id), do: {:none, []}
+  defp read(nil, _index, _reach, _id), do: {:none, nil}
+  defp read(_document, nil, _reach, _id), do: {:none, nil}
 
   defp read(document, %Index{} = index, reach, id) do
     case Index.fetch_function(index, id) do
       {:ok, %{"kind" => "test"} = record} ->
         case TestResults.for_test(document, record) do
           {:fresh, %{"status" => "failed"} = result} ->
-            {{:result, "failed"}, errors(result)}
+            {{:result, "failed"}, failure(index, record, errors(result))}
 
           {:fresh, %{"status" => status}} when status in @worn ->
-            {{:result, status}, []}
+            {{:result, status}, nil}
 
           {:stale, %{"status" => status}} when status in @worn ->
-            {{:result, "stale"}, []}
+            {{:result, "stale"}, nil}
 
           _none ->
-            {:none, []}
+            {:none, nil}
         end
 
       {:ok, %{"kind" => "setup"}} ->
-        {:none, []}
+        {:none, nil}
 
       {:ok, _function} ->
         failing =
@@ -144,11 +165,28 @@ defmodule GraspWeb.CardResults do
           |> TestReach.for_function(id)
           |> Enum.count(&failed?(document, index, &1.test))
 
-        {if(failing > 0, do: {:failing, failing}, else: :none), []}
+        {if(failing > 0, do: {:failing, failing}, else: :none), nil}
 
       :error ->
-        {:none, []}
+        {:none, nil}
     end
+  end
+
+  defp failure(_index, _record, []), do: nil
+
+  defp failure(index, record, [first | _rest] = errors) do
+    %{
+      errors: errors,
+      panels:
+        Enum.map(errors, fn error ->
+          %{
+            error: error,
+            line: TestFailure.line(record, error),
+            trace: TestFailure.trace(index, record, error)
+          }
+        end),
+      chain: TestFailure.chain(index, record, first)
+    }
   end
 
   defp errors(%{"errors" => errors}) when is_list(errors), do: Enum.filter(errors, &is_map/1)

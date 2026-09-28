@@ -46,7 +46,6 @@ defmodule GraspWeb.ReviewLive do
   alias Grasp.{CoverageStore, Index, IndexStore, Links, ResultsStore, Runs, Session}
   alias Grasp.Session.Disk
   alias Grasp.Session.Forest
-  alias Grasp.TestFailure
   alias GraspWeb.CardCoverage
   alias GraspWeb.CardResults
   alias GraspWeb.RunsPanel
@@ -280,18 +279,15 @@ defmodule GraspWeb.ReviewLive do
     end
   end
 
-  # The chain is the first error's stacktrace, from the test outwards, read from the result
+  # The chain is the first error's stacktrace, from the test outwards, taken with the result
   # this page holds for the card: a result gone stale, or one of another status, holds no
-  # errors and opens nothing, as does a stacktrace with no indexed frame above the test's.
+  # failure and opens nothing, as does a stacktrace with no indexed frame above the test's.
   def handle_event("open_failure", %{"card" => card}, socket) do
     id = int(card)
     function_id = function_id(socket, id)
 
-    with %Index{} = index <- socket.assigns.index,
-         true <- is_binary(function_id),
-         [error | _rest] <- CardResults.failures(socket.assigns.results, function_id),
-         {:ok, record} <- Index.fetch_function(index, function_id),
-         [_ | _] = steps <- TestFailure.chain(index, record, error) do
+    with true <- is_binary(function_id),
+         %{chain: [_ | _] = steps} <- CardResults.failure(socket.assigns.results, function_id) do
       callees =
         Enum.map(steps, fn step ->
           {step.id, step.via, step.line && %{"lines" => [step.line, step.line]}}
@@ -1359,7 +1355,7 @@ defmodule GraspWeb.ReviewLive do
             depth: depth,
             coverage: CardCoverage.for_function(coverage, function_id),
             result: CardResults.for_function(results, function_id),
-            failures: CardResults.failures(results, function_id)
+            failure: CardResults.failure(results, function_id)
           }
         end)
       end)
@@ -1666,7 +1662,7 @@ defmodule GraspWeb.ReviewLive do
               test_reach={@test_reach}
               coverage={node.coverage}
               result={node.result}
-              failures={node.failures}
+              failure={node.failure}
               running={@running}
               selected={MapSet.member?(@selected, node.id)}
               comments={@comments}

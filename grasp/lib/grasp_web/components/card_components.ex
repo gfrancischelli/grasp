@@ -52,7 +52,6 @@ defmodule GraspWeb.CardComponents do
   alias Grasp.Diff.Hunks
   alias Grasp.Index
   alias Grasp.Session.Forest
-  alias Grasp.TestFailure
   alias GraspWeb.TestReach
 
   @stdlib_apps [:elixir, :logger, :eex, :ex_unit, :mix, :iex]
@@ -87,9 +86,9 @@ defmodule GraspWeb.CardComponents do
 
   attr :running, :string, doc: "the description of the run under way, if any", default: nil
 
-  attr :failures, :list,
-    doc: "the errors of this card's fresh failed result, `GraspWeb.CardResults.failures/2`",
-    default: []
+  attr :failure, :map,
+    doc: "this card's fresh failure, a `t:GraspWeb.CardResults.failure/0`",
+    default: nil
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -137,7 +136,7 @@ defmodule GraspWeb.CardComponents do
         test_reach={@test_reach}
         coverage={@coverage}
         result={@result}
-        failures={@failures}
+        failure={@failure}
         running={@running}
         selected={@selected}
         comments={@comments}
@@ -167,9 +166,9 @@ defmodule GraspWeb.CardComponents do
 
   attr :running, :string, doc: "the description of the run under way, if any", default: nil
 
-  attr :failures, :list,
-    doc: "the errors of this card's fresh failed result, `GraspWeb.CardResults.failures/2`",
-    default: []
+  attr :failure, :map,
+    doc: "this card's fresh failure, a `t:GraspWeb.CardResults.failure/0`",
+    default: nil
 
   attr :selected, :boolean, default: false
   attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
@@ -362,21 +361,11 @@ defmodule GraspWeb.CardComponents do
       |> Enum.concat(Enum.map(hidden, &{:hidden, &1.thread}))
       |> Enum.sort_by(fn {_why, thread} -> thread.id end)
 
-    # A failure is the result's, not a thread: it is read from the result each render and
+    # A failure is the result's, not a thread: its panels are taken with the result, and each
     # hangs under the line the test's own frame names, which a fold keeps open as a thread
     # keeps its range open.
-    failures =
-      if record["kind"] == "test" do
-        Enum.map(assigns.failures, fn error ->
-          %{
-            error: error,
-            line: TestFailure.line(record, error),
-            trace: TestFailure.trace(index, record, error)
-          }
-        end)
-      else
-        []
-      end
+    failure = if record["kind"] == "test", do: assigns.failure
+    failures = if failure, do: failure.panels, else: []
 
     expanded_folds = assigns.expanded_folds || MapSet.new()
     card_id = card.id
@@ -401,13 +390,6 @@ defmodule GraspWeb.CardComponents do
         lines
       end
 
-    # `open failure` opens the first error's chain, so a chain of nothing offers no button.
-    chain? =
-      case failures do
-        [%{error: first} | _rest] -> TestFailure.chain(index, record, first) != []
-        [] -> false
-      end
-
     drawn_new = for %{side: :new, line: number} <- lines, into: MapSet.new(), do: number
 
     {failures_under, failures_aside} =
@@ -417,7 +399,7 @@ defmodule GraspWeb.CardComponents do
       assign(assigns,
         failures_under: Enum.group_by(failures_under, & &1.line),
         failures_aside: failures_aside,
-        chain?: chain?,
+        chain?: failure != nil and failure.chain != [],
         focused?: forest.focus == card.id,
         coverage_stale?: coverage == :stale,
         lines: lines,

@@ -100,6 +100,56 @@ defmodule GraspWeb.CardResultsTest do
     assert CardResults.failures(held, @reply) == []
   end
 
+  test "a failure is read once with the result: its panels and its first error's chain", %{
+    index: index,
+    forest: forest,
+    snapshot: {generation, document}
+  } do
+    own = %{
+      "module" => "SampleApp.TallyTest",
+      "function" => "test init keeps the start count",
+      "arity" => 1,
+      "line" => 18
+    }
+
+    helper = %{
+      "module" => "SampleApp.TallyTest",
+      "function" => "init_with",
+      "arity" => 1,
+      "line" => 21
+    }
+
+    errors = [
+      %{"kind" => "error", "message" => "first", "stacktrace" => [helper, own]},
+      %{"kind" => "error", "message" => "second", "stacktrace" => []}
+    ]
+
+    document =
+      document
+      |> put_in(["tests", @init, "status"], "failed")
+      |> put_in(["tests", @init, "errors"], errors)
+      |> put_in(["tests", @reply, "errors"], [Enum.at(errors, 1)])
+
+    held = refresh(CardResults.new(), {generation, document}, index, forest)
+
+    assert %{errors: ^errors, panels: [first, second], chain: chain} =
+             CardResults.failure(held, @init)
+
+    assert chain == [
+             %{
+               id: "SampleApp.TallyTest.init_with/1",
+               via: "SampleApp.TallyTest.init_with/1",
+               line: 21
+             }
+           ]
+
+    assert %{line: 18, trace: [%{step?: true}, %{own?: true}]} = first
+    assert %{line: 17, trace: []} = second
+    assert %{chain: []} = CardResults.failure(held, @reply)
+    assert CardResults.failure(held, @handle_call) == nil
+    assert CardResults.failure(nil, @init) == nil
+  end
+
   test "without a document every card reads as none", %{index: index, forest: forest} do
     held = refresh(CardResults.new(), nil, index, forest)
     assert CardResults.for_function(held, @init) == :none
