@@ -529,15 +529,29 @@ test paths uncompared.
 
 ## Test review (milestone 10.5)
 
-- **Weakened assertions.** In PR mode a modified test whose diff deletes an assertion line,
-  turns an `==` or `===` assertion into `=~`, `match?` or `in`, or deletes an `assert_*`
-  call is marked `assertion weakened`; an added test with no assertion line at all is marked
-  `asserts nothing`. Both are badges on the card and rows in a **Test review** group.
-- **Doubles.** A `Mox.defmock(Mock, for: Behaviour)` in any file the test trace reads names
-  `Mock` a double of `Behaviour`. An `expect`, `stub` or `stub_with` naming `Mock` and a
-  function in a test body is an edge of kind `double`, dashed, from the test to the
-  function of that name in every indexed module declaring `@behaviour Behaviour`, so a
-  reviewer sees which code the test stands in for rather than runs.
+- **Assertions compared.** An assertion is a call named `assert`, `refute`, or starting with
+  `assert_` or `refute_` — local, imported or piped, as signature mode reads them — taken
+  from a parse of the test's source. In PR mode, for each modified test the assertions of
+  its `base_source` are compared with those of its `source`, by their text with whitespace
+  normalised:
+  - an assertion of the base with no counterpart at the head, or an `assert_*`/`refute_*`
+    call the head no longer makes, marks the test `assertion weakened`;
+  - so does an `assert left == right` or `assert left === right` of the base whose left
+    side reappears at the head in an assertion using `=~`, `match?/2` or `in`, or as a bare
+    `assert left`.
+  An added test with no assertion at all is marked `asserts nothing`.
+- **Where it shows.** Both marks are badges on the test card and rows, with the reason, in a
+  **Test review** group of the sidebar, after Untested changes. They are computed once per
+  index load, as the untested changes are. MCP `test_review()` answers the same list.
+- **Doubles.** A `Mox.defmock(Mock, for: Behaviour)` in `test_helper.exs` or any test-only
+  support file names `Mock` a double of `Behaviour`; those files are parsed, never run.
+  An `expect(Mock, :fun, …)` or `stub(Mock, :fun, …)` in a test body — local or `Mox.`
+  remote — is an edge of kind `double`, dashed, from the test to `fun` of every indexed
+  module whose behaviours include `Behaviour`, at the arity of the `fn` passed when it is
+  a literal, or every arity of `fun` the implementation defines otherwise. The call site
+  reads `Mox double of Behaviour`. A double stands in for the code rather than running
+  it, so `double` edges are not reach: they count for no test in `tests_for`, untested
+  changes or anything built on them.
 
 ## Agent-written tests (milestone 10.6)
 
