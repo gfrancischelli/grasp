@@ -121,4 +121,6 @@ already loaded. How the cards show it is in [Reviewing](reviewing.md).
   the run, so an edit saved once the suite has compiled, with the index catching up before
   the comparison, is not caught: its counts describe the text the suite compiled.
 
-`mix grasp.cover` runs the whole suite each time.
+`mix grasp.cover` runs the whole suite each time, whether it is started from the terminal,
+from the runs panel's `run coverage` or by the agent's `run_coverage` (see
+[Running tests](running-tests.md)).

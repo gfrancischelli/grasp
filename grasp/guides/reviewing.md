@@ -200,6 +200,32 @@ the button is disabled while no coverage is loaded.
 The mode is this tab's own and draws nothing outside it, so a canvas read without it looks as
 it always does.
 
+### Runs and results
+
+Tests run from the canvas, and their results show on the cards (see
+[Running tests](running-tests.md) for the task and the results document).
+
+- **Run controls.** `run` on a test card runs that test, `run all` in the callers menu's
+  Tests section runs every test listed there, and `run changed tests`, at the top of the
+  Changes group when the branch added or modified tests, runs those. One run goes at a
+  time: while one is under way each control is disabled and says what is running.
+- **The runs panel.** **runs** in the toolbar opens it where the chat panel floats, and
+  opening either closes the other; starting a run opens it too. It names the run, says
+  whether it is running, finished, failed with its exit status, or cancelled, and streams
+  the suite's output, the last 200 lines of it, with `cancel` while it runs and
+  `run coverage` beside it. The run is shared by every tab.
+- **Badges.** A test card wears its latest result — `passed`, `failed`, `skipped`,
+  `invalid` for a test whose module's `setup_all` failed — or `stale` once the test changed
+  after it ran. A function card's tests badge adds how many of its tests are failing,
+  `3 tests · 1 failing`.
+- **Failures.** A failed test card draws each error under the line of the test its
+  stacktrace passed through: the message, an assertion's `left` and `right` as ExUnit
+  printed them, and the stacktrace, each frame outside the index said to be. It is the
+  result, not a comment, and goes when the result goes stale. **open failure** in the
+  header opens the stacktrace's indexed frames as a chain of callees from the test, each
+  card with the line the failure passed through highlighted, so the path from the red test
+  to the code that raised is on the canvas.
+
 ## Edges
 
 An edge runs from a card to each card its open calls reach, one line per callee however many

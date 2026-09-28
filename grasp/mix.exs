@@ -84,6 +84,7 @@ defmodule Grasp.MixProject do
         "guides/agent.md",
         "guides/indexing.md",
         "guides/coverage.md",
+        "guides/running-tests.md",
         "guides/contributing.md"
       ],
       groups_for_extras: [Guides: ~r"guides/"],

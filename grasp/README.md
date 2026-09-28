@@ -64,6 +64,7 @@ In `.gitignore`:
 ```gitignore
 .grasp/index.json
 .grasp/coverage.json
+.grasp/results.json
 .grasp/worktrees/
 ```
 
@@ -94,6 +95,8 @@ claude mcp add --transport http grasp http://localhost:4000/grasp/mcp
   misses.
 - [Coverage](guides/coverage.md) — `mix grasp.cover`, what the suite ran and how the cards
   show it.
+- [Running tests](guides/running-tests.md) — `mix grasp.test`, the runs panel, results on
+  the cards and failures as chains of calls.
 - [Contributing](guides/contributing.md) — layout, tests, assets and docs.
 
 ## License

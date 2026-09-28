@@ -159,6 +159,9 @@ its shortcut when you hover or tab to it.
   name. See [Reviewing](reviewing.md).
 - **reset layout** — lay every card out again.
 - **ask** (⌘I) — open the chat panel. See [The agent](agent.md).
+- **runs** — open the runs panel: the test or coverage run under way, or the last one,
+  its output as it streams, `cancel` and `run coverage`. It reads `running…` while a run is
+  under way. See [Running tests](running-tests.md).
 - **?** (`?`) — the list of every key and gesture the canvas answers.
 
 Keys that act on the focused card: the arrow keys or `h` `j` `k` `l` walk the graph, `x`
@@ -173,3 +176,5 @@ selected cards and ⇧⌘G takes them back out. Escape lets a selection go.
 - [The agent](agent.md) — the chat panel and the MCP tools.
 - [Indexing](indexing.md) — what the index holds and what it misses.
 - [Coverage](coverage.md) — what the test suite ran, written by `mix grasp.cover`.
+- [Running tests](running-tests.md) — running the suite or the tests on the canvas, and
+  reading their results and failures.

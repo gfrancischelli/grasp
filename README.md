@@ -91,6 +91,8 @@ In `.gitignore`:
 
 ```gitignore
 .grasp/index.json
+.grasp/coverage.json
+.grasp/results.json
 .grasp/worktrees/
 ```
 
@@ -119,6 +121,10 @@ claude mcp add --transport http grasp http://localhost:4000/grasp/mcp
 - [The agent](grasp/guides/agent.md) — the chat panel, the MCP tools and what to ask for.
 - [Indexing](grasp/guides/indexing.md) — what the index holds, how it stays current, and what
   it misses.
+- [Coverage](grasp/guides/coverage.md) — `mix grasp.cover`, what the suite ran and how the
+  cards show it.
+- [Running tests](grasp/guides/running-tests.md) — `mix grasp.test`, the runs panel, results
+  on the cards and failures as chains of calls.
 - [Contributing](grasp/guides/contributing.md) — layout, tests, assets and docs.
 
 The same guides, with the API reference beside them, will be on HexDocs once Grasp is

@@ -1388,6 +1388,21 @@ first reference. Results are JSON text content, so any MCP client can read them.
   `missed`, the sorted lines the suite ran and never ran, and `gaps`, the `clauses` and
   `arms` it never entered as `[start_line, end_line]`; `generated_at` is when the coverage
   was written, null without a document. An unknown id is a tool error naming it.
+- Runs add three tools (see [the tests design](2026-09-28-grasp-tests-design.md), Runs and
+  failures), all asynchronous. `run_tests(test_ids?, changed?)` starts `mix grasp.test` on
+  the tests named by id, or with `changed: true` on the tests the branch added or modified,
+  exactly one of the two; an id the index holds no test for, an index without a base ref
+  for `changed`, or a branch that changed no test is a tool error, and nothing starts.
+  `run_coverage()` starts `mix grasp.cover`. Both answer at once, `started` with the run —
+  its `id`, `kind`, `description`, `argv`, `root`, `started_at` and `line_count` — or
+  `running` with the run already under way, which is left to finish. `run_status()`
+  answers `idle` before any run; `running` with the run and its last 50 lines of output;
+  or `last`, the last run to finish with its `finished_at`, `exit_status` (null when
+  cancelled) and `cancelled`, and for a test run `tests`, each test it named with its
+  `status` in the results document — `passed`, `failed`, `skipped`, `excluded`, `invalid`,
+  `stale`, or `none` when the run recorded nothing for it — a failed one carrying `error`:
+  its first error's `message`, `left`, `right` and `frame`, the deepest frame of the
+  stacktrace in an indexed function (`id`, `file`, `line`), null when there is none.
 
 Registering in Claude Code:
 
@@ -1794,6 +1809,16 @@ request switches the working tree" is closed.
      clauses and arms never entered and say `coverage stale` on a function that changed
      since, and the MCP tool `coverage` answers the same (see
      [the tests design](2026-09-28-grasp-tests-design.md)).
+   - Milestone 10.4: runs and failures — `mix grasp.test` runs the host's suite, or the tests
+     named, with a formatter of Grasp's recording each result into a results document that a
+     run merges into under a lock; the viewer runs one command at a time, streaming its
+     output to a runs panel from the toolbar's `runs`, started by `run` on a test card, `run
+     all` in the callers menu, `run changed tests` in the Changes group and `run coverage`,
+     and cancelled with its whole process tree; a test card wears its result or `stale`, the
+     tests badge counts the failing tests, a failed test draws each error under the line
+     of the test its stacktrace passed through, `open failure` opens the stacktrace's indexed frames as a chain of
+     callees, and the MCP tools `run_tests`, `run_coverage` and `run_status` start runs and
+     read their outcome (see [the tests design](2026-09-28-grasp-tests-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
    (see [Part 4](#part-4--in-app-grasp)).

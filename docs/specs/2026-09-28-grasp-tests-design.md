@@ -366,51 +366,150 @@ test paths uncompared.
 - **A `case` inside a `~H` sigil adds no arm.** The walk reads Elixir, not template text.
 - **Macros and guards carry no coverage.** They run at compile time, before `:cover` starts.
 - **A module whose test-build beam has no debug info carries no coverage.**
-- **The whole suite runs.** `mix grasp.cover` runs every test, and starting it from the
-  viewer or the agent is milestone 10.4's.
+- **The whole suite runs.** `mix grasp.cover` runs every test, whether it is started from
+  the terminal, the runs panel's `run coverage` or `run_coverage`.
 - **An edit saved while the suite runs is not caught.** The task compares the index with the
   files after the run, so an edit saved once the suite has compiled, with the index catching
   up before the comparison, keeps counts that describe the text the suite compiled.
 
 ## Runs and failures (milestone 10.4)
 
-- **Running tests.** `mix grasp.test [TEST_ID ... | --changed | --all]` runs the host's own
-  suite, or part of it, and records each test's result. It runs a script Grasp ships with
-  `MIX_ENV=test mix run --no-start`, as the test trace does: Mix compiles the project and
-  settles the code path, then the script prepends Grasp's dev-build `ebin` — a code path
+- **Running tests.** `mix grasp.test [TEST_ID ... | --changed | --all] [--index PATH]
+  [--out PATH]` runs the host's own suite, or part of it, and records each test's result. It
+  runs a script Grasp ships in its `priv`, `test_run.exs`, with `MIX_ENV=test mix run
+  --no-start` in the project root over the environment the task runs in, as the test trace
+  does: Mix compiles the project and settles the code path with Grasp absent from it, then
+  the script prepends the `ebin` of the `grasp` the task itself runs from — a code path
   added from the command line is pruned by Mix before `mix test` would load from it — and
   calls `mix test` in the same process with the tests' `file:line` arguments and
-  `--formatter Grasp.Test.Formatter --formatter ExUnit.CLIFormatter`. Test ids name their
-  file and line through the index; `--changed` is the added and modified tests of a review
-  against a base ref.
-- **Results.** `Grasp.Test.Formatter` writes `.grasp/results.json`: per test id, `passed`,
-  `failed`, `skipped`, `excluded` or `invalid`, its time, and for a failure each error's
-  kind, message and, for an assertion, its expression, `left` and `right` as ExUnit prints
-  them, with the stacktrace as `{module, function, arity, file, line}` frames. A run merges
-  its tests' results into the document and leaves every other test's result as it stood,
-  so running one test updates that test alone. Each result records the run that produced
-  it and the source hash of the test at that moment; a test whose source differs reads as
-  stale, as coverage does.
-- **The run machinery.** `Grasp.Runs` runs one command at a time — a test run or a coverage
-  run (`mix grasp.cover`) — as a port in the project root with the environment the viewer
-  was started with, and broadcasts its status and each line of output. A second request
-  while one runs is refused with the running one's description. A run can be cancelled.
-- **Controls.** A test card has `run`; the callers menu's Tests section has `run all`; the
-  Changes group has `run changed tests`; the toolbar has `runs`, which opens a panel above
-  it — beside the chat panel's place — with the running command, its output as it streams,
-  `cancel`, and `run coverage`. Keys: none.
-- **Badges.** A test card wears its latest result (`passed`, `failed`, `skipped`), or
-  `stale`. The tests badge on a function card counts the failures among the tests it lists.
-- **A failure is a chain of cards.** A failed test card shows each error under the line the
-  test's own frame names — the message and, for an assertion, `left` and `right` — as part
-  of the result, not a stored comment. `open failure` lays the stacktrace out from the test
-  card: each frame whose function is indexed becomes a card, opened from the previous one as
-  a callee, with the frame's line highlighted, so the red test reads as the path into the
-  code that failed.
-- **MCP.** `run_tests(test_ids | "changed")` and `run_coverage()` start a run and answer at
-  once with what was started, or with the run already under way; `run_status()` answers
-  the running command and its last output lines, or the last run's outcome with, for a test
-  run, each test's result and failures. An MCP call does not wait for a suite.
+  `--formatter Grasp.Test.Formatter --formatter ExUnit.CLIFormatter`. Those two replace the
+  formatters the host configures, in its config or its `test_helper.exs`, for the run; the
+  suite's output streams to the terminal. A formatter missing from that `ebin` stops the
+  script before the suite runs. A test id names the record's `file` and the line of its
+  `test` call, where its one clause starts, since a span starts at the attributes and
+  comments above the test and `mix test` runs the test nearest at or before the line it is
+  given. An id the index holds no test for aborts the task, listing every such id, and a
+  `--` ends the switches, so every argument after it is an id. `--changed` runs the tests
+  the index marks added or modified against its base ref, does nothing when there are none,
+  and aborts for an index built without a base ref; `--all` runs the whole suite. `--index`
+  defaults to `:grasp, :index_path`, else `.grasp/index.json`; `--out` to `results.json`
+  beside the index. The task exits with the suite's status, and refuses at an umbrella root,
+  whose apps each run their own suite.
+- **Results.** `Grasp.Test.Formatter` runs in the host's test VM and calls nothing but
+  Elixir's standard library. When the suite finishes — or when a SIGQUIT interrupts it,
+  with the tests finished by then — it writes the run's results in the external term format
+  to a run file beside the document, written beside its own path and renamed over it; a
+  write that fails prints one line on stderr and the suite finishes as it would without the
+  formatter, and it never raises. Per test id a result is `passed`, `failed`, `skipped`,
+  `excluded` or `invalid` (a test whose module's `setup_all` failed, and any state the
+  formatter cannot read, with that state inspected as its `reason`), its time in
+  microseconds, and for a failure each error's kind, message and, for an assertion, its
+  expression, `left` and `right` as ExUnit's CLI formatter prints them, with the stacktrace
+  as `{module, function, arity, file, line}` frames, the file relative to the project root.
+  The task merges the run file into `.grasp/results.json` and removes it; a run that leaves
+  no run file — a project that does not compile, a suite that cannot start — aborts with the
+  suite's status and leaves the document untouched.
+- **The merge.** A run replaces the result of each test it names and leaves every other
+  test's result as it stood, so running one test updates that test alone; an `excluded`
+  result — a test the run loaded but did not run, as `mix test file:line` excludes the rest
+  of its file — replaces only a missing or excluded one. Each result is stamped with the
+  run's id, its finish time and the sha256 of the test's `source` as the index holds it at
+  the merge; a test whose current source hashes differently reads as stale, as coverage
+  does. The read, merge and write hold `results.json.lock`, a file created exclusively: a
+  writer finding it polls every 100 ms for up to 30 seconds and then aborts, leaving its
+  results unwritten, and a lock older than ten minutes is taken to belong to a writer that
+  died holding it and is removed. The document is written to a file beside its path and
+  renamed over it. A document that does not decode is renamed to
+  `results.json.<timestamp>-<unique>.corrupt` beside it, so every one set aside is kept, and
+  the results start again from the run.
+- **Loading.** `Grasp.ResultsStore` watches the document as the coverage store watches
+  coverage, polling its mtime every two seconds, and reloads it at once when a test run
+  started through the viewer or the agent finishes. The path is `:grasp, :results_path`,
+  else `results.json` beside the index the viewer reads. A missing file is no results; a
+  file that cannot be read or decoded keeps the previous document and is logged once for
+  each mtime.
+- **The run machinery.** `Grasp.Runs` runs one command at a time — a test run (`mix
+  grasp.test -- ID ...`) or a coverage run (`mix grasp.cover`), behind `:grasp,
+  :runs_command`, default `["mix"]` — as a port on the executable found on `PATH`, given
+  its arguments as argv. It runs in the directory Grasp was started in, unless `:grasp,
+  :runs_root` names another, with the viewer VM's environment less `MIX_BUILD_PATH`, which
+  would redirect the suite's build. Its output, stderr merged, is broadcast a line at a
+  time, each numbered by its `seq`, and a run keeps its last 200 lines. A second start while
+  one runs is refused with the running one. A cancel freezes the whole process tree the port
+  started, read from the parent pids `ps` lists, terminates it and continues every process
+  it stopped, then closes the port; the run finishes as cancelled with no exit status. A
+  cancel that lands once the program has exited signals nothing and finishes the run with
+  its status. A runs server that stops takes its run with it.
+- **Controls.** A test card has `run`; the callers menu's Tests section has `run all`,
+  running every test it lists; the Changes group opens with `run changed tests` when the
+  branch added or modified tests; the toolbar has `runs`, reading `running…` while a run is
+  under way, which opens the runs panel where the chat panel floats, closing the chat, as
+  opening the chat closes it. The panel names the run, says whether it is running,
+  finished, failed with its exit status, or cancelled, and streams its output, each line cut
+  to 4 000 characters; it has `cancel` while a run is under way and `run coverage`. While a
+  run is under way every control that starts one is disabled and titled with the running
+  command, and a start refused all the same shows the run under way. Starting a run opens
+  the panel. Keys: none.
+- **Badges.** A test card wears its latest fresh result — `passed`, `failed`, `skipped` or
+  `invalid` — or `stale`; an `excluded` result says nothing about the test and reads as no
+  result. The tests badge on a function card adds `· m failing`, counting the tests it lists
+  whose fresh result is `failed` or `invalid`.
+- **A failure is a chain of cards.** A test card whose fresh result failed shows each error
+  under the line the test's own frame names when that line is in the test's span, and under
+  its first line otherwise — the message, an assertion's expression and its `left` and
+  `right`, and the stacktrace, each frame outside the index noted — as part of the result,
+  not a stored comment; it goes when the result goes stale, and a line the card does not
+  draw puts the panel in its footer. When the first error's stacktrace holds an indexed
+  frame above the test's own, the header has `open failure`, which lays the stacktrace out
+  from the test card: each frame whose function is indexed becomes a card, opened from the
+  previous one as a callee, with the frame's line highlighted, so the red test reads as the
+  path into the code that failed. A frame of an anonymous function, a comprehension or an
+  inlined body is read as a frame of the function it is written in; a function repeated in
+  consecutive frames, as a recursion repeats one, is one card, highlighted at its deepest
+  line; frames outside the index are skipped, and the panel says when a step was reached
+  through them.
+- **MCP.** `run_tests(test_ids | changed: true)` and `run_coverage()` start a run and answer
+  at once with `started` and the run, or with `running` and the run already under way;
+  every id must name a test the index holds, and nothing starts otherwise. `run_status()`
+  answers `running` with the run's last 50 lines and how many it has printed, `idle` before
+  any run, or `last`, the last run's exit status and whether it was cancelled with, for a
+  test run, each test it named and its status in the results document — `stale` for a
+  result recorded against another version of the test, `none` when the run recorded
+  nothing for it — a failure carrying its first error's message, `left`, `right` and the
+  deepest frame of its stacktrace in an indexed function. An MCP call does not wait for a
+  suite.
+
+### Known gaps (milestone 10.4)
+
+- **A run replaces the host's own formatters.** `mix test` applies its command line's
+  `--formatter` over the configured ones, so for a run through Grasp the terminal shows
+  ExUnit's own report and nothing a project formatter adds, and a formatter that writes a
+  file — a JUnit report — writes nothing.
+- **A run started outside Grasp records nothing.** Only `mix grasp.test` loads the
+  formatter, so a plain `mix test` leaves the results as they stood.
+- **Results of tests deleted from the suite stay in the document.** A merge replaces the
+  results of the tests a run names and never removes one, `--all` included; a deleted test
+  has no record to wear its result, so the result is never read.
+- **Two writers can lose a merge to a stale lock.** Taking over a lock older than ten
+  minutes is a removal followed by a fresh exclusive create, not one atomic step, so two
+  writers finding the same stale lock can both hold it, and the later write drops the
+  earlier one's results.
+- **A cancel does not always reach the whole tree.** A `ps` that does not take `-A -o pid=
+  -o ppid=` (BusyBox's) cannot be read, and a cancel then closes the port without
+  signalling, leaving the suite to run on. A VM that halts, or a runs server killed without
+  running its termination, leaves the tree running too.
+- **One run at a time.** A test run and a coverage run cannot run together, and a start
+  while one runs is refused.
+- **A frame line outside its card's span highlights nothing.** A frame whose line lies
+  outside the indexed span of its function — code compiled from another file, or a function
+  the index holds at other lines than the ones the run compiled — opens its card with no
+  line marked.
+- **A status read as a run finishes can answer `none`.** The store reloads the document when
+  it hears the run finish, and a `run_status` landing before that reload finds no result
+  recorded since the run started, so it answers `none` for tests the run did record; a
+  second read answers them.
+- **The panel shows what the host's suite prints.** The output is the CLI formatter's and
+  whatever the suite writes itself, so a noisy suite fills the 200 lines a run keeps.
 
 ## Test review (milestone 10.5)
 
@@ -441,7 +540,8 @@ test paths uncompared.
    paired changes in PR mode, `tests_for` and `untested_changes`.
 3. **10.3** Coverage: `mix grasp.cover`, the coverage document, line tints, clause and arm
    gaps, `coverage`.
-4. **10.4** Runs and failures: the formatter, results, run controls, badges, failure
-   chains, `run_tests`.
+4. **10.4** Runs and failures: `mix grasp.test`, the formatter, the results document, the
+   run machinery, the runs panel and run controls, result badges, failure panels and
+   chains, `run_tests`, `run_coverage` and `run_status`.
 5. **10.5** Test review: weakened assertions, empty tests, doubles.
 6. **10.6** Agent-written tests: `plan_tests`.
