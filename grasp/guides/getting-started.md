@@ -118,6 +118,8 @@ The sidebar's groups, from the top:
   and LiveView routes (headed by their router, labelled `VERB /path`), Oban workers,
   LiveView and LiveComponent callbacks, GenServer, supervisor, application and plug
   callbacks.
+- **Tests** — the test modules by file, each opening into its setup callbacks, its tests
+  under their `describe` headings and its helpers. Present when the index holds tests.
 - **Modules** — the whole module list, as the last group.
 
 Above the groups is the session menu, which names the canvas you are reading and lists the

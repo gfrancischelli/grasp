@@ -125,12 +125,34 @@ every call it makes clickable.
 - **Signature mode** (`s`, or `signatures` in the toolbar) turns every card down to its
   signature: the body goes, and the header and the syntax-highlighted line naming the
   function are scaled up so they stay readable however far out you are. The header's buttons
-  keep working, so you can close or collapse a card without leaving the mode.
+  keep working, so you can close or collapse a card without leaving the mode. A test card
+  shows its assertions there instead (see below).
 
 A `.heex` template is a card like any other, its markup highlighted and its `file:line`
 linked into your editor. A component tag inside it — or inside a `~H` body — is a call site
 you click to open the component, and a controller's `render` opens the template it names, so
 a route reads through its action and its page into the contexts underneath.
+
+### Tests
+
+A test is a card too, and so is a `setup` block. A test card wears a `test` badge and is
+titled with the test's name as written, its `describe` — or its module, outside any — where a
+function card prints its module; a setup card wears `setup` and is titled `setup` or
+`setup_all`. The body is the test's source, its calls clickable like any other, so a test
+opens the code it exercises the way a function opens its callees.
+
+In signature mode a test card reads what it promises: under its title, its assertions — every
+`assert`, `refute`, `assert_*` and `refute_*` written as a local or imported call or at the
+end of a `|>` — each whole across the lines it spans, a piped one from the line its pipeline
+starts on, in source order and highlighted as code. A test that asserts nothing, an assertion
+made through another module's helper (`Helpers.assert_ok(x)`), and a setup show the title
+alone.
+
+The sidebar's **Tests** group, after the entry points, lists the test modules by file. Each
+opens into its setup callbacks, then its tests under their `describe` headings, then the
+helpers it defines; a support module under the test paths — a case template, a factory — is
+listed there too, and none of them in the Modules group. Clicking a test opens its card. The
+palette finds a test by the words of its module, `describe` and name.
 
 ## Edges
 
@@ -148,6 +170,11 @@ reading the verb and path the router matched. The other is a job put on a queue:
 `Worker.new(...)` in front of an `Oban.insert` opens the worker's `perform/1`, so the
 function that queues the work is a caller of the work itself, and hovering the call reads the
 worker and the queue it runs on.
+
+A request a test makes is a hop over HTTP too: `get(conn, ~p"/greet")`, `post(conn,
+"/bonuses", params)` or `live(conn, "/greet/live")` draws a dashed edge from the test card to
+the action or LiveView the router maps that path to, so an interface-level test reads through
+the route into the code it drives.
 
 ## Comments
 

@@ -28,6 +28,9 @@ path from the route to the write on a canvas you can arrange, annotate and come 
   resolves against the router, so a card joins the controller action or LiveView behind that
   path by a dashed edge; queueing an Oban job joins the worker that runs it the same way,
   the call reading the queue it goes on.
+- **Tests.** Every ExUnit test and setup is a card, traced in the test environment without a
+  test run: a request a test makes joins the action it reaches, signature mode reads a test's
+  assertions, and the sidebar lists the tests by module and `describe`.
 - **Pull-request mode.** Index against a base ref and changed functions lead the sidebar, a
   modified card swaps between its source and its diff, and removed functions open from the
   base.

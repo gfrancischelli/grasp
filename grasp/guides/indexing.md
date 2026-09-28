@@ -6,7 +6,7 @@ it, and the MCP tools answer from it.
 ## What the index holds
 
 ```
-mix grasp.index [--out PATH] [--base REF] [--build-path PATH]
+mix grasp.index [--out PATH] [--base REF] [--build-path PATH] [--no-tests]
 ```
 
 The task forces a full recompile with a compiler tracer attached, so every call the compiler
@@ -112,6 +112,44 @@ dependencies underneath them. Delete `_build/grasp` to take a fresh seed.
 
 A project that fails to compile aborts the task with the compiler's own error. A single file
 that cannot be read or parsed is reported and skipped; only its definitions are missing.
+
+## Tests
+
+A project with a `test/` directory has its tests indexed too. Every `test` block with a body,
+every `setup` and `setup_all` block, and every function a test module or a support module
+under `test/` defines is a record, with the calls its body makes as edges. A test's id is its
+module and ExUnit's compiled name, quoted: `SampleAppWeb.GreetControllerTest."test greet/2
+says hello"/1`; its record carries a `test` field with its `describe`, its name as written and
+its `@tag` names, and the document's `project.test_paths` names where the tests live.
+
+A request a test makes is a route edge: `get(conn, ~p"/greet")`, `post(conn, "/bonuses",
+params)` or `live(conn, "/greet/live")` — a `get`, `post`, `put`, `patch`, `delete`, `head`,
+`options`, `live` or `visit` whose second argument is a literal path — reaches the action or
+LiveView the router maps that path to, so an interface-level test reads through the route
+into the code it drives. The call counts when it is local, imported, or made on a module
+whose name ends in `Test`, as `Phoenix.ConnTest` does; `Map.get(params, "/")` names no route.
+With `--base`, a test file the branch touched is classified like any other source: its tests
+are added, modified, unchanged or removed.
+
+Test files compile only in the test environment, so the tests are traced by a subprocess:
+`MIX_ENV=test mix run --no-start` over a script Grasp ships, which compiles the project's
+test build, puts Grasp's compiled beams on the path, and requires the test-only support files
+and every `test/**/*_test.exs` with the tracer installed. No test runs, and
+`test_helper.exs` is not loaded. The host adds nothing: Grasp stays a dev-only dependency.
+
+- **`_build/grasp_test`** is the trace's build directory, so a `mix test` in another
+  terminal is never compiled under. The first time it is missing it is seeded by copying
+  `_build/test`, when there is one; delete it to take a fresh seed.
+- **The first run compiles the test dependencies** when there is no `_build/test` to seed
+  from, and prints only `grasp: tracing tests (MIX_ENV=test)` until it finishes, since its
+  output is kept back to report a failure with.
+- **A trace that fails** — a test file that does not compile — prints the subprocess's output
+  and leaves the application indexed: the index is written without tests, never not at all.
+- **`--no-tests`** leaves the tests out.
+- **Tests refresh on a full build only.** The code reloader never compiles a test file, so a
+  test edited while the viewer runs keeps its record until the next `mix grasp.index`.
+- **Tests a macro other than ExUnit's defines** — a property-based `property`, a project's own
+  test macro — have no record unless the macro expands to a `test`.
 
 ## Live reindexing
 

@@ -20,9 +20,9 @@ holds for test records unless this document says otherwise.
   files compile only under `MIX_ENV=test`, against dependencies a host declares for tests
   alone, and Grasp is a dev-only dependency. The full build therefore starts one extra
   subprocess, `MIX_ENV=test mix run --no-start`, which compiles the project before Grasp's
-  own compiled beams — `grasp`'s `ebin` from the dev build — are prepended to its code path,
-  then has the tracer installed and the test files required without running a test. The
-  host changes nothing. Measured on a 258-file suite: 15 s, 115 000 events from 6 600 test-side
+  own compiled beams — the `ebin` of the `grasp` the indexing session runs — are prepended to
+  its code path, then has the tracer installed and the test files required without running a
+  test. The host changes nothing. Measured on a 258-file suite: 15 s, 115 000 events from 6 600 test-side
   functions.
 - **Coverage and runs use the host's own `mix test`.** Grasp never runs a test itself: it
   runs the host's test command, with Grasp's beams on the path the same way, so the suite
@@ -42,8 +42,14 @@ project has a `test/` directory; `--no-tests` skips it. The dev indexer starts t
 trace as a subprocess:
 
 ```
-MIX_ENV=test MIX_BUILD_PATH=_build/grasp_test mix run --no-start <script>
+MIX_ENV=test MIX_BUILD_PATH=_build/grasp_test \
+  mix run --no-start priv/test_trace.exs EVENTS_FILE GRASP_EBIN DEV_PATHS
 ```
+
+`EVENTS_FILE` is where the script writes what it traced, `GRASP_EBIN` the `ebin` directory
+of the `grasp` the indexing session runs, and `DEV_PATHS` the dev environment's
+`elixirc_paths`, joined by commas. The project's test paths are `["test"]`, written to the
+document as `project.test_paths`.
 
 - `_build/grasp_test` is seeded from `_build/test` the first time it is missing, as
   `_build/grasp` is seeded from `_build/dev`, so a dev server and a `mix test` run are never
@@ -51,35 +57,42 @@ MIX_ENV=test MIX_BUILD_PATH=_build/grasp_test mix run --no-start <script>
   installed and Grasp absent from the code path, so an unchanged tree compiles nothing and
   the test build is the one `mix test` compiles: a host's `Code.ensure_loaded?(Grasp.Router)`
   guard reads false there.
-- The script is a file Grasp ships in `priv/`, run by path. It prepends the dev build's
-  `grasp` `ebin` directory — the only one it needs, since extraction runs in the parent — to
-  the code path, installs `Grasp.Index.Tracer`, sets `ignore_module_conflict: true`, starts ExUnit with
+- The script is a file Grasp ships in `priv/`, run by path. It prepends `GRASP_EBIN` — the
+  only directory it needs, since extraction runs in the parent — to the code path, installs
+  `Grasp.Index.Tracer`, sets `ignore_module_conflict: true`, starts ExUnit with
   `autorun: false`, and requires, with `Kernel.ParallelCompiler.require/2`, the test-only
-  support files — the files under the test environment's `elixirc_paths` that the dev
-  environment's do not include (`test/support`) — and then every `test/**/*_test.exs`.
+  support files — the `.ex` files under the test environment's `elixirc_paths` that lie
+  under none of `DEV_PATHS` (`test/support`) — and then every `test/**/*_test.exs`.
   Nothing is run: requiring a test file defines its module and registers its tests with an
   ExUnit that never starts a run. `test_helper.exs` is not required, since it starts
   repositories and sandboxes the trace does not need.
-- The script writes the events whose file is one of those it required, as
-  `:erlang.term_to_binary/1`, to a file the parent names, and exits. The parent reads the
-  events and joins them with what Sourceror extracts from the same files, as the
-  application's are joined. A test trace that fails — a test file that does not compile —
-  is reported with the compiler's output and leaves the application's records written:
-  the index is the application's with no tests, never no index.
+- The script writes the events whose file is one of those it required, and the list of
+  those files, as `:erlang.term_to_binary/1`, to `EVENTS_FILE`, and exits. The parent reads
+  them and joins the events with what Sourceror extracts from the same files, as the
+  application's are joined. A test trace that fails — a test file that does not compile, or
+  a `grasp` loaded from no `ebin` the test session could read — is reported with the
+  subprocess's output and leaves the application's records written: the index is the
+  application's with no tests, never no index.
 
 ### Extraction
 
 `Grasp.Index.Extract` reads a test file as it reads any Elixir file, and additionally
 recognises ExUnit's blocks inside a module:
 
-- `test "name"` (with or without a context argument), inside or outside a `describe`, is a
-  definition of kind `:test`. Its compiled name is ExUnit's, `:"test <describe> <name>"`
-  (`:"test <name>"` outside a `describe`), arity 1, which is the function the tracer names
-  as the caller of every call in its body. Its span runs from any `@tag`/`@moduletag`
-  attribute and leading comment attached to it through its `end`.
-- `setup` and `setup_all` blocks are definitions of kind `:setup`, named as ExUnit compiles
-  them (`:"__ex_unit_setup_<n>"` and `:"__ex_unit_setup_all_<n>"`, numbered in order, and
-  per `describe` as ExUnit numbers them); a `setup :name` naming a function adds no
+- `test "name"` with a body (with or without a context argument), inside or outside a
+  `describe`, is a definition of kind `:test`. Its compiled name is ExUnit's,
+  `:"test <describe> <name>"` (`:"test <name>"` outside a `describe`), cut to ExUnit's own
+  length limit, arity 1, which is the function the tracer names as the caller of every call
+  in its body. Its span runs from any `@tag`, `@describetag` or `@moduletag` attribute and
+  leading comment attached to it through its `end`. A pending `test "name"` with no body,
+  and a test whose name or whose describe's name is not a literal string, contribute no
+  definition.
+- `setup` and `setup_all` blocks are definitions of kind `:setup`, arity 1, named by
+  ExUnit's counters: `:"__ex_unit_setup_<n>"` and `:"__ex_unit_setup_all_<n>"`, where `<n>`
+  counts every callback registered before it in the module — a `setup :name` and each entry
+  of a `setup [...]` included — and `:"__ex_unit_setup_<d>_<n>"` for a `setup` inside a
+  `describe`, where `<d>` is the describe's position among the module's describes and `<n>`
+  counts that describe's callbacks alone. A `setup :name` naming a function adds no
   definition of its own, the named function being a definition already.
 - A `describe` contributes no definition. Its name is carried on every test inside it.
 
@@ -102,26 +115,33 @@ character; the card's `data-module` for clustering is the record's module.
 ### Routes from tests
 
 A test reaches a controller through a path, not a call: `get(conn, ~p"/greet")`,
-`post(conn, "/bonuses", params)`, `live(conn, "/greet/live")`, or a request helper of the
-same shape. `~p` sigils already produce route sites. A call named `get`, `post`, `put`,
-`patch`, `delete`, `head`, `options`, `live` or `visit` whose second argument is a literal
-string or `~p` sigil is a route site too, with the verb the name gives (`live` and `visit`
-are GET), and `Grasp.Index.Routes` resolves it like any other. The call counts when it is
-local or imported, or remote on a module whose alias ends in `Test` (`Phoenix.ConnTest`,
-`Phoenix.LiveViewTest`, a project's own `*Test` helper); a remote call on any other module
-(`Map.get(params, "/")`, an HTTP client's `get`) is not a request. So an interface-level test
-draws the chain it drives: test, route, controller action, context.
+`post(conn, "/bonuses", params)`, `live(conn, "/greet/live")`. `~p` sigils already produce
+route sites. A call named `get`, `post`, `put`, `patch`, `delete`, `head`, `options`, `live`
+or `visit` whose second argument — the first written, when the call is piped into — is a
+literal string or `~p` sigil is a route site too, with the verb the name gives (`live` and
+`visit` are GET), replacing the GET the `~p` it holds would read as, and
+`Grasp.Index.Routes` resolves it like any other. The call counts when it is local or
+imported, or remote on a module whose last alias segment ends in `Test`
+(`Phoenix.ConnTest`, `Phoenix.LiveViewTest`, a project's own `*Test` helper); a remote call
+on any other module (`Map.get(params, "/")`, an HTTP client's `get`) is not a request, and a
+path held in a variable makes no site. So an interface-level test draws the chain it drives:
+test, route, controller action, context.
 
 ### Base ref
 
 In PR mode the base side of every changed test file is extracted like any changed source
 file, so test records are added, modified, unchanged or removed against the base, and a
-modified test has a diff.
+modified test has a diff. Under the test paths only a `*_test.exs` file and a file the test
+trace read are compared, so a fixture project's `.ex` or a file the test build never
+compiles has no base functions to read as removed; a test file the branch deleted is still a
+`*_test.exs`, so its tests read as removed. A trace that fails leaves every file under the
+test paths uncompared.
 
 ### Viewer
 
-- A test card wears a `test` badge and titles itself with the test's name, the `describe`
-  above it in the header's module slot; a setup card wears `setup`.
+- A test card wears a `test` badge and titles itself with the test's name, its `describe`
+  — or its module, outside any `describe` — in the header's module slot, and no arity; a
+  setup card wears `setup` and is titled `setup` or `setup_all` under its module.
 - In signature mode a test card shows its name and, under it, its assertions in place of
   its body, so a zoomed-out canvas reads what each test promises. An assertion is found by
   parsing the test's source: every call named `assert` or `refute`, or whose name starts
@@ -129,10 +149,14 @@ modified test has a diff.
   of a `|>`. Each is shown over the full range of lines it spans — a piped one from the line
   its pipeline starts on — highlighted as code, in source order, with overlapping ranges
   merged. A source that does not parse shows no assertions, and the card its title alone.
-- The sidebar has a **Tests** group listing test modules by file, each opening into its
-  tests, grouped by `describe`, and then the helpers it defines. A support module under the
-  test paths is listed there too, and neither is listed among the modules under review. The
-  palette finds tests by name.
+- The sidebar has a **Tests** group, after the entry points and before the modules,
+  listing test modules by file, each opening into its setup callbacks, then its tests,
+  grouped by `describe`, and then the helpers it defines. One test module is open at a
+  time, apart from the module open in the Modules group. A module is a test module when it
+  holds a test or a setup record, or when its file lies under the project's `test_paths` —
+  a case template, a factory — and no test module is listed among the modules under review.
+  Clicking a test opens its card as a root. The palette finds tests by the words of their
+  module, `describe` and name, and a hit wears the badge its card does.
 
 ### Known gaps
 
@@ -143,6 +167,21 @@ modified test has a diff.
   project's own `test_with_x`) are traced — their calls are events like any other — but have
   no definition to join to unless the macro expands to a `test`, and their calls land as
   hidden calls of nothing.
+- **A support file the branch deletes outright does not read as removed.** The base side of
+  the test paths is narrowed to `*_test.exs` files and the files the test trace required, and
+  a deleted support file is neither, so its functions vanish from the index without a
+  `removed` record.
+- **A cold first test trace prints only its start line until it ends.** The subprocess's
+  output is captured so that a failure can be reported with it, so compiling the test
+  dependencies into a fresh `_build/grasp_test` shows `grasp: tracing tests (MIX_ENV=test)`
+  and nothing more until the trace finishes.
+- **A `@moduletag` or `@describetag` joins the span of the block that follows it.** Both are
+  attached attributes, so the test or setup written after one starts its span, and its
+  source, at the tag, although the tag applies to every test of the module or `describe`.
+- **An assertion written through a remote helper is not shown in signature mode.**
+  `Helpers.assert_ok(x)` is a remote call, and only local, imported and piped `assert`,
+  `refute`, `assert_*` and `refute_*` calls are read as assertions, so a test asserting only
+  through such a helper shows its title alone.
 
 ## Tested by (milestone 10.2)
 

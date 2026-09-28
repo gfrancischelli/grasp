@@ -179,6 +179,12 @@ mix grasp.index [--base main] [--out .grasp/index.json]
    unchanged.
 6. **Write JSON** to `--out`.
 
+After the application's traced compile, a project with a `test/` directory has its tests
+traced by one subprocess in the test environment, `MIX_ENV=test mix run --no-start` over a
+script Grasp ships, and joined as steps 2 and 3 join the application's, so every `test`,
+`setup` and test-module function is a record; `--no-tests` skips it (see
+[the tests design](2026-09-28-grasp-tests-design.md)).
+
 ### Templates
 
 HEEx is code the graph knows, in five parts, and the hops that are not function calls — a
@@ -289,7 +295,8 @@ touched is unchanged.
 {
   "version": 1,
   "generated_at": "2026-09-15T10:00:00Z",
-  "project": { "app": "my_app", "root": "/abs/path", "elixirc_paths": ["lib"] },
+  "project": { "app": "my_app", "root": "/abs/path", "elixirc_paths": ["lib"],
+               "test_paths": ["test"] }, // test_paths only when the tests were indexed
   "git": { "head": "sha", "branch": "...", "base_ref": "main", "base_sha": "sha" }, // null outside git
   "modules": [
     { "name": "MyApp.Wallets", "file": "lib/my_app/wallets.ex", "line": 1, "behaviours": ["GenServer"] }
@@ -320,6 +327,14 @@ touched is unchanged.
       "route_sites": [ { "verb": "GET", "path": ["users", null],
                          "range": { "start": [3, 9], "end": [3, 21] } } ],
       "change": "modified", "base_source": "...", "removed": false
+    },
+    {
+      "id": "MyAppWeb.PlayerControllerTest.\"test show/2 renders the player\"/1",
+      "module": "MyAppWeb.PlayerControllerTest", "name": "test show/2 renders the player",
+      "arity": 1, "arities": [1], "kind": "test",
+      "file": "test/my_app_web/controllers/player_controller_test.exs",
+      // … every other field as above; only a record of kind "test" carries "test"
+      "test": { "describe": "show/2", "name": "renders the player", "tags": ["slow"] }
     }
   ],
   "entry_points": [
@@ -343,7 +358,8 @@ touched is unchanged.
 
 A record's `kind` is the definition form it was written as — `def`, `defp`, `defmacro`,
 `defmacrop`, `defguard`, `defguardp`, `defdelegate` — or `template`, for a file an
-`embed_templates` pattern matched, which no source line defines. A call's `kind` is the
+`embed_templates` pattern matched, which no source line defines, or `test` and `setup`, for
+an ExUnit `test` block and a `setup` or `setup_all` block. A call's `kind` is the
 tracer's — `remote`, `local`, `imported`, `remote_macro`, `local_macro`, `imported_macro`
 — or `template`, for a controller's `render` retargeted at the template it names. The word
 means two different things in the two places: a record of kind `template` *is* a template,
@@ -1716,6 +1732,11 @@ request switches the working tree" is closed.
      frames or drop them, dragging a label carries every card of the cluster, and a card whose
      module already stands in its flow lands beside that cluster and clear of the frames of the
      modules and the flows it is not in.
+   - Milestone 10.1: tests are records — the test trace in the test environment, ExUnit's
+     `test`, `setup` and `describe` read as definitions with quoted test ids, a request in a
+     test drawn as a route edge, test files classified against the base, and test cards whose
+     signature mode reads their assertions, listed in a Tests group of their own (see
+     [the tests design](2026-09-28-grasp-tests-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
    (see [Part 4](#part-4--in-app-grasp)).
