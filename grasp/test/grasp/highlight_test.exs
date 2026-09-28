@@ -372,6 +372,36 @@ defmodule Grasp.HighlightTest do
     end
   end
 
+  test "a double call carries its kind and reads the behaviour it doubles on hover" do
+    record = %{
+      "id" => ~s|SampleApp.GeoTest."test looks up"/1|,
+      "span" => %{"start_line" => 1, "end_line" => 3},
+      "source" => """
+      test "looks up" do
+        expect(SampleApp.GeoMock, :lookup, fn _ip -> :ok end)
+      end\
+      """,
+      "calls" => [
+        %{
+          "target" => "SampleApp.Geo.Http.lookup/1",
+          "kind" => "double",
+          "range" => %{"start" => [2, 3], "end" => [2, 9]},
+          "double" => %{"mock" => "SampleApp.GeoMock", "behaviour" => "SampleApp.Geo"}
+        }
+      ]
+    }
+
+    double =
+      record
+      |> render([])
+      |> LazyHTML.query(~s(span.line[data-line="2"] span.call[data-kind="double"]))
+
+    assert LazyHTML.attribute(double, "data-target") == ["SampleApp.Geo.Http.lookup/1"]
+    assert LazyHTML.attribute(double, "phx-click") == ["open_call"]
+    assert LazyHTML.attribute(double, "title") == ["Mox double of SampleApp.Geo"]
+    assert LazyHTML.text(double) == "expect"
+  end
+
   test "an enqueue call carries its kind and reads its worker and queue on hover" do
     record = %{
       "id" => "SampleAppWeb.GreetController.mail/2",

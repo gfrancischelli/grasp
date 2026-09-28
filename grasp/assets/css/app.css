@@ -152,10 +152,12 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .connectors .edge { fill: none; stroke: var(--edge-color, var(--border)); stroke-width: 2; pointer-events: visibleStroke; cursor: pointer; }
 .connectors .arrow { fill: var(--edge-color, var(--border)); }
 /* An edge that is not a function call — an HTTP request the router resolved, a job put on
-   a queue — does not hand control straight from one end to the other: the browser leaves the
-   page, or a worker picks the job up on its own time. The broken line says so. */
+   a queue, a mock a test sets up in place of the code — does not hand control straight from
+   one end to the other: the browser leaves the page, a worker picks the job up on its own
+   time, or the code never runs at all. The broken line says so. */
 .connectors .edge[data-kind="route"],
-.connectors .edge[data-kind="enqueue"] { stroke-dasharray: 6 4; }
+.connectors .edge[data-kind="enqueue"],
+.connectors .edge[data-kind="double"] { stroke-dasharray: 6 4; }
 /* The frames the hook draws, under the cards: one rectangle per group, placed in stage
    units. The border is divided by the zoom so it stays a hairline however far out you are. */
 .frames { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
@@ -295,10 +297,11 @@ body.grasp-coverage .card__coverage { display: inline; }
 .call[data-open="true"] { outline: 2px solid var(--edge-color); outline-offset: 1px; border-radius: 2px; border-bottom-style: solid; background: color-mix(in srgb, var(--edge-color) 12%, transparent); }
 .call[data-external="true"] { border-bottom-color: var(--fg-muted); opacity: 0.8; }
 /* The broken underline says the span is a hop rather than a function call; its title names
-   what the hop reaches — the verb and path the router matched, or the worker and the queue
-   the job runs on. */
+   what the hop reaches — the verb and path the router matched, the worker and the queue
+   the job runs on, or the behaviour a mock doubles. */
 .call[data-kind="route"],
-.call[data-kind="enqueue"] { border-bottom-style: dotted; }
+.call[data-kind="enqueue"],
+.call[data-kind="double"] { border-bottom-style: dotted; }
 /* The agent's pointer is a shadow, not an outline: a call that is both open and pointed at
    has only one outline box, and it belongs to the edge leaving the call. */
 .call[data-highlight="true"] { box-shadow: 0 0 0 2px var(--accent); border-radius: 2px; }

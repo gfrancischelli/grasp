@@ -6,9 +6,10 @@ defmodule Grasp.Index do
   same shape they would read from disk. Functions are keyed by id (`"Mod.fun/arity"`);
   a definition with default arguments is also reachable through each extra arity it
   defines. Callers are derived at load time by inverting every function's calls and
-  hidden calls, and entry points are indexed by the function they reach. Search ranks an exact id first, then ids containing the query, then ids
-  whose characters contain the query as a subsequence, so `"walcre"` still finds
-  `MyApp.Wallets.credit/3`.
+  hidden calls but its `double` calls, which stand in for code rather than run it, and
+  entry points are indexed by the function they reach. Search ranks an exact id first,
+  then ids containing the query, then ids whose characters contain the query as a
+  subsequence, so `"walcre"` still finds `MyApp.Wallets.credit/3`.
 
   Every index built carries a `generation` no other index built in the VM carries, so a
   holder of answers taken against one can tell whether it still has that index without
@@ -106,7 +107,7 @@ defmodule Grasp.Index do
     callers =
       records
       |> Enum.flat_map(fn record ->
-        for call <- targets(record), is_map(call) do
+        for call <- targets(record), is_map(call), call["kind"] != "double" do
           {Map.get(aliases, call["target"], call["target"]), record["id"]}
         end
       end)
@@ -176,7 +177,14 @@ defmodule Grasp.Index do
   def fetch_function(%__MODULE__{} = index, id),
     do: Map.fetch(index.functions, resolve(index, id))
 
-  @doc "Ids of the functions that call `id`, sorted."
+  @doc """
+  Ids of the functions that call `id`, sorted.
+
+  A test doubling `id` through a Mox mock does not call it — the mock answers in its
+  place — so a call of kind `double` makes no caller here, nor anywhere the callers are
+  walked: `tests_for/3`, `path_back/4`, `untested_changes/1` and `changed_tests/2`.
+  `callees/2` keeps the double, since the test's card draws it.
+  """
   @spec callers(t(), String.t()) :: [String.t()]
   def callers(%__MODULE__{} = index, id), do: Map.get(index.callers, resolve(index, id), [])
 
@@ -393,10 +401,10 @@ defmodule Grasp.Index do
 
   The walk goes backwards from the function over its callers, breadth first, through any
   record — application functions, helpers, tests and setups alike, `route` and `enqueue`
-  edges included — visiting each record once. A test calling `id` directly is one hop away.
-  A test record met on the way is collected at the hop it is first met; a setup met on the
-  way counts for every test of its module at the setup's hop, unless that test is nearer by
-  another path. A removed test or setup runs nothing, so it is never collected and credits
+  edges included, `double` edges not — visiting each record once. A test calling `id`
+  directly is one hop away. A test record met on the way is collected at the hop it is
+  first met; a setup met on the way counts for every test of its module at the setup's
+  hop, unless that test is nearer by another path. A removed test or setup runs nothing, so it is never collected and credits
   no test. An id the index does not define, or a function no test reaches, answers `[]`.
   """
   @spec tests_for(t(), String.t(), non_neg_integer()) :: [reach()]

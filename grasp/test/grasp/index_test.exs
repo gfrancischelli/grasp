@@ -541,6 +541,50 @@ defmodule Grasp.IndexTest do
     end
   end
 
+  describe "double calls" do
+    setup do
+      double = %{
+        "target" => "MyApp.Geo.Http.lookup/1",
+        "kind" => "double",
+        "double" => %{"mock" => "MyApp.GeoMock", "behaviour" => "MyApp.Geo"}
+      }
+
+      doubling =
+        "MyApp.GeoTest"
+        |> test_record("looks up", [])
+        |> Map.put("calls", [double])
+        |> changed("added")
+
+      index =
+        reach_index([
+          changed(record("MyApp.Geo.Http.lookup/1", "MyApp.Geo.Http"), "modified"),
+          changed(
+            record("MyApp.Geo.Http.fetch/1", "MyApp.Geo.Http", ["MyApp.Geo.Http.lookup/1"]),
+            "unchanged"
+          ),
+          doubling
+        ])
+
+      %{index: index, doubling: doubling["id"]}
+    end
+
+    test "reach no test, so the doubled function reads as untested", %{
+      index: index,
+      doubling: test
+    } do
+      assert Index.tests_for(index, "MyApp.Geo.Http.lookup/1") == []
+      assert Index.path_back(index, test, "MyApp.Geo.Http.lookup/1") == []
+      assert ids(Index.untested_changes(index)) == ["MyApp.Geo.Http.lookup/1"]
+      assert Index.changed_tests(index, "MyApp.Geo.Http.lookup/1") == []
+    end
+
+    test "leave the test out of the function's callers and in the test's callees",
+         %{index: index, doubling: test} do
+      assert Index.callers(index, "MyApp.Geo.Http.lookup/1") == ["MyApp.Geo.Http.fetch/1"]
+      assert Index.callees(index, test) == ["MyApp.Geo.Http.lookup/1"]
+    end
+  end
+
   describe "changed_tests/2" do
     test "is the changed tests reaching a changed function, nearest first" do
       index =

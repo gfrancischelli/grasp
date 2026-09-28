@@ -1270,7 +1270,7 @@ const Canvas = {
       }
       const color = /^[0-7]$/.test(site.dataset.color || "") ? site.dataset.color : null
       // The call site says what kind of hop it is; the path carries it so the stylesheet can
-      // draw a hop that is not a plain function call — an HTTP request, a queued job —
+      // draw a hop that is not a plain function call — an HTTP request, a queued job, a mock —
       // differently from one that is.
       const kind = site.dataset.kind
       // The path is drawn in stage units, which the zoom scales; `vector-effect` is what keeps

@@ -480,7 +480,8 @@ body.grasp-dragging .module__title {
   fill: var(--edge-color, var(--border));
 }
 .connectors .edge[data-kind=route],
-.connectors .edge[data-kind=enqueue] {
+.connectors .edge[data-kind=enqueue],
+.connectors .edge[data-kind=double] {
   stroke-dasharray: 6 4;
 }
 .frames {
@@ -952,7 +953,8 @@ body.grasp-coverage .card__coverage {
   opacity: 0.8;
 }
 .call[data-kind=route],
-.call[data-kind=enqueue] {
+.call[data-kind=enqueue],
+.call[data-kind=double] {
   border-bottom-style: dotted;
 }
 .call[data-highlight=true] {

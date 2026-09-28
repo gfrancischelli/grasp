@@ -22,8 +22,9 @@ defmodule Grasp.Highlight do
   source line so the viewer can address lines, with Lumis' classes on highlighted runs and
   bare text elsewhere. A call that is not a function call carries a `data-kind` and a `title`
   naming what it reaches — `"route"` with the verb and path the router matched, `"enqueue"`
-  with the worker and the queue it runs on — so a hop over HTTP or onto a queue is told from
-  a function call on the card and on the edge leaving it.
+  with the worker and the queue it runs on, `"double"` with the behaviour a Mox mock stands
+  in for — so a hop over HTTP, onto a queue or through a mock is told from a function call
+  on the card and on the edge leaving it.
 
   `lines/2` and `diff_lines/2` hand those lines back one at a time as `%{side, line, html}`,
   the side telling a line of the current source from one the branch deleted, so a caller can
@@ -266,6 +267,7 @@ defmodule Grasp.Highlight do
           kind: call["kind"],
           route: call["route"],
           job: call["job"],
+          double: call["double"],
           start: {sl, sc},
           end: {el, ec}
         }
@@ -696,13 +698,17 @@ defmodule Grasp.Highlight do
   end
 
   # A hop that is not a function call — an HTTP request the router resolved, a job put on
-  # a queue — says which kind it is, and the title carries what the reader would otherwise
-  # have to look up: the route's verb and path, or the worker and the queue it runs on.
+  # a queue, a mock standing in for the code — says which kind it is, and the title carries
+  # what the reader would otherwise have to look up: the route's verb and path, the worker
+  # and the queue it runs on, or the behaviour the mock doubles.
   defp kind_attrs(%{kind: "route", route: %{"verb" => verb, "path" => path}}),
     do: ~s( data-kind="route" title="#{escape(verb)} #{escape(path)}")
 
   defp kind_attrs(%{kind: "enqueue", job: %{"worker" => worker, "queue" => queue}}),
     do: ~s( data-kind="enqueue" title="Oban job · #{escape(worker)} · #{escape(queue)}")
+
+  defp kind_attrs(%{kind: "double", double: %{"behaviour" => behaviour}}),
+    do: ~s( data-kind="double" title="Mox double of #{escape(behaviour)}")
 
   defp kind_attrs(_range), do: ""
 
