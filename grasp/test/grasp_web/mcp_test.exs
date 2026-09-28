@@ -16,7 +16,7 @@ defmodule GraspWeb.MCPTest do
                 get_function get_session group_cards highlight_card list_changes list_comments
                 list_entry_points list_modules list_sessions open_card publish_comments
                 reload_index rename_group reply_comment resolve_comment run_coverage
-                run_status run_tests search_functions set_cards set_view tests_for
+                run_status run_tests search_functions set_cards set_view test_review tests_for
                 ungroup_cards untested_changes)
 
     assert Enum.all?(result["tools"], &(&1["description"] not in [nil, ""]))

@@ -114,6 +114,13 @@ defmodule Grasp.Agent.CommandTest do
     assert prompt =~ "untested_changes lists the changed functions no test reaches"
   end
 
+  test "system_prompt/3 sends a question about weakened tests through test_review" do
+    prompt = Command.system_prompt("s1", "read", "mix grasp.index")
+
+    assert prompt =~
+             "test_review lists the modified tests whose assertions the branch weakened and the added tests that assert nothing"
+  end
+
   test "system_prompt/3 starts runs through run_tests and run_coverage and reads run_status" do
     prompt = Command.system_prompt("s1", "edit", "mix grasp.index")
 

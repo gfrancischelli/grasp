@@ -219,6 +219,35 @@ defmodule GraspWeb.CardComponents do
     """
   end
 
+  attr :mark, :atom, default: nil, doc: "`:weakened`, `:asserts_nothing`, or nil for none"
+  attr :reasons, :list, default: [], doc: "the reasons the review gives for the mark"
+
+  @doc """
+  The badge a test the review marks wears: `assertion weakened` for a modified test whose
+  assertions the branch weakened, `asserts nothing` for an added test with no assertion,
+  the reasons on its `title`, one a line.
+
+  Renders nothing without a mark, so a caller can hand it every test it lists.
+  """
+  def review_badge(assigns) do
+    ~H"""
+    <span
+      :if={@mark in [:weakened, :asserts_nothing]}
+      class="badge badge--review"
+      data-review={@mark}
+      title={review_title(@mark, @reasons)}
+    >
+      {review_label(@mark)}
+    </span>
+    """
+  end
+
+  defp review_label(:weakened), do: "assertion weakened"
+  defp review_label(:asserts_nothing), do: "asserts nothing"
+
+  defp review_title(:asserts_nothing, []), do: "An added test that makes no assertion"
+  defp review_title(_mark, reasons), do: Enum.join(reasons, "\n")
+
   @typedoc """
   How a card's header names its record: `module` fills the slot module frames hide,
   `separator` sits between it and `name`, and `badge` is the test kind the header wears, if
@@ -414,6 +443,7 @@ defmodule GraspWeb.CardComponents do
         result: result_worn(assigns.result),
         failing: failing(assigns.result),
         runnable?: record["kind"] == "test" and record["removed"] != true,
+        review: Enum.find(Index.test_review(index), %{}, &(&1.id == record["id"])),
         entries: Index.entry_points_for(index, record["id"]),
         title: title,
         signature: signature(record),
@@ -464,6 +494,7 @@ defmodule GraspWeb.CardComponents do
           {badge_label(entry)}
         </span>
         <.test_badge kind={@title.badge} />
+        <.review_badge mark={@review[:mark]} reasons={@review[:reasons] || []} />
         <span :if={@result} class="badge badge--result" data-result={@result}>{@result}</span>
         <button
           :if={@tests != []}

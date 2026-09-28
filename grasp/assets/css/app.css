@@ -112,6 +112,7 @@ kbd { font-family: var(--mono); background: var(--bg-sunken); border: 1px solid 
    reads as one item of the pull request. */
 .entry--paired { padding-inline-start: calc(var(--space-m) + var(--space-l)); color: var(--fg-muted); }
 .entry .badge--untested { margin-inline-start: var(--space-xs); font-size: 10px; background: var(--diff-del-bg); color: var(--diff-del-fg); }
+.entry .badge--review { margin-inline-start: var(--space-xs); font-size: 10px; }
 .entry__excerpt { color: var(--fg-muted); font-family: var(--sans); font-size: 12px; }
 .sidebar__base { margin-inline-start: var(--space-xs); color: var(--fg-subtle); }
 .module { display: block; width: 100%; text-align: start; padding: var(--space-xs) var(--space-m); font-family: var(--mono); font-size: 13px; color: var(--fg-muted); }
@@ -257,6 +258,8 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .badge--result[data-result="passed"] { background: var(--diff-ins-bg); color: var(--diff-ins-fg); }
 .badge--result[data-result="failed"], .badge--result[data-result="invalid"] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .badge--result[data-result="skipped"], .badge--result[data-result="stale"] { background: color-mix(in oklch, var(--fg-muted) 14%, transparent); color: var(--fg-muted); }
+/* A test the review marks reads as a warning about the test itself, apart from its result. */
+.badge--review { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .card__tests[data-failing] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .card__run, .callers__run { padding: 0 var(--space-xs); color: var(--fg-muted); }
 .card__run:hover:not(:disabled), .callers__run:hover:not(:disabled) { color: var(--accent); }

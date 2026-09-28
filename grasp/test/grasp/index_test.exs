@@ -708,6 +708,62 @@ defmodule Grasp.IndexTest do
     end
   end
 
+  describe "test_review/1" do
+    test "marks the weakened and the empty changed tests, sorted by id, and no other" do
+      source = &~s|  test "x" do\n    #{&1}\n  end|
+
+      weakened =
+        "MyApp.WalletsTest"
+        |> test_record("b weakened", [])
+        |> changed("modified")
+        |> Map.merge(%{
+          "source" => source.("assert a"),
+          "base_source" => source.("assert a == 1")
+        })
+
+      kept =
+        "MyApp.WalletsTest"
+        |> test_record("c kept", [])
+        |> changed("modified")
+        |> Map.merge(%{
+          "source" => source.("assert a == 1"),
+          "base_source" => source.("assert a == 1")
+        })
+
+      empty =
+        "MyApp.WalletsTest"
+        |> test_record("a empty", [])
+        |> changed("added")
+        |> Map.put("source", source.(":ok"))
+
+      untouched =
+        "MyApp.WalletsTest"
+        |> test_record("d untouched", [])
+        |> Map.put("source", source.(":ok"))
+
+      index = reach_index([weakened, kept, empty, untouched])
+
+      assert Index.test_review(index) == [
+               %{
+                 id: test_id("MyApp.WalletsTest", "a empty"),
+                 mark: :asserts_nothing,
+                 reasons: []
+               },
+               %{
+                 id: test_id("MyApp.WalletsTest", "b weakened"),
+                 mark: :weakened,
+                 reasons: ["removed: assert a == 1", "loosened: assert a == 1"]
+               }
+             ]
+    end
+
+    test "answers nothing for the fixture, whose tests the branch left alone" do
+      {:ok, index} = Index.load("test/fixtures/index.json")
+
+      assert Index.test_review(index) == []
+    end
+  end
+
   describe "path_back/4" do
     test "is the function and the test when the test calls it" do
       test = test_id("MyApp.WalletsTest", "credits")

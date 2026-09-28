@@ -22,6 +22,7 @@ defmodule Grasp.MCP.Server do
   component(Tools.ListChanges)
   component(Tools.TestsFor)
   component(Tools.UntestedChanges)
+  component(Tools.TestReview)
   component(Tools.Coverage)
   component(Tools.RunTests)
   component(Tools.RunCoverage)

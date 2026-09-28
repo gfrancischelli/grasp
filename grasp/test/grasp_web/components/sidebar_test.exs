@@ -281,6 +281,76 @@ defmodule GraspWeb.SidebarTest do
     end
   end
 
+  describe "the Test review group" do
+    setup do
+      weakened =
+        "credits a wallet"
+        |> test_function(["SampleApp.Wallets.credit/2"])
+        |> changed("modified")
+        |> Map.merge(%{
+          "source" => ~s|  test "credits a wallet" do\n    assert credit(1) =~ "1"\n  end|,
+          "base_source" => ~s|  test "credits a wallet" do\n    assert credit(1) == "1"\n  end|
+        })
+
+      empty =
+        "debits a wallet"
+        |> test_function([])
+        |> changed("added")
+        |> Map.put("source", ~s|  test "debits a wallet" do\n    :ok\n  end|)
+
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "functions" => [changed(function("audit/1"), "added"), weakened, empty]
+        })
+
+      %{index: index}
+    end
+
+    test "lists the marked tests after Untested changes, named as their cards name them", %{
+      index: index
+    } do
+      html = render_sidebar(index, MapSet.new(["untested", "review"]))
+
+      assert before?(html, ~s|data-kind="untested"|, ~s|data-kind="review"|)
+      assert html =~ ~s|Test review<span class="group__count">2</span>|
+
+      review = group_body(html, "review")
+      [credits, debits] = review |> String.split(~s|<button|) |> tl()
+
+      assert credits =~ ~s|phx-click="open_root"|
+      assert credits =~ ~s|phx-value-id="#{html_escape(@credits)}"|
+      assert credits =~ "SampleApp.WalletsTest › credits a wallet"
+      assert credits =~ ~r|data-review="weakened"[^>]*>\s*assertion weakened|
+      assert credits =~ html_escape(~s|removed: assert credit(1) == "1"|)
+      assert credits =~ html_escape(~s|loosened: assert credit(1) == "1"|)
+
+      assert debits =~ "SampleApp.WalletsTest › debits a wallet"
+      assert debits =~ ~r|data-review="asserts_nothing"[^>]*>\s*asserts nothing|
+    end
+
+    test "opens on arrival when it has rows", %{index: index} do
+      assert index |> Sidebar.default_expanded() |> MapSet.member?("review")
+      assert "review" in Sidebar.group_kinds()
+    end
+
+    test "is absent when the review marks nothing" do
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "functions" => [
+            "credits a wallet"
+            |> test_function([])
+            |> changed("added")
+            |> Map.put("source", ~s|  test "credits a wallet" do\n    assert true\n  end|)
+          ]
+        })
+
+      refute index |> render_sidebar(MapSet.new(["review"])) =~ ~s|data-kind="review"|
+      refute index |> Sidebar.default_expanded() |> MapSet.member?("review")
+    end
+  end
+
   defp function(name_arity) do
     [name, arity] = String.split(name_arity, "/")
 

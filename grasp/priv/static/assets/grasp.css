@@ -322,6 +322,10 @@ kbd {
   background: var(--diff-del-bg);
   color: var(--diff-del-fg);
 }
+.entry .badge--review {
+  margin-inline-start: var(--space-xs);
+  font-size: 10px;
+}
 .entry__excerpt {
   color: var(--fg-muted);
   font-family: var(--sans);
@@ -788,6 +792,10 @@ body.grasp-dragging .module__title {
 .badge--result[data-result=stale] {
   background: color-mix(in oklch, var(--fg-muted) 14%, transparent);
   color: var(--fg-muted);
+}
+.badge--review {
+  background: var(--diff-del-bg);
+  color: var(--diff-del-fg);
 }
 .card__tests[data-failing] {
   background: var(--diff-del-bg);

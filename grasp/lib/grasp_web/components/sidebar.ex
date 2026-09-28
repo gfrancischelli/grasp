@@ -35,6 +35,11 @@ defmodule GraspWeb.Sidebar do
   no test reaches is marked `untested` instead, and the Untested changes group after it lists
   those functions under their modules, opening on arrival whenever there is one. Both
   answers are read from the index, which walks back from the changes once when it is built.
+  After it the Test review group lists the modified tests whose assertions the branch
+  weakened and the added tests that assert nothing, each named as its card names it and
+  wearing its mark, the reasons on the mark's title; clicking one opens its card as a root.
+  It too opens on arrival whenever it has a row, and reads the review the index computes
+  once when it is built.
   When the branch added or modified tests, the group opens with `run changed tests`, which
   runs them all; while any run is under way it is disabled, titled with the running command.
 
@@ -60,7 +65,8 @@ defmodule GraspWeb.Sidebar do
 
   use GraspWeb, :html
 
-  import GraspWeb.CardComponents, only: [change_badge: 1, test_badge: 1, title: 1]
+  import GraspWeb.CardComponents,
+    only: [change_badge: 1, review_badge: 1, test_badge: 1, title: 1]
 
   alias Grasp.Index
 
@@ -80,7 +86,7 @@ defmodule GraspWeb.Sidebar do
   ]
 
   @known_kinds Enum.flat_map(@groups, fn {_kind, _title, kinds} -> kinds end)
-  @group_kinds ["comments", "changes", "untested"] ++
+  @group_kinds ["comments", "changes", "untested", "review"] ++
                  Enum.map(@groups, fn {kind, _title, _kinds} -> kind end) ++
                  ~w(other tests modules)
 
@@ -102,9 +108,9 @@ defmodule GraspWeb.Sidebar do
 
   An open thread is someone waiting on an answer, so the comments open while any is left.
   What the branch changed is why a reviewer is here at all, so it opens whenever there is
-  any, and so do the changes no test reaches. The routes are the table of contents of a web
-  app, so they open while they still read as one; a project with no entry points at all is a
-  library, where the module list is the only way in.
+  any, and so do the changes no test reaches and the tests the review marks. The routes are
+  the table of contents of a web app, so they open while they still read as one; a project
+  with no entry points at all is a library, where the module list is the only way in.
   """
   @spec default_expanded(Index.t() | nil, non_neg_integer()) :: MapSet.t(String.t())
   def default_expanded(nil, _open_threads), do: MapSet.new()
@@ -130,6 +136,12 @@ defmodule GraspWeb.Sidebar do
       case Index.untested_changes(index) do
         [] -> entries
         _untested -> MapSet.put(entries, "untested")
+      end
+
+    entries =
+      case Index.test_review(index) do
+        [] -> entries
+        _marked -> MapSet.put(entries, "review")
       end
 
     if open_threads > 0, do: MapSet.put(entries, "comments"), else: entries
@@ -244,6 +256,7 @@ defmodule GraspWeb.Sidebar do
         untested: changes_by_module(untested),
         untested_ids: MapSet.new(untested, & &1["id"]),
         untested_count: length(untested),
+        review: review_rows(index),
         threads: rows_by_module(threads, assigns.index),
         thread_count: length(threads)
       )
@@ -356,6 +369,26 @@ defmodule GraspWeb.Sidebar do
               <.change_badge change={record["change"]} />{title(record).name}
             </button>
           </div>
+        </div>
+      </section>
+      <section :if={@review != []} class="group" data-kind="review">
+        <.group_title
+          kind="review"
+          title="Test review"
+          count={length(@review)}
+          open?={open?(@expanded, "review")}
+        />
+        <div id="group-review" class="group__body" hidden={not open?(@expanded, "review")}>
+          <button
+            :for={{mark, record} <- @review}
+            class="entry"
+            phx-click="open_root"
+            phx-value-id={record["id"]}
+            title={record["id"]}
+          >
+            <.change_badge change={record["change"]} /><.test_badge kind="test" />{full_title(record)}
+            <.review_badge mark={mark.mark} reasons={mark.reasons} />
+          </button>
         </div>
       </section>
       <section :for={group <- @groups} class="group" data-kind={group.kind}>
@@ -573,6 +606,14 @@ defmodule GraspWeb.Sidebar do
       {head, ""} -> head
       {head, _rest} -> head <> "…"
     end
+  end
+
+  # The review lists tests by id; a mark whose test the index cannot fetch has no card to
+  # open, and is left out.
+  defp review_rows(index) do
+    for mark <- Index.test_review(index),
+        {:ok, record} <- [Index.fetch_function(index, mark.id)],
+        do: {mark, record}
   end
 
   # A paired test sits under the function it reaches rather than under its own module, so it

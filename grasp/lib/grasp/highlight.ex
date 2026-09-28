@@ -401,20 +401,12 @@ defmodule Grasp.Highlight do
   end
 
   defp assertion_ranges(source, first_line) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} ->
-        {_ast, ranges} =
-          Macro.prewalk(ast, [], fn node, acc ->
-            case assertion_range(node) do
-              %Sourceror.Range{start: start, end: finish} ->
-                {node, [{start[:line], finish[:line]} | acc]}
-
-              nil ->
-                {node, acc}
-            end
-          end)
-
-        ranges
+    case Grasp.TestReview.assertion_calls(source) do
+      {:ok, calls} ->
+        calls
+        |> Enum.map(fn %{range: %Sourceror.Range{start: start, end: finish}} ->
+          {start[:line], finish[:line]}
+        end)
         |> Enum.sort()
         |> Enum.reduce([], fn
           {first, last}, [{open_first, open_last} | rest] when first <= open_last ->
@@ -426,31 +418,8 @@ defmodule Grasp.Highlight do
         |> Enum.reverse()
         |> Enum.map(fn {first, last} -> (first + first_line - 1)..(last + first_line - 1)//1 end)
 
-      {:error, _reason} ->
+      :error ->
         []
-    end
-  end
-
-  # A pipeline stage is the call on the right of `|>`, and the pipeline is what it spans; any
-  # other call counts by its own range.
-  defp assertion_range({:|>, _meta, [_subject, {name, _call_meta, args}]} = node)
-       when is_atom(name) and is_list(args) do
-    if assertion_name?(name), do: Sourceror.get_range(node)
-  end
-
-  defp assertion_range({name, _meta, args} = node) when is_atom(name) and is_list(args) do
-    if assertion_name?(name), do: Sourceror.get_range(node)
-  end
-
-  defp assertion_range(_node), do: nil
-
-  defp assertion_name?(name) do
-    case Atom.to_string(name) do
-      "assert" -> true
-      "refute" -> true
-      "assert_" <> _rest -> true
-      "refute_" <> _rest -> true
-      _other -> false
     end
   end
 

@@ -39,7 +39,8 @@ defmodule Grasp.Index do
             tests: [],
             tests_by_module: %{},
             untested: [],
-            changed_tests: %{}
+            changed_tests: %{},
+            test_review: []
 
   @type function_record :: %{required(String.t()) => term()}
   @type t :: %__MODULE__{
@@ -57,7 +58,18 @@ defmodule Grasp.Index do
           tests: [test_module()],
           tests_by_module: %{String.t() => [String.t()]},
           untested: [String.t()],
-          changed_tests: %{String.t() => [String.t()]}
+          changed_tests: %{String.t() => [String.t()]},
+          test_review: [test_mark()]
+        }
+
+  @typedoc """
+  A test the branch added or modified that the review marks: `:weakened` with the reasons `Grasp.TestReview.review/1`
+  gives, or `:asserts_nothing` with none.
+  """
+  @type test_mark :: %{
+          id: String.t(),
+          mark: :weakened | :asserts_nothing,
+          reasons: [String.t()]
         }
 
   @doc "Reads and decodes an index document from `path`."
@@ -157,7 +169,23 @@ defmodule Grasp.Index do
 
     untested = for {id, []} <- reach, do: id
 
-    %{index | untested: Enum.sort(untested), changed_tests: changed_tests}
+    # Only a test the branch added or modified can be marked, so only those are parsed.
+    test_review =
+      for record <- changed_test_records(index),
+          verdict = Grasp.TestReview.review(record),
+          verdict != :ok do
+        case verdict do
+          {:weakened, reasons} -> %{id: record["id"], mark: :weakened, reasons: reasons}
+          :asserts_nothing -> %{id: record["id"], mark: :asserts_nothing, reasons: []}
+        end
+      end
+
+    %{
+      index
+      | untested: Enum.sort(untested),
+        changed_tests: changed_tests,
+        test_review: Enum.sort_by(test_review, & &1.id)
+    }
   end
 
   defp arities(record) do
@@ -296,10 +324,23 @@ defmodule Grasp.Index do
   `mix grasp.test --changed` runs.
   """
   @spec changed_test_ids(t()) :: [String.t()]
-  def changed_test_ids(%__MODULE__{} = index) do
+  def changed_test_ids(%__MODULE__{} = index),
+    do: Enum.map(changed_test_records(index), & &1["id"])
+
+  @doc """
+  The modified tests whose assertions the branch weakened and the added tests that assert
+  nothing, sorted by id, as `Grasp.TestReview.review/1` marks them: `:weakened` with its
+  reasons, `:asserts_nothing` with none. Only the tests `changed_test_ids/1` lists are
+  reviewed, so an index built without a base ref answers `[]`. The list is computed once,
+  when the index is built from its document.
+  """
+  @spec test_review(t()) :: [test_mark()]
+  def test_review(%__MODULE__{} = index), do: index.test_review
+
+  defp changed_test_records(index) do
     for %{"kind" => "test", "change" => change} = record <- changed_functions(index),
         change in ~w(added modified) and record["removed"] != true,
-        do: record["id"]
+        do: record
   end
 
   defp changed_application_functions(index) do
