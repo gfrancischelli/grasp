@@ -619,12 +619,22 @@ test paths uncompared.
 
 ## Agent-written tests (milestone 10.6)
 
-- **Prompt.** An MCP prompt, `plan_tests(target)` — a function id, or `changes` — has the
-  agent lay out one group per function under test holding the function and the tests that
-  reach it, comment on every clause or arm coverage says was never entered, and stop there
-  for the reader to review before it writes a test.
-- **Loop.** The tools of 10.2–10.4 are the loop an agent writes tests in: `coverage` for
-  the gaps, `run_tests` for the result, `tests_for` for what already reaches a function.
+- **The recipe.** `Grasp.TestPlan` holds one recipe, used by everything below: for a target —
+  a function id, or the review's changes — the agent reads the functions under test
+  (`get_function`), the tests that reach each (`tests_for`) and its coverage (`coverage`);
+  lays the canvas out with one group per function under test holding the function and the
+  tests that reach it (`set_cards`, `group_cards`); comments on every clause and arm
+  coverage reports never entered, and on every function no test reaches, saying what a test
+  for it would have to exercise (`add_comment`); and stops there, telling the reader the plan
+  is on the canvas for review, without writing a test. Asked afterwards to write the tests,
+  the agent writes them against that plan and runs them (`run_tests`, `run_status`), and
+  reads the coverage again once a coverage run has finished.
+- **The chat.** The agent's system prompt carries the recipe. With an empty transcript the
+  chat panel offers `Plan tests for <focused function>` when a card is focused and
+  `Plan tests for the changes` in a review against a base ref; either sends exactly those
+  words, which the recipe answers.
+- **MCP.** A prompt, `plan_tests(target)` — `target` a function id or `changes` — hands an
+  MCP client the same recipe for that target, naming the session its cards go to.
 
 ## Milestones
 
