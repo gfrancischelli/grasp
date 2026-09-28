@@ -328,11 +328,7 @@ defmodule Grasp.Index.Builder do
       "span" => %{"start_line" => record.span.start_line, "end_line" => record.span.end_line},
       "source" => record.source,
       "calls" => Enum.map(record.calls, &Resolve.call_json/1),
-      "hidden_calls" =>
-        Enum.map(
-          record.hidden_calls,
-          &%{"target" => &1.target, "kind" => Atom.to_string(&1.kind), "line" => &1.line}
-        ),
+      "hidden_calls" => Enum.map(record.hidden_calls, &hidden_call_json/1),
       "route_sites" =>
         record |> Map.get(:route_sites, []) |> Enum.map(&Resolve.route_site_json/1),
       "clauses" => record |> Map.get(:clauses, []) |> Enum.map(&Tuple.to_list/1),
@@ -342,6 +338,16 @@ defmodule Grasp.Index.Builder do
       "removed" => Map.get(record, :removed, false)
     }
     |> put_test(Map.get(record, :test))
+  end
+
+  # A hidden call of kind `:double` carries its mock and behaviour, as a call on a site does.
+  defp hidden_call_json(call) do
+    json = %{"target" => call.target, "kind" => Atom.to_string(call.kind), "line" => call.line}
+
+    case call do
+      %{double: double} -> Map.put(json, "double", Resolve.double_json(double))
+      _call -> json
+    end
   end
 
   defp put_test(json, nil), do: json

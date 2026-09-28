@@ -1,8 +1,11 @@
 defmodule Grasp.MCP.Tools.GetCallees do
   @moduledoc """
-  List the functions a given function calls, by id. Targets outside the indexed project —
-  the standard library, a dependency — are listed too, and `get_function` has nothing to
-  say about those.
+  List the functions a given function calls, by id, under `callees`. Targets outside the
+  indexed project — the standard library, a dependency — are listed too, and `get_function`
+  has nothing to say about those. A test's Mox doubles are answered apart, under `doubles`,
+  each with its `target`, `behaviour` and `mock`: a double stands in for the code it names
+  rather than running it, so it is not a call, and the test is not among that function's
+  callers or its tests.
   """
 
   use Anubis.Server.Component, type: :tool
@@ -24,7 +27,8 @@ defmodule Grasp.MCP.Tools.GetCallees do
          {:ok, record} <- Tools.fetch_function(index, id) do
       Tools.reply(frame, %{
         "id" => record["id"],
-        "callees" => Index.callees(index, record["id"])
+        "callees" => Index.callees(index, record["id"], doubles: false),
+        "doubles" => Index.doubles(index, record["id"])
       })
     else
       {:error, reason} -> Tools.error(frame, reason)

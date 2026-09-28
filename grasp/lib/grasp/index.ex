@@ -211,7 +211,7 @@ defmodule Grasp.Index do
   A test doubling `id` through a Mox mock does not call it — the mock answers in its
   place — so a call of kind `double` makes no caller here, nor anywhere the callers are
   walked: `tests_for/3`, `path_back/4`, `untested_changes/1` and `changed_tests/2`.
-  `callees/2` keeps the double, since the test's card draws it.
+  `callees/3` keeps the double unless told not to, since the test's card draws it.
   """
   @spec callers(t(), String.t()) :: [String.t()]
   def callers(%__MODULE__{} = index, id), do: Map.get(index.callers, resolve(index, id), [])
@@ -221,17 +221,46 @@ defmodule Grasp.Index do
 
   A returned id may be outside the index — anything in the standard library or a
   dependency is a call target but never a definition — so `fetch_function/2` returns
-  `:error` for it.
+  `:error` for it. The targets of `double` calls are included unless `doubles: false` is
+  given, and then an id stays only when the function also calls it outright; `doubles/2`
+  answers those apart.
   """
-  @spec callees(t(), String.t()) :: [String.t()]
-  def callees(%__MODULE__{} = index, id) do
+  @spec callees(t(), String.t(), keyword()) :: [String.t()]
+  def callees(%__MODULE__{} = index, id, opts \\ []) do
+    doubles? = Keyword.get(opts, :doubles, true)
+
     case fetch_function(index, id) do
       {:ok, record} ->
         record
         |> targets()
+        |> Enum.filter(&(doubles? or &1["kind"] != "double"))
         |> Enum.map(&resolve(index, &1["target"]))
         |> Enum.uniq()
         |> Enum.sort()
+
+      :error ->
+        []
+    end
+  end
+
+  @typedoc "A function a test's Mox mock stands in for, with the mock and its behaviour."
+  @type double :: %{String.t() => String.t()}
+
+  @doc """
+  The functions `id`'s Mox doubles stand in for, each as `%{"target", "behaviour", "mock"}`,
+  sorted by target and deduplicated. A double does not run the code it names, so these are
+  not calls; `callees/3` with `doubles: false` leaves them out.
+  """
+  @spec doubles(t(), String.t()) :: [double()]
+  def doubles(%__MODULE__{} = index, id) do
+    case fetch_function(index, id) do
+      {:ok, record} ->
+        for %{"kind" => "double", "double" => %{"mock" => mock, "behaviour" => behaviour}} =
+              call <- targets(record),
+            uniq: true do
+          %{"target" => resolve(index, call["target"]), "behaviour" => behaviour, "mock" => mock}
+        end
+        |> Enum.sort_by(&{&1["target"], &1["behaviour"], &1["mock"]})
 
       :error ->
         []
@@ -445,8 +474,9 @@ defmodule Grasp.Index do
   edges included, `double` edges not — visiting each record once. A test calling `id`
   directly is one hop away. A test record met on the way is collected at the hop it is
   first met; a setup met on the way counts for every test of its module at the setup's
-  hop, unless that test is nearer by another path. A removed test or setup runs nothing, so it is never collected and credits
-  no test. An id the index does not define, or a function no test reaches, answers `[]`.
+  hop, unless that test is nearer by another path. A removed test or setup runs nothing, so
+  it is never collected and credits no test. An id the index does not define, or a function
+  no test reaches, answers `[]`.
   """
   @spec tests_for(t(), String.t(), non_neg_integer()) :: [reach()]
   def tests_for(%__MODULE__{} = index, id, max_hops \\ @max_hops) do

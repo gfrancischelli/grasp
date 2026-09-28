@@ -193,14 +193,16 @@ another line or editing a comment beside it changes nothing.
   that accepts more — `left =~ …`, `left in …`, a `match?/2` on `left` or a bare
   `assert left` (`loosened:` and the assertion). Hovering the badge reads the reasons. An
   edit that keeps the number of assertions, such as a different expected value, is not a
-  weakening on its own.
+  weakening unless it drops an `assert_*`/`refute_*` call or loosens an equality: renaming
+  `assert_receive` to `assert_received`, or replacing an `assert_*` helper with a plain
+  `assert`, keeps the count and still reads `dropped:`.
 - **`asserts nothing`** marks an added test with no assertion in its body.
 
 Both are badges on the test card, and the sidebar's **Test review** group, after Untested
 changes and open whenever it has a row, lists every marked test with its badge; clicking
 one opens the test's card. Only assertions written in the test count: a test that asserts
-through a helper of another module reads as asserting nothing, and moving assertions into
-such a helper reads as removing them.
+through a helper reads as asserting nothing, and moving assertions into a helper reads as
+removing them.
 
 ### Coverage
 
@@ -274,10 +276,13 @@ A test double is a hop too. A Mox `expect(Mock, :fun, …)` or `stub(Mock, :fun,
 draws a dashed edge to `fun` of every application module implementing the behaviour the mock
 is declared for — `Mox.defmock(SampleApp.GeoMock, for: SampleApp.Geo)` in `test_helper.exs`
 or a support file — at the arity of the `fn` or capture it is given, or at every arity of
-`fun` for any other code, and hovering the call reads `Mox double of SampleApp.Geo`. The mock
-answers in the code's place, so the edge shows what the test stands in for, never a caller:
-the doubled function's callers menu leaves the test out, and the test does not count as
-reaching it.
+`fun` for any other code. The `expect` or `stub` call itself is the double's site: clicking it
+opens the first implementation by id, and hovering it reads the behaviour and every
+implementation, `Mox double of SampleApp.Geo: SampleApp.Geo.Http, SampleApp.Geo.Static`.
+Each other implementation is a button in the card's **Also calls** footer, whose edge is
+dashed as well. The mock answers in the code's place, so the edge shows what the test stands
+in for, never a caller: the doubled function's callers menu leaves the test out, and the
+test does not count as reaching it.
 
 ## Comments
 

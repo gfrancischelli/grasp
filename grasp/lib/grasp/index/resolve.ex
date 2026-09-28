@@ -72,7 +72,8 @@ defmodule Grasp.Index.Resolve do
   controller's actions the link goes to without opening the router. A call of kind
   `:enqueue` carries the worker and the queue the job runs on, and under `"via"` the call
   it stands for. A call of kind `:double` carries under `"double"` the Mox mock a test set up
-  and the behaviour the mock stands in for.
+  and the behaviour the mock stands in for, and under `"implementations"` the modules every
+  double at its site reaches when the call is the one the site's range holds.
   """
   @spec call_json(Join.call()) :: map()
   def call_json(call) do
@@ -169,15 +170,43 @@ defmodule Grasp.Index.Resolve do
 
   defp take_via(record, _call), do: record
 
-  defp put_double(json, %{double: %{mock: mock, behaviour: behaviour}}),
-    do: Map.put(json, "double", %{"mock" => mock, "behaviour" => behaviour})
+  defp put_double(json, %{double: %{mock: _, behaviour: _} = double}),
+    do: Map.put(json, "double", double_json(double))
 
   defp put_double(json, _call), do: json
 
-  defp take_double(record, %{"double" => %{"mock" => mock, "behaviour" => behaviour}}),
-    do: Map.put(record, :double, %{mock: mock, behaviour: behaviour})
+  defp take_double(record, %{"double" => %{"mock" => mock, "behaviour" => behaviour} = double}) do
+    taken =
+      case double do
+        %{"implementations" => implementations} when is_list(implementations) ->
+          %{mock: mock, behaviour: behaviour, implementations: implementations}
+
+        _double ->
+          %{mock: mock, behaviour: behaviour}
+      end
+
+    Map.put(record, :double, taken)
+  end
 
   defp take_double(record, _call), do: record
+
+  @doc """
+  The JSON shape of a call's `:double`: the mock and the behaviour, and the implementations
+  when the call lists them.
+  """
+  @spec double_json(%{
+          required(:mock) => String.t(),
+          required(:behaviour) => String.t(),
+          optional(:implementations) => [String.t()]
+        }) :: map()
+  def double_json(%{mock: mock, behaviour: behaviour} = double) do
+    json = %{"mock" => mock, "behaviour" => behaviour}
+
+    case double do
+      %{implementations: implementations} -> Map.put(json, "implementations", implementations)
+      _double -> json
+    end
+  end
 
   defp range_record(%{"start" => start, "end" => finish}),
     do: %{start: List.to_tuple(start), end: List.to_tuple(finish)}

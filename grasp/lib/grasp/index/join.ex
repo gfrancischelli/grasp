@@ -90,7 +90,11 @@ defmodule Grasp.Index.Join do
           optional(:route) => %{verb: String.t(), path: String.t()},
           optional(:job) => %{worker: String.t(), queue: String.t()},
           optional(:via) => %{target: String.t(), kind: Tracer.kind() | :template},
-          optional(:double) => %{mock: String.t(), behaviour: String.t()}
+          optional(:double) => %{
+            required(:mock) => String.t(),
+            required(:behaviour) => String.t(),
+            optional(:implementations) => [String.t()]
+          }
         }
   # `:route` is written by `Grasp.Index.Routes` on a call of kind `:route` alone, and holds
   # the router's own verb and path, which is what the reader is told the link reaches.
@@ -99,8 +103,14 @@ defmodule Grasp.Index.Join do
   # `:via` is the call an enqueue edge stands for, kept so the edge can be undone and drawn
   # again when the workers change.
   # `:double` is written by `Grasp.Index.Doubles` on a call of kind `:double` alone, and names
-  # the Mox mock a test set up and the behaviour the mock stands in for.
-  @type hidden_call :: %{target: String.t(), kind: Tracer.kind(), line: pos_integer()}
+  # the Mox mock a test set up and the behaviour the mock stands in for; on the call a site's
+  # range holds, it also lists the modules every double at that site reaches.
+  @type hidden_call :: %{
+          required(:target) => String.t(),
+          required(:kind) => Tracer.kind() | :double,
+          required(:line) => pos_integer(),
+          optional(:double) => %{mock: String.t(), behaviour: String.t()}
+        }
 
   # `test` is carried over from the definition, which has one only for a test or a setup, and
   # `double_sites` from a definition that writes a Mox expectation, for `Grasp.Index.Doubles`.

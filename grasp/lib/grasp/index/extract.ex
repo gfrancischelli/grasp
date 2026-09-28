@@ -82,8 +82,7 @@ defmodule Grasp.Index.Extract do
   from it, whose mock is a literal alias and whose function a literal atom. A site holds
   the mock's full name, expanded through the file's `alias` lines, the function, the
   parameter count of a literal `fn` or the arity a capture writes (`&Geo.lookup/1`) handed
-  over as the code — `nil` for any other code —
-  and the range of the call's name. `Grasp.Index.Doubles` resolves them against the mocks
+  over as the code — `nil` for any other code — and the range of the call's name. `Grasp.Index.Doubles` resolves them against the mocks
   the project declares.
 
   Each definition also records where its clause heads are: `head_positions` is the

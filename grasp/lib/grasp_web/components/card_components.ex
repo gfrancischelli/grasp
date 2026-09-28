@@ -710,6 +710,8 @@ defmodule GraspWeb.CardComponents do
           phx-click="open_call"
           phx-value-card={@card.id}
           phx-value-target={call["target"]}
+          data-kind={call["kind"] == "double" && "double"}
+          title={also_title(call)}
           {edge_attrs(@open_calls, call["target"])}
         >
           {call["target"]}
@@ -718,6 +720,12 @@ defmodule GraspWeb.CardComponents do
     </article>
     """
   end
+
+  # A double listed here says so, as its site in the body does, so its edge is drawn dashed.
+  defp also_title(%{"kind" => "double", "double" => %{"behaviour" => behaviour}}),
+    do: Grasp.Highlight.double_title(behaviour, nil)
+
+  defp also_title(_call), do: nil
 
   defp failures_at(under, %{side: :new, line: number}), do: Map.get(under, number, [])
   defp failures_at(_under, _line), do: []

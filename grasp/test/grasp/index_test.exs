@@ -583,6 +583,37 @@ defmodule Grasp.IndexTest do
       assert Index.callers(index, "MyApp.Geo.Http.lookup/1") == ["MyApp.Geo.Http.fetch/1"]
       assert Index.callees(index, test) == ["MyApp.Geo.Http.lookup/1"]
     end
+
+    test "leave a test that also calls the doubled function outright among its callers" do
+      double = %{
+        "target" => "MyApp.Geo.Http.lookup/1",
+        "kind" => "double",
+        "double" => %{"mock" => "MyApp.GeoMock", "behaviour" => "MyApp.Geo"}
+      }
+
+      both =
+        "MyApp.GeoTest"
+        |> test_record("looks up twice", ["MyApp.Geo.Http.lookup/1"])
+        |> Map.update!("calls", &[double | &1])
+
+      index = reach_index([record("MyApp.Geo.Http.lookup/1", "MyApp.Geo.Http"), both])
+
+      assert Index.callers(index, "MyApp.Geo.Http.lookup/1") == [both["id"]]
+      assert Index.tests_for(index, "MyApp.Geo.Http.lookup/1") == [%{test: both["id"], hops: 1}]
+      assert Index.callees(index, both["id"], doubles: false) == ["MyApp.Geo.Http.lookup/1"]
+
+      assert Index.doubles(index, both["id"]) == [
+               %{
+                 "target" => "MyApp.Geo.Http.lookup/1",
+                 "behaviour" => "MyApp.Geo",
+                 "mock" => "MyApp.GeoMock"
+               }
+             ]
+    end
+
+    test "are left out of the callees when asked", %{index: index, doubling: test} do
+      assert Index.callees(index, test, doubles: false) == []
+    end
   end
 
   describe "changed_tests/2" do

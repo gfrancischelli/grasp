@@ -2,6 +2,7 @@ defmodule Grasp.Index.DoublesTest do
   use ExUnit.Case, async: true
 
   alias Grasp.Index.{Builder, Doubles, Extract, Join, Resolve}
+  alias Grasp.TracedDoubles
 
   describe "declarations/1" do
     test "reads each defmock, local under import Mox or on Mox, through the file's aliases" do
@@ -123,38 +124,83 @@ defmodule Grasp.Index.DoublesTest do
 
       double = %{mock: "SampleApp.GeoMock", behaviour: "SampleApp.Geo"}
 
+      first =
+        Map.put(double, :implementations, ["SampleApp.Geo.Ip", "SampleApp.Geo.Static"])
+
       assert test.calls == [
                %{
                  target: "SampleApp.Geo.Ip.lookup/1",
                  kind: :double,
                  range: range({5, 5}),
-                 double: double
-               },
-               %{
-                 target: "SampleApp.Geo.Static.lookup/1",
-                 kind: :double,
-                 range: range({5, 5}),
-                 double: double
+                 double: first
                },
                %{
                  target: "SampleApp.Geo.Ip.lookup/1",
                  kind: :double,
                  range: range({6, 5}),
-                 double: double
-               },
-               %{
-                 target: "SampleApp.Geo.Static.lookup/1",
-                 kind: :double,
-                 range: range({6, 5}),
-                 double: double
-               },
-               %{
-                 target: "SampleApp.Geo.Static.lookup/2",
-                 kind: :double,
-                 range: range({6, 5}),
-                 double: double
+                 double: first
                }
              ]
+
+      assert test.hidden_calls == [
+               %{target: "SampleApp.Geo.Static.lookup/1", kind: :double, line: 5, double: double},
+               %{target: "SampleApp.Geo.Static.lookup/1", kind: :double, line: 6, double: double},
+               %{target: "SampleApp.Geo.Static.lookup/2", kind: :double, line: 6, double: double}
+             ]
+    end
+
+    test "a site reads as its double: the traced Mox call on its range gives way" do
+      joined = TracedDoubles.joined_test()
+      assert [%{calls: [%{target: "Mox.expect/3", range: %{start: {6, 5}}}]}] = joined
+
+      [test] =
+        Doubles.resolve(
+          joined,
+          TracedDoubles.declarations(),
+          TracedDoubles.modules(),
+          TracedDoubles.implementations()
+        )
+
+      refute Enum.any?(test.calls, &String.starts_with?(&1.target, "Mox."))
+
+      assert [
+               %{
+                 target: "SampleApp.Geo.Ip.lookup/1",
+                 kind: :double,
+                 range: %{start: {6, 5}},
+                 double: %{implementations: ["SampleApp.Geo.Ip", "SampleApp.Geo.Static"]}
+               }
+             ] = test.calls
+
+      assert [%{target: "SampleApp.Geo.Static.lookup/1", kind: :double, line: 6}] =
+               test.hidden_calls
+
+      json = Builder.function_json(test)
+
+      assert [%{"double" => %{"implementations" => [_, _]}} = call] = json["calls"]
+      assert Resolve.call_record(call) == hd(test.calls)
+
+      assert [
+               %{
+                 "target" => "SampleApp.Geo.Static.lookup/1",
+                 "kind" => "double",
+                 "line" => 6,
+                 "double" => %{"mock" => "SampleApp.GeoMock", "behaviour" => "SampleApp.Geo"}
+               }
+             ] = json["hidden_calls"]
+    end
+
+    test "keeps the traced Mox call of a site that reaches nothing" do
+      [test] =
+        Doubles.resolve(
+          TracedDoubles.joined_test(),
+          TracedDoubles.declarations(),
+          TracedDoubles.modules(),
+          []
+        )
+
+      assert [%{target: "Mox.expect/3", range: %{start: {6, 5}}}] = test.calls
+      assert test.hidden_calls == []
     end
 
     test "draws nothing for an undeclared mock, an unimplemented behaviour or an unheld arity" do

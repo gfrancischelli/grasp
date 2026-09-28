@@ -2,13 +2,12 @@ defmodule Grasp.Index.Doubles do
   @moduledoc """
   Turns a test's Mox expectations into calls on the code they stand in for.
 
-  A Mox mock is declared with `Mox.defmock(Mock, for: Behaviour)`, or a bare
-  `defmock(Mock, for: Behaviour)` as a file importing `Mox` writes it, in `test_helper.exs`
-  or a test-only support file, and a test sets it
-  up with `expect(Mock, :fun, …)` or `stub(Mock, :fun, …)`. The mock stands in for every
-  module that implements `Behaviour`, so the test's expectation names code the index holds:
-  `Impl.fun` of each implementation. `resolve/4` writes those as calls of kind `:double`,
-  each carrying the mock and the behaviour under `:double`.
+  A Mox mock is declared with `Mox.defmock(Mock, for: Behaviour)` or a bare
+  `defmock(Mock, for: Behaviour)`, in a `test_helper.exs`, a test-only support file or a test
+  file, and a test sets it up with `expect(Mock, :fun, …)` or `stub(Mock, :fun, …)`. The mock
+  stands in for every module that implements `Behaviour`, so the test's expectation names
+  code the index holds: `Impl.fun` of each implementation. `resolve/4` writes those as calls
+  of kind `:double`, each carrying the mock and the behaviour under `:double`.
 
   The declarations are read by parsing, never by running the file: a `test_helper.exs`
   starts applications and configures the test run, which is nothing an index build may do.
@@ -216,6 +215,13 @@ defmodule Grasp.Index.Doubles do
   the application's — and a target is `Impl.fun/arity` for the arity the site read, or for
   every arity `Impl.fun` has when the site read none; a target no record answers to is not
   written. A record's calls stay sorted as `Grasp.Index.Join` sorts them.
+
+  A site that reaches anything is read as the double: the call the trace recorded for
+  `Mox.expect/3`, `Mox.expect/4` or `Mox.stub/3` on the site's exact range is dropped. The
+  site's first target by id is the call on its range, and its `:double` also lists under
+  `:implementations` every module the site reaches, sorted. Every other target is a hidden
+  call of kind `:double` on the site's line, carrying the mock and the behaviour, which the
+  card lists with the calls it shows no site for.
   """
   @spec resolve([map()], declarations(), [map()], [Join.function_record()]) :: [map()]
   def resolve(records, declarations, modules, functions) do
@@ -241,33 +247,78 @@ defmodule Grasp.Index.Doubles do
         record
 
       sites ->
-        doubles = Enum.flat_map(sites, &calls(&1, declarations, implementations, arities))
+        {calls, hidden} =
+          Enum.reduce(
+            sites,
+            {record.calls, Map.get(record, :hidden_calls, [])},
+            &resolve_site(&1, &2, declarations, implementations, arities)
+          )
 
-        %{
-          record
-          | calls:
-              (record.calls ++ doubles)
-              |> Enum.uniq()
-              |> Enum.sort_by(&{&1.range.start, &1.target, &1.kind})
-        }
+        Map.merge(record, %{
+          calls: calls |> Enum.uniq() |> Enum.sort_by(&{&1.range.start, &1.target, &1.kind}),
+          hidden_calls: hidden |> Enum.uniq() |> Enum.sort_by(&{&1.line, &1.target, &1.kind})
+        })
     end
   end
 
+  # The site's first double takes the range the call to `expect`/`stub` stood on; the rest are
+  # listed with the calls the card shows no site for.
+  defp resolve_site(site, {calls, hidden}, declarations, implementations, arities) do
+    case calls(site, declarations, implementations, arities) do
+      [] ->
+        {calls, hidden}
+
+      [first | rest] ->
+        {[first | Enum.reject(calls, &expectation?(&1, site.range))],
+         hidden ++ Enum.map(rest, &hidden_call/1)}
+    end
+  end
+
+  defp expectation?(%{target: target, range: range}, range)
+       when target in ["Mox.expect/3", "Mox.expect/4", "Mox.stub/3"],
+       do: true
+
+  defp expectation?(_call, _range), do: false
+
+  defp hidden_call(call),
+    do: %{
+      target: call.target,
+      kind: :double,
+      line: elem(call.range.start, 0),
+      double: call.double
+    }
+
+  # A site's first target by id owns its range and names every implementation the mock
+  # stands in for; the others follow it.
   defp calls(site, declarations, implementations, arities) do
     with {:ok, behaviour} <- Map.fetch(declarations, site.mock) do
-      for implementation <- implementations |> Map.get(behaviour, []) |> Enum.sort(),
-          arity <- implementation |> defined(site.function, arities) |> wanted(site.arity) do
-        %{
-          target: Join.function_id(implementation, site.function, arity),
-          kind: :double,
-          range: site.range,
-          double: %{mock: site.mock, behaviour: behaviour}
-        }
+      reached =
+        for implementation <- Map.get(implementations, behaviour, []),
+            arity <- implementation |> defined(site.function, arities) |> wanted(site.arity),
+            uniq: true,
+            do: {Join.function_id(implementation, site.function, arity), implementation}
+
+      double = %{mock: site.mock, behaviour: behaviour}
+
+      case Enum.sort(reached) do
+        [] ->
+          []
+
+        [{first, _implementation} | rest] ->
+          implemented = reached |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
+
+          [
+            double_call(first, site, Map.put(double, :implementations, implemented))
+            | Enum.map(rest, fn {target, _implementation} -> double_call(target, site, double) end)
+          ]
       end
     else
       :error -> []
     end
   end
+
+  defp double_call(target, site, double),
+    do: %{target: target, kind: :double, range: site.range, double: double}
 
   defp defined(module, function, arities),
     do: arities |> Map.get({module, function}, []) |> Enum.uniq() |> Enum.sort()

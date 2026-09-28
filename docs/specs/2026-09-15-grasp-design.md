@@ -341,11 +341,13 @@ touched is unchanged.
       "file": "test/my_app_web/controllers/player_controller_test.exs",
       // … every other field as above; only a record of kind "test" carries "test"
       "test": { "describe": "show/2", "name": "renders the player", "tags": ["slow"] }
-      // a Mox expectation the test sets up: a call of kind "double" carrying the mock and the
-      // behaviour it stands in for
-      // { "target": "MyApp.Geo.Static.lookup/1", "kind": "double",
+      // a Mox expectation the test sets up: a call of kind "double" carrying the mock, the
+      // behaviour it stands in for and every implementation the site reaches; each other
+      // implementation is a hidden call of kind "double" on the site's line
+      // { "target": "MyApp.Geo.Http.lookup/1", "kind": "double",
       //   "range": { "start": [12, 5], "end": [12, 11] },
-      //   "double": { "mock": "MyApp.GeoMock", "behaviour": "MyApp.Geo" } }
+      //   "double": { "mock": "MyApp.GeoMock", "behaviour": "MyApp.Geo",
+      //               "implementations": ["MyApp.Geo.Http", "MyApp.Geo.Static"] } }
     }
   ],
   "entry_points": [
@@ -1281,7 +1283,8 @@ first reference. Results are JSON text content, so any MCP client can read them.
 
 - Read tools: `search_functions(query, limit)`, `get_function(id)` returning the record
   (module, name, arity, kind, file, span, source, calls, hidden calls) plus its callers and
-  the entry points that lead to it, `get_callers(id)`, `get_callees(id)`,
+  the entry points that lead to it, `get_callers(id)`, `get_callees(id)` (a test's Mox
+  doubles answered apart, under `doubles`),
   `find_paths(to, from?, max_depth, limit)`, `list_entry_points(kind?, query?, limit)`,
   `list_modules(query?, limit)`, `list_sessions()`.
 - `find_paths` walks the call graph (visible and hidden calls) breadth first, shortest

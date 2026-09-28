@@ -402,6 +402,55 @@ defmodule Grasp.HighlightTest do
     assert LazyHTML.text(double) == "expect"
   end
 
+  test "a double written as the builder writes it takes its site from the traced Mox call" do
+    test =
+      Enum.find(Grasp.TracedDoubles.records_json(), &(&1["id"] == Grasp.TracedDoubles.test_id()))
+
+    html = render(test, [])
+
+    assert [double] =
+             html
+             |> LazyHTML.query(~s(span.line[data-line="6"] span.call))
+             |> Enum.to_list()
+
+    assert LazyHTML.attribute(double, "data-kind") == ["double"]
+    assert LazyHTML.attribute(double, "data-target") == ["SampleApp.Geo.Ip.lookup/1"]
+    assert LazyHTML.attribute(double, "phx-value-target") == ["SampleApp.Geo.Ip.lookup/1"]
+
+    assert LazyHTML.attribute(double, "title") == [
+             "Mox double of SampleApp.Geo: SampleApp.Geo.Ip, SampleApp.Geo.Static"
+           ]
+
+    assert LazyHTML.text(double) == "expect"
+    assert html |> LazyHTML.query(~s(span.call[data-target^="Mox."])) |> Enum.empty?()
+  end
+
+  test "of calls sharing one range, the double wraps it whatever the order of calls" do
+    range = %{"start" => [2, 3], "end" => [2, 9]}
+
+    record = %{
+      "id" => ~s|SampleApp.GeoTest."test looks up once"/1|,
+      "span" => %{"start_line" => 1, "end_line" => 3},
+      "source" => """
+      test "looks up" do
+        expect(SampleApp.GeoMock, :lookup, fn _ip -> :ok end)
+      end\
+      """,
+      "calls" => [
+        %{"target" => "Mox.expect/3", "kind" => "imported", "range" => range},
+        %{
+          "target" => "SampleApp.Geo.Http.lookup/1",
+          "kind" => "double",
+          "range" => range,
+          "double" => %{"mock" => "SampleApp.GeoMock", "behaviour" => "SampleApp.Geo"}
+        }
+      ]
+    }
+
+    assert [double] = record |> render([]) |> LazyHTML.query("span.call") |> Enum.to_list()
+    assert LazyHTML.attribute(double, "data-target") == ["SampleApp.Geo.Http.lookup/1"]
+  end
+
   test "an enqueue call carries its kind and reads its worker and queue on hover" do
     record = %{
       "id" => "SampleAppWeb.GreetController.mail/2",

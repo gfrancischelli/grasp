@@ -23,7 +23,7 @@ defmodule Grasp.Highlight do
   bare text elsewhere. A call that is not a function call carries a `data-kind` and a `title`
   naming what it reaches — `"route"` with the verb and path the router matched, `"enqueue"`
   with the worker and the queue it runs on, `"double"` with the behaviour a Mox mock stands
-  in for — so a hop over HTTP, onto a queue or through a mock is told from a function call
+  in for and the implementations it doubles — so a hop over HTTP, onto a queue or through a mock is told from a function call
   on the card and on the edge leaving it.
 
   `lines/2` and `diff_lines/2` hand those lines back one at a time as `%{side, line, html}`,
@@ -676,10 +676,22 @@ defmodule Grasp.Highlight do
   defp kind_attrs(%{kind: "enqueue", job: %{"worker" => worker, "queue" => queue}}),
     do: ~s( data-kind="enqueue" title="Oban job · #{escape(worker)} · #{escape(queue)}")
 
-  defp kind_attrs(%{kind: "double", double: %{"behaviour" => behaviour}}),
-    do: ~s( data-kind="double" title="Mox double of #{escape(behaviour)}")
+  defp kind_attrs(%{kind: "double", double: %{"behaviour" => behaviour} = double}),
+    do:
+      ~s( data-kind="double" title="#{escape(double_title(behaviour, double["implementations"]))}")
 
   defp kind_attrs(_range), do: ""
+
+  @doc """
+  The title of a Mox double's site: the behaviour the mock doubles, and after it every
+  implementation the mock stands in for when the call lists them.
+  """
+  @spec double_title(String.t(), [String.t()] | nil) :: String.t()
+  def double_title(behaviour, implementations)
+      when is_list(implementations) and implementations != [],
+      do: "Mox double of #{behaviour}: #{Enum.join(implementations, ", ")}"
+
+  def double_title(behaviour, _implementations), do: "Mox double of #{behaviour}"
 
   defp edge_attrs(open, target) do
     case Map.fetch(open, target) do
@@ -694,7 +706,8 @@ defmodule Grasp.Highlight do
   # Whitespace is never part of a callee, so a range that continues onto a new line does
   # not swallow that line's indentation. Where several ranges cover the piece the narrowest
   # one wraps it, so a call written inside a route attribute keeps its own span and the
-  # attribute's is drawn around it in two parts.
+  # attribute's is drawn around it in two parts. Of ranges equally narrow, a `double` wraps
+  # it before any other call, and otherwise the first in the record's order of calls does.
   defp covering(piece, ranges) do
     if String.trim(piece.text) == "" do
       nil
@@ -704,7 +717,7 @@ defmodule Grasp.Highlight do
         piece.col >= line_bound(range, piece.line, :start) and
           piece.col < line_bound(range, piece.line, :end)
       end)
-      |> Enum.min_by(&width/1, fn -> nil end)
+      |> Enum.min_by(&{width(&1), if(&1.kind == "double", do: 0, else: 1)}, fn -> nil end)
     end
   end
 

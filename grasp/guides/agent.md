@@ -105,7 +105,9 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
 - `get_function` — one function's source, span, calls, callers, callees, the entry points
   that reach it, and, given a `session`, that session's review comments still open on its
   lines.
-- `get_callers` / `get_callees` — one hop up or down the call graph.
+- `get_callers` / `get_callees` — one hop up or down the call graph. `get_callees` answers a
+  test's Mox doubles apart, under `doubles`, each with its `target`, `behaviour` and `mock`:
+  a double stands in for the code rather than running it, so it is not a call.
 - `find_paths` — shortest call paths down to a function, from another function or, with no
   `from`, from whatever entry points reach it. Each path reads in call order and carries the
   entry point it starts at.

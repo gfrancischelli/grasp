@@ -547,15 +547,18 @@ test paths uncompared.
     `loosened: <text>`.
   Reasons come in that order, each kind in the order the base makes its assertions. An edit
   that keeps the number of assertions — a different expected value, a different
-  `assert_receive` timeout, a different `refute` — is not a weakening on its own. A reason's
+  `assert_receive` timeout, a different `refute` — is not a weakening unless it drops an
+  `assert_*`/`refute_*` call or loosens an equality: `assert_receive` renamed to
+  `assert_received`, or an `assert_*` helper replaced by a plain `assert`, keeps the count
+  and still reads `dropped:`. A reason's
   text is the base assertion's source with its whitespace collapsed. An added test with no
   assertion at all is marked `asserts nothing`. A test whose source or base does not parse
   is never marked.
 - **Where it shows.** Both marks are badges, `assertion weakened` and `asserts nothing`, on
   the test card and on its row in a **Test review** group of the sidebar, after Untested
   changes; a weakened mark's `title` holds its reasons, one a line. The group lists the
-  marked tests sorted by id, each row with its change and test badges and its title, opens on arrival
-  whenever it has a row, and a row opens the test's card as a root. The review is computed
+  marked tests sorted by id, each row with its change and test badges and its title, opens
+  on arrival whenever it has a row, and a row opens the test's card as a root. The review is computed
   once, when the index is built from its document, and only over the tests the branch added
   or modified, so an index without a base ref marks none. MCP `test_review()` answers the
   same list, each test with its `id`, its `mark` (`weakened` or `asserts_nothing`) and its
@@ -573,20 +576,32 @@ test paths uncompared.
   of the `fn` passed when it is a literal, at the arity of the capture passed
   (`&Impl.fun/1`), or at every arity of `fun` the implementation defines otherwise. A target
   the index holds no function for draws nothing. The call carries the mock and the behaviour
-  under `double`; its site is underlined with dots and titled `Mox double of Behaviour`, and
-  its edge is dashed. A double stands in for the code rather than running it, so a `double`
-  call makes no caller: it is left out of `Index.callers/2` and so of the callers menu,
-  `get_callers`, `find_paths`, `tests_for`, the walk back to a farther test, untested
-  changes and the paired tests, and kept in `callees`, since the test's card draws it. A
-  double is never read as an enqueue, even on a worker's `new/1`.
+  under `double`. The `expect` or `stub` call is the site: the call the trace records for
+  `Mox.expect/3`, `Mox.expect/4` or `Mox.stub/3` on the site's exact range is dropped once
+  the site reaches anything. The site's first target by id holds its range, so its span
+  opens that target and its edge leaves from there; that call's `double` also lists every
+  implementation the site reaches, and the site is underlined with dots and titled
+  `Mox double of Behaviour: Impl1, Impl2`. Every other target is a hidden call of kind
+  `double` on the site's line, carrying the mock and the behaviour, listed in the card's
+  **Also calls** footer, where its button opens it and its edge leaves from. A double's edge
+  is dashed. Where several calls share one range, the narrowest wraps it and a `double`
+  wins a tie with any other call. A double stands in for the code rather than running it, so
+  a `double` call makes no caller: it is left out of `Index.callers/2` and so of the callers
+  menu, `get_callers`, `find_paths`, `tests_for`, the walk back to a farther test, untested
+  changes and the paired tests. A test that calls the doubled function outright as well
+  still reaches it through that call. `Index.callees/3` keeps the double, since the test's
+  card draws it, and leaves it out given `doubles: false`; MCP `get_callees` answers
+  `callees` without the doubles and the doubles apart, as `doubles: [{target, behaviour,
+  mock}]`. A double is never read as an enqueue, even on a worker's `new/1`.
 
 ### Known gaps (milestone 10.5)
 
-- **Assertions made through a remote helper are invisible to the comparison.** Only calls
+- **Assertions made through a helper are invisible to the comparison.** Only calls
   written in the test are read, so moving assertions into a helper reads as removing them,
   and a test asserting only through helpers reads as asserting nothing.
-- **An edit that keeps the number of assertions is not a weakening.** Replacing a strict
-  assertion with a looser one of a different shape, other than the `==`/`===` loosening
+- **An edit that keeps the number of assertions is not a weakening, except by the `dropped`
+  and loosening rules.** Replacing a strict assertion with a looser one of a different
+  shape, other than one that drops an `assert_*`/`refute_*` call or the `==`/`===` loosening
   rule, goes unmarked.
 - **The canonical form reads different spellings of one literal as the same assertion.**
   `assert x == 0x10` and `assert x == 16` compare equal.

@@ -17,8 +17,10 @@ defmodule Grasp.TestReview do
   calls than the base, calls an `assert_*`/`refute_*` function fewer times, or turns an
   `assert left == right` (or `===`) into one that accepts more — `left =~ …`, `left in …`, a
   `match?/2` on `left`, or a bare `assert left`. An edit that keeps the number of
-  assertions, such as a different expected value or timeout, is not a weakening on its own.
-  An added test with no assertion at all asserts nothing. A source that does not parse is
+  assertions, such as a different expected value or timeout, is not a weakening unless it
+  drops an `assert_*`/`refute_*` call or loosens an equality: `assert_receive` renamed to
+  `assert_received`, or an `assert_*` helper replaced by a plain `assert`, keeps the count
+  and still reads `dropped:`. An added test with no assertion at all asserts nothing. A source that does not parse is
   never marked, since nothing can be said of what it asserts.
   """
 
@@ -100,8 +102,8 @@ defmodule Grasp.TestReview do
   A modified test (`"change" => "modified"`, kind `"test"`, with a `"base_source"`) answers
   `{:weakened, reasons}` when the head, against the base:
 
-    * makes fewer assertion calls — `"removed: <text>"` for each assertion of the base with
-      no canonical counterpart at the head;
+    * makes fewer assertion calls — `"removed: <text>"` for each assertion of the base the
+      head makes fewer times, by canonical form;
     * calls an `assert_*`/`refute_*` name fewer times — `"dropped: <name>"`;
     * holds, for an `assert left == right` or `===` of the base with no canonical
       counterpart at the head, an assertion using `=~` or `in` on `left`, a `match?/2` on
