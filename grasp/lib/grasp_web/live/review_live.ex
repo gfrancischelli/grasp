@@ -190,6 +190,29 @@ defmodule GraspWeb.ReviewLive do
     mutate(socket, &Session.open_caller(&1, id, caller_id, target))
   end
 
+  # A test farther than one hop is reached through the records between, so those open as
+  # well, each as a caller of the next: every edge the canvas draws is then a call one of
+  # them makes. A test reached through its module's setup ends the chain at the setup.
+  def handle_event("open_test", %{"card" => card, "test" => test}, socket)
+      when is_binary(test) do
+    socket = close_overlays(socket)
+    id = int(card)
+
+    case {socket.assigns.index, function_id(socket, id)} do
+      {%Index{} = index, function_id} when is_binary(function_id) ->
+        callers =
+          index
+          |> Index.path_back(test, function_id)
+          |> Enum.chunk_every(2, 1, :discard)
+          |> Enum.map(fn [callee, caller] -> {caller, call_target(socket, caller, callee)} end)
+
+        mutate(socket, &Session.open_callers(&1, id, callers))
+
+      _no_function ->
+        {:noreply, socket}
+    end
+  end
+
   # The two card menus and the frame rename are one another's alternatives: each is opened
   # by a click that means "not the other one", and two panels absolutely positioned off
   # adjacent wrappers in the same header would otherwise overlap on a card wide enough.

@@ -58,13 +58,21 @@ defmodule GraspWeb.TestReachTest do
       assert [%{hops: 1}] = TestReach.for_function(refreshed, "SampleApp.Counter.handle_call/3")
     end
 
-    test "walks again against another index", %{index: index, forest: forest, reach: reach} do
-      other = %{index | generated_at: "another"}
+    test "walks again against an index of another generation", context do
+      %{index: index, forest: forest, reach: reach} = context
+      {:ok, reloaded} = Index.load("test/fixtures/index.json")
 
-      refreshed = TestReach.refresh(reach, other, forest)
+      refreshed = TestReach.refresh(reach, reloaded, forest)
 
       assert TestReach.for_function(refreshed, @greet) == Index.tests_for(index, @greet)
-      assert refreshed.index === other
+      assert refreshed.generation == reloaded.generation
+    end
+
+    test "tells indexes apart by their generation alone", context do
+      %{index: index, forest: forest, reach: reach} = context
+      same_generation = %{index | functions: %{}, callers: %{}}
+
+      assert TestReach.refresh(reach, same_generation, forest) === reach
     end
   end
 end

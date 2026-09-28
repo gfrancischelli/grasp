@@ -80,6 +80,22 @@ defmodule Grasp.Session.ForestTest do
     assert Enum.at(forest.edges, 1).target == "X.f/1"
   end
 
+  test "open_callers/3 opens each caller to the left of the one before it" do
+    {forest, x} = Forest.open_root(Forest.new(), "X.f/1")
+    {forest, h} = Forest.open_root(forest, "H.h/0")
+
+    {forest, t} = Forest.open_callers(forest, x, [{"H.h/0", "X.f/1"}, {"T.t/1", nil}])
+
+    assert forest.edges == [
+             %{from: h, to: x, target: "X.f/1", color: 0},
+             %{from: t, to: h, target: "H.h/0", color: 1}
+           ]
+
+    assert forest.focus == t
+    assert map_size(forest.cards) == 3
+    assert {^forest, nil} = Forest.open_callers(forest, 999, [{"T.t/1", nil}])
+  end
+
   test "a function opened under two parents is one card with two edges" do
     {forest, a} = Forest.open_root(Forest.new(), "A.f/1")
     {forest, d} = Forest.open_root(forest, "D.i/0")

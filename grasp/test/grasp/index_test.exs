@@ -524,6 +524,132 @@ defmodule Grasp.IndexTest do
     end
   end
 
+  describe "path_back/4" do
+    test "is the function and the test when the test calls it" do
+      test = test_id("MyApp.WalletsTest", "credits")
+
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"])
+        ])
+
+      assert Index.path_back(index, test, "MyApp.Wallets.credit/2") ==
+               ["MyApp.Wallets.credit/2", test]
+    end
+
+    test "runs through the records between, each calling the one before it" do
+      test = test_id("MyApp.WalletsTest", "a")
+
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.A.one/0", "MyApp.A", ["MyApp.Wallets.credit/2"]),
+          record("MyApp.A.two/0", "MyApp.A", ["MyApp.A.one/0"]),
+          test_record("MyApp.WalletsTest", "a", ["MyApp.A.two/0", "MyApp.A.one/0"])
+        ])
+
+      assert Index.path_back(index, test, "MyApp.Wallets.credit/2") ==
+               ["MyApp.Wallets.credit/2", "MyApp.A.one/0", test]
+    end
+
+    test "ends at the setup when the test reaches the function through it" do
+      setup = "MyApp.WalletsTest.__ex_unit_setup_0/1"
+
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.WalletsTest.seed/0", "MyApp.WalletsTest", ["MyApp.Wallets.credit/2"]),
+          setup_record("MyApp.WalletsTest", ["MyApp.WalletsTest.seed/0"]),
+          test_record("MyApp.WalletsTest", "b", []),
+          test_record("MyApp.OtherTest", "c", [])
+        ])
+
+      assert Index.path_back(index, test_id("MyApp.WalletsTest", "b"), "MyApp.Wallets.credit/2") ==
+               ["MyApp.Wallets.credit/2", "MyApp.WalletsTest.seed/0", setup]
+
+      assert Index.path_back(index, test_id("MyApp.OtherTest", "c"), "MyApp.Wallets.credit/2") ==
+               []
+    end
+
+    test "prefers the test to a setup met at the same hop" do
+      test = test_id("MyApp.WalletsTest", "a")
+
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          setup_record("MyApp.WalletsTest", ["MyApp.Wallets.credit/2"]),
+          test_record("MyApp.WalletsTest", "a", ["MyApp.Wallets.credit/2"])
+        ])
+
+      assert Index.path_back(index, test, "MyApp.Wallets.credit/2") ==
+               ["MyApp.Wallets.credit/2", test]
+    end
+
+    test "is as long as tests_for says, and stops after max_hops" do
+      chain =
+        for n <- 1..4, do: record("MyApp.C.f#{n}/0", "MyApp.C", ["MyApp.C.f#{n - 1}/0"])
+
+      far = test_id("MyApp.CTest", "far")
+
+      index =
+        reach_index(
+          [record("MyApp.C.f0/0", "MyApp.C", [])] ++
+            chain ++ [test_record("MyApp.CTest", "far", ["MyApp.C.f4/0"])]
+        )
+
+      assert Index.path_back(index, far, "MyApp.C.f0/0") == []
+
+      assert Index.path_back(index, far, "MyApp.C.f0/0", 5) ==
+               [
+                 "MyApp.C.f0/0",
+                 "MyApp.C.f1/0",
+                 "MyApp.C.f2/0",
+                 "MyApp.C.f3/0",
+                 "MyApp.C.f4/0",
+                 far
+               ]
+
+      assert [%{hops: 5}] = Index.tests_for(index, "MyApp.C.f0/0", 5)
+    end
+
+    test "terminates on a cycle and answers nothing for an unknown id or a non-test" do
+      test = test_id("MyApp.ATest", "a")
+
+      index =
+        reach_index([
+          record("MyApp.A.a/0", "MyApp.A", ["MyApp.A.b/0"]),
+          record("MyApp.A.b/0", "MyApp.A", ["MyApp.A.a/0"]),
+          test_record("MyApp.ATest", "a", [])
+        ])
+
+      assert Index.path_back(index, test, "MyApp.A.a/0", 10) == []
+      assert Index.path_back(index, test, "MyApp.Nope.none/0") == []
+      assert Index.path_back(index, "MyApp.A.b/0", "MyApp.A.a/0") == []
+    end
+
+    test "resolves a default-argument arity to its definition" do
+      test = test_id("MyApp.WalletsTest", "credits")
+
+      index =
+        reach_index([
+          Map.put(record("MyApp.Wallets.credit/3"), "arities", [2, 3]),
+          test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"])
+        ])
+
+      assert Index.path_back(index, test, "MyApp.Wallets.credit/2") ==
+               ["MyApp.Wallets.credit/3", test]
+    end
+  end
+
+  test "every index built carries a generation of its own" do
+    {:ok, one} = Index.load("test/fixtures/index.json")
+    {:ok, two} = Index.load("test/fixtures/index.json")
+
+    assert is_integer(one.generation)
+    assert one.generation != two.generation
+  end
+
   defp reach_index(records) do
     {:ok, index} = Index.from_document(%{"version" => 1, "functions" => records})
     index

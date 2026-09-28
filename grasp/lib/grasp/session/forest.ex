@@ -254,6 +254,19 @@ defmodule Grasp.Session.Forest do
   end
 
   @doc """
+  Opens a chain of callers leftwards from `card_id`: the first as a caller of `card_id`,
+  each next one as a caller of the one before, each with the call target it writes, as
+  `open_caller/4` opens one. Focuses the last and returns its id, or nil if `card_id` is
+  unknown.
+  """
+  @spec open_callers(t(), id(), [{String.t(), String.t() | nil}]) :: {t(), id() | nil}
+  def open_callers(%__MODULE__{} = forest, card_id, callers) when is_list(callers) do
+    Enum.reduce(callers, {forest, card_id}, fn {caller_function_id, target}, {forest, callee} ->
+      open_caller(forest, callee, caller_function_id, target)
+    end)
+  end
+
+  @doc """
   Removes `id` and every edge touching it; its callees stay and become sources.
 
   Focus moves to the closed card's first caller, then its first callee, then nowhere.

@@ -208,7 +208,6 @@ defmodule GraspWeb.TestsLiveTest do
   describe "a function card reached by tests" do
     @greet "SampleApp.Greeter.greet/2"
     @handle_call "SampleApp.Counter.handle_call/3"
-    @verified ~s|SampleAppWeb.RoutesTest."test a verified path reaches the controller"/1|
 
     test "wears the number of tests reaching it in its header", %{view: view} do
       render_click(view, "open_root", %{"id" => @greet})
@@ -247,19 +246,45 @@ defmodule GraspWeb.TestsLiveTest do
       assert rows(view, 2) == [{"handle_call/3 › replies with the next number", "direct"}]
     end
 
-    test "opens a test's card as a caller opens", %{view: view} do
-      render_click(view, "open_root", %{"id" => @greet})
+    test "opens a test calling the function as its caller", %{view: view} do
+      render_click(view, "open_root", %{"id" => @handle_call})
       view |> element("#card-1 .card__tests") |> render_click()
+      view |> element("#card-1 .caller--test[phx-value-test='#{@reply}']") |> render_click()
 
-      view
-      |> element("#card-1 .caller--test[phx-value-caller='#{@verified}']")
-      |> render_click()
-
-      assert has_element?(view, "#card-2[data-function-id='#{@verified}'][data-focused='true']")
+      assert has_element?(view, "#card-2[data-function-id='#{@reply}'][data-focused='true']")
       assert has_element?(view, "#card-2 .badge--test[data-test-kind='test']")
       assert has_element?(view, "#node-2[data-depth='0']")
       assert has_element?(view, "#node-1[data-depth='1']")
+      assert has_element?(view, "#card-2 span.call[data-edge-to='1']")
       refute has_element?(view, "#card-1 .card__callers ul")
+    end
+
+    test "opens a farther test through the helper between them", %{view: view} do
+      render_click(view, "open_root", %{"id" => "SampleApp.Counter.init/1"})
+      view |> element("#card-1 .card__tests") |> render_click()
+      assert rows(view, 1) == [{"init keeps the start count", "2 hops"}]
+
+      view |> element("#card-1 .caller--test[phx-value-test='#{@init}']") |> render_click()
+
+      assert has_element?(view, "#card-2[data-function-id='SampleApp.TallyTest.init_with/1']")
+      assert has_element?(view, "#card-3[data-function-id='#{@init}'][data-focused='true']")
+      assert has_element?(view, "#node-3[data-depth='0']")
+      assert has_element?(view, "#node-2[data-depth='1']")
+      assert has_element?(view, "#node-1[data-depth='2']")
+      assert has_element?(view, "#card-3 span.call[data-edge-to='2']")
+      assert has_element?(view, "#card-2 span.call[data-edge-to='1']")
+      refute has_element?(view, "#card-3 span.call[data-edge-to='1']")
+    end
+
+    test "reuses a card already showing a record on the path", %{view: view} do
+      render_click(view, "open_root", %{"id" => "SampleApp.Counter.init/1"})
+      render_click(view, "open_root", %{"id" => "SampleApp.TallyTest.init_with/1"})
+      view |> element("#card-1 .card__tests") |> render_click()
+      view |> element("#card-1 .caller--test[phx-value-test='#{@init}']") |> render_click()
+
+      assert has_element?(view, "#card-3[data-function-id='#{@init}']")
+      refute has_element?(view, "#card-4")
+      assert has_element?(view, "#card-2 span.call[data-edge-to='1']")
     end
 
     test "keeps its badge through a move", %{view: view} do

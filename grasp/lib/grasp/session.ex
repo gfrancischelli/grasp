@@ -112,6 +112,14 @@ defmodule Grasp.Session do
   def open_caller(name, card_id, caller_id, target \\ nil),
     do: mutate(name, &Forest.open_caller(&1, card_id, caller_id, target))
 
+  @doc """
+  Opens (or focuses) each of `callers` as a caller of the card before it, starting from
+  `card_id`; each pairs a caller's id with the call target it writes, or nil.
+  """
+  @spec open_callers(name(), Forest.id(), [{String.t(), String.t() | nil}]) :: Forest.t()
+  def open_callers(name, card_id, callers),
+    do: mutate(name, &Forest.open_callers(&1, card_id, callers))
+
   @doc "Closes `card_id` alone, leaving the cards it called behind."
   @spec close(name(), Forest.id()) :: Forest.t()
   def close(name, card_id), do: mutate(name, &Forest.close(&1, card_id))

@@ -10,6 +10,10 @@ defmodule Grasp.Index do
   whose characters contain the query as a subsequence, so `"walcre"` still finds
   `MyApp.Wallets.credit/3`.
 
+  Every index built carries a `generation` no other index built in the VM carries, so a
+  holder of answers taken against one can tell whether it still has that index without
+  comparing their contents.
+
   The struct can be large — about 10 MB of JSON for a 500-file project — so hold it once,
   for instance in `:persistent_term`, rather than copying it into per-process state.
   """
@@ -17,6 +21,7 @@ defmodule Grasp.Index do
   alias Grasp.Index.Join
 
   defstruct version: 1,
+            generation: 0,
             generated_at: nil,
             project: %{},
             git: nil,
@@ -32,6 +37,7 @@ defmodule Grasp.Index do
   @type function_record :: %{required(String.t()) => term()}
   @type t :: %__MODULE__{
           version: pos_integer(),
+          generation: non_neg_integer(),
           generated_at: String.t() | nil,
           project: map(),
           git: map() | nil,
@@ -110,6 +116,7 @@ defmodule Grasp.Index do
 
     index = %__MODULE__{
       version: 1,
+      generation: :erlang.unique_integer([:positive, :monotonic]),
       generated_at: document["generated_at"],
       project: document["project"] || %{},
       git: document["git"],
@@ -358,6 +365,58 @@ defmodule Grasp.Index do
 
       _other ->
         found
+    end
+  end
+
+  @doc """
+  The ids from `id` back to `test_id` along a shortest backward path of calls, `id` first,
+  or `[]` when `test_id` does not reach `id` within `max_hops`.
+
+  The walk is `tests_for/3`'s: breadth first over the callers, through any record, visiting
+  each record once. Each id on the path calls the one before it. When the nearest way the
+  test reaches `id` is through a setup of its module, the path ends at that setup rather
+  than at the test: ExUnit runs the setup before the test, and the test itself makes no
+  call on the way, so the setup is the record whose call the path's last step is. A test
+  met at the same hop as such a setup is preferred to it.
+  """
+  @spec path_back(t(), String.t(), String.t(), non_neg_integer()) :: [String.t()]
+  def path_back(%__MODULE__{} = index, test_id, id, max_hops \\ 4) do
+    start = resolve(index, id)
+
+    case index.functions[test_id] do
+      %{"kind" => "test", "module" => module} when is_map_key(index.functions, start) ->
+        setup? = &match?(%{"kind" => "setup", "module" => ^module}, index.functions[&1])
+        search_back(index, [start], %{start => nil}, {test_id, setup?}, 1, max_hops)
+
+      _other ->
+        []
+    end
+  end
+
+  defp search_back(_index, [], _parents, _goal, _hop, _max_hops), do: []
+  defp search_back(_index, _frontier, _parents, _goal, hop, max_hops) when hop > max_hops, do: []
+
+  defp search_back(index, frontier, parents, {test_id, setup?} = goal, hop, max_hops) do
+    {next, parents} =
+      for id <- frontier, caller <- Map.get(index.callers, id, []), reduce: {[], parents} do
+        {next, parents} ->
+          if Map.has_key?(parents, caller),
+            do: {next, parents},
+            else: {[caller | next], Map.put(parents, caller, id)}
+      end
+
+    next = Enum.reverse(next)
+
+    case Enum.find(next, &(&1 == test_id)) || Enum.find(next, setup?) do
+      nil -> search_back(index, next, parents, goal, hop + 1, max_hops)
+      found -> trace(parents, found, [])
+    end
+  end
+
+  defp trace(parents, id, path) do
+    case Map.fetch!(parents, id) do
+      nil -> [id | path]
+      parent -> trace(parents, parent, [id | path])
     end
   end
 

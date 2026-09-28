@@ -17,7 +17,8 @@ defmodule GraspWeb.CardComponents do
 
   A function card that tests reach wears `n tests` in its header, and its callers menu lists
   those tests after the callers, nearest first with the hops between; the badge opens the
-  menu. The answers are the LiveView's, held in a `GraspWeb.TestReach`, so a card reads them
+  menu. A row opens the calls between its test and the function, each record a caller of
+  the next. The answers are the LiveView's, held in a `GraspWeb.TestReach`, so a card reads them
   rather than walking the index as it renders.
   """
 
@@ -432,9 +433,9 @@ defmodule GraspWeb.CardComponents do
               <li :for={reach <- @tests}>
                 <button
                   class="caller caller--test"
-                  phx-click="open_caller"
+                  phx-click="open_test"
                   phx-value-card={@card.id}
-                  phx-value-caller={reach.test}
+                  phx-value-test={reach.test}
                 >
                   <span class="caller__test">{test_row_title(@index, reach.test)}</span>
                   <span class="caller__hops">{hops_label(reach.hops)}</span>

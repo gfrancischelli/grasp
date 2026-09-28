@@ -233,8 +233,11 @@ test paths uncompared.
   reader looks at is cheaper than walking forward from every test on every index load, and
   answers the same question.
 - **Card.** A function card reached by any test wears a `n tests` badge in its header; the
-  callers menu gains a Tests section listing them, nearest first with the hop count, each
-  opening its test card as a caller does. A card no test reaches wears nothing.
+  callers menu gains a Tests section listing them, nearest first with the hop count. A test
+  one hop away opens as a caller does; a farther test opens the path to it — the records of
+  a shortest backward path of calls (`Grasp.Index.path_back/4`), each opened as a caller of
+  the next, so every edge the canvas draws is a call. A test reached through its module's
+  setup opens the path to the setup. A card no test reaches wears nothing.
 - **PR mode.** In the Changes group every changed application function no test reaches is
   marked `untested`, and an **Untested changes** group lists them. Under each changed
   function the Changes group lists the changed tests that reach it, so code and tests
