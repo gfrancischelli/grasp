@@ -148,4 +148,80 @@ defmodule Grasp.TestResultsTest do
   end
 
   defp sha256(text), do: Base.encode16(:crypto.hash(:sha256, text), case: :lower)
+
+  describe "merge_file/3" do
+    @describetag :tmp_dir
+
+    defp run_results(prefix, count) do
+      Map.new(1..count, fn n ->
+        {~s(Acme.RaceTest."test #{prefix} #{n}"/1),
+         %{"status" => "passed", "time" => n, "errors" => []}}
+      end)
+    end
+
+    test "runs merging at once each keep the other's results", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "results.json")
+
+      runs =
+        for prefix <- ~w(a b c d e f g h) do
+          Task.async(fn ->
+            for round <- 1..5 do
+              {:ok, _document, nil} =
+                TestResults.merge_file(
+                  path,
+                  run_results("#{prefix}#{round}", 3),
+                  meta(prefix, nil)
+                )
+            end
+          end)
+        end
+
+      Task.await_many(runs, 60_000)
+
+      {:ok, document} = TestResults.read(path)
+      assert map_size(document["tests"]) == 8 * 5 * 3
+      assert Path.wildcard(Path.join(tmp_dir, "*")) == [path]
+    end
+
+    test "a held lock is waited for, and a stale one is taken over", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "results.json")
+      lock = path <> ".lock"
+
+      File.write!(lock, "")
+      parent = self()
+
+      waiter =
+        Task.async(fn ->
+          send(parent, :waiting)
+          TestResults.merge_file(path, run_results("held", 1), meta("held", nil))
+        end)
+
+      assert_receive :waiting
+      Process.sleep(300)
+      refute File.exists?(path)
+      File.rm!(lock)
+      assert {:ok, _document, nil} = Task.await(waiter)
+
+      File.write!(lock, "")
+      File.touch!(lock, System.os_time(:second) - 11 * 60)
+
+      assert {:ok, document, nil} =
+               TestResults.merge_file(path, run_results("stale", 1), meta("stale", nil))
+
+      assert map_size(document["tests"]) == 2
+      refute File.exists?(lock)
+    end
+
+    test "a document that does not decode is set aside", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "results.json")
+      File.write!(path, ~s({"version": 7}))
+
+      assert {:ok, document, set_aside} =
+               TestResults.merge_file(path, run_results("fresh", 1), meta("one", nil))
+
+      assert set_aside == path <> ".corrupt"
+      assert File.read!(set_aside) == ~s({"version": 7})
+      assert map_size(document["tests"]) == 1
+    end
+  end
 end

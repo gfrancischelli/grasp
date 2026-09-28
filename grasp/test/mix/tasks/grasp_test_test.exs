@@ -13,13 +13,18 @@ defmodule Mix.Tasks.Grasp.TestTest do
 
   setup %{tmp_dir: tmp_dir} do
     index = Path.join(tmp_dir, "index.json")
-    File.write!(index, Jason.encode!(%{"version" => 1, "functions" => records()}))
+    File.write!(index, index_document(records()))
     %{index: index, out: Path.join(tmp_dir, "results/results.json")}
   end
 
+  defp index_document(records, git \\ %{"base_ref" => "main", "base_sha" => "0f3c"}),
+    do: Jason.encode!(%{"version" => 1, "git" => git, "functions" => records})
+
   defp records do
     [
-      test_record(@counts, "test/acme/tally_test.exs", 4, "modified"),
+      # A tagged test: its span starts at the `@tag` line, a line above its `test` call.
+      test_record(@counts, "test/acme/tally_test.exs", 4, "modified")
+      |> Map.put("clauses", [[5, 7]]),
       test_record(@keeps, "test/acme/tally_test.exs", 9, "unchanged"),
       test_record(@greets, "test/acme/greeter_test.exs", 3, "added"),
       test_record(@removed, "test/acme/greeter_test.exs", 8, "removed")
@@ -99,7 +104,7 @@ defmodule Mix.Tasks.Grasp.TestTest do
              run_file,
              "--",
              "test/acme/greeter_test.exs:3",
-             "test/acme/tally_test.exs:4"
+             "test/acme/tally_test.exs:5"
            ] = args
 
     assert script == Application.app_dir(:grasp, "priv/test_run.exs")
@@ -144,7 +149,7 @@ defmodule Mix.Tasks.Grasp.TestTest do
     assert_received {:ran, "mix", args, _opts}
 
     assert Enum.drop_while(args, &(&1 != "--")) ==
-             ["--", "test/acme/greeter_test.exs:3", "test/acme/tally_test.exs:4"]
+             ["--", "test/acme/greeter_test.exs:3", "test/acme/tally_test.exs:5"]
   end
 
   test "--changed with no added or modified test runs nothing", %{tmp_dir: tmp_dir, out: out} do
@@ -152,10 +157,7 @@ defmodule Mix.Tasks.Grasp.TestTest do
 
     File.write!(
       index,
-      Jason.encode!(%{
-        "version" => 1,
-        "functions" => [test_record(@keeps, "test/acme/tally_test.exs", 9, "unchanged")]
-      })
+      index_document([test_record(@keeps, "test/acme/tally_test.exs", 9, "unchanged")])
     )
 
     output = run_task(["--index", index, "--out", out, "--changed"], fake_runner(%{}, 0))
@@ -163,6 +165,44 @@ defmodule Mix.Tasks.Grasp.TestTest do
     assert output =~ "grasp: no added or modified tests to run"
     refute_received {:ran, _command, _args, _opts}
     refute File.exists?(out)
+  end
+
+  test "--changed against an index with no base ref says so and runs nothing",
+       %{tmp_dir: tmp_dir, out: out} do
+    for git <- [nil, %{"head" => "0f3c", "base_ref" => nil}] do
+      index = Path.join(tmp_dir, "no-base.json")
+      File.write!(index, index_document(records(), git))
+
+      assert_raise Mix.Error,
+                   "grasp.test: the index has no base ref; run mix grasp.index --base REF first",
+                   fn ->
+                     Mix.Tasks.Grasp.Test.run(
+                       ["--index", index, "--out", out, "--changed"],
+                       fake_runner(%{}, 0)
+                     )
+                   end
+    end
+
+    refute_received {:ran, _command, _args, _opts}
+  end
+
+  test "a run in which every test is excluded says it ran no test", %{index: index, out: out} do
+    tests = %{@counts => %{"status" => "excluded", "time" => 0, "errors" => []}}
+    output = run_task(["--index", index, "--out", out, @counts], fake_runner(tests, 0))
+    assert output =~ "grasp: the run ran no test"
+  end
+
+  test "a document that does not decode is kept aside and the results start again",
+       %{index: index, out: out} do
+    File.mkdir_p!(Path.dirname(out))
+    File.write!(out, "{not json")
+    tests = %{@counts => %{"status" => "passed", "time" => 3, "errors" => []}}
+
+    output = run_task(["--index", index, "--out", out, @counts], fake_runner(tests, 0))
+
+    assert output =~ "it is kept as #{out}.corrupt"
+    assert File.read!(out <> ".corrupt") == "{not json"
+    assert {:ok, %{"tests" => %{@counts => _}}} = Grasp.TestResults.read(out)
   end
 
   test "--all names no file, and a failing suite's status is the task's",

@@ -13,6 +13,7 @@
 # Those two formatters replace the ones the project configures for ExUnit, in its config or
 # its `test_helper.exs`: `mix test` applies its command line's `--formatter` over both, so
 # for this run the terminal shows ExUnit's own report and nothing a project formatter adds.
+# A `--formatter` among MIX_TEST_ARGS is added beside the two rather than replacing them.
 #
 # `Grasp.Test.Formatter` writes this run's results to RUN_FILE when the suite finishes, in
 # the external term format; `mix grasp.test` merges them into the results document.

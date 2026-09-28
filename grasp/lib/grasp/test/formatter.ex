@@ -15,20 +15,25 @@ defmodule Grasp.Test.Formatter do
 
   `mix grasp.test` reads that file in its own session and merges it into the results
   document (see `Grasp.TestResults`), adding what only the index knows. The file lands
-  beside its path and is renamed over it, so a file that exists is a finished run.
+  beside its path and is renamed over it, so a file that exists holds a whole run. A suite
+  interrupted by SIGQUIT never finishes; the tests it finished before the signal are written
+  when the signal arrives.
 
   A result is a map with string keys, the shape the results document stores:
 
     * `"status"` — `"passed"`, `"failed"`, `"skipped"`, `"excluded"` or `"invalid"`, from
       the test's `state`;
     * `"time"` — microseconds;
-    * `"errors"` — for a failure, one entry per error: its `"kind"`, its `"message"` (an
-      assertion's own message, `Exception.message/1` of any other exception, the reason
-      inspected otherwise) and its `"stacktrace"` as
+    * `"errors"` — for a failure, one entry per error: its `"kind"` (`"error"`, `"exit"`,
+      `"throw"`, or a kind that is not an atom inspected, as `{:EXIT, pid}` is), its
+      `"message"` (an assertion's own message, `Exception.message/1` of any other
+      exception, the reason inspected otherwise) and its `"stacktrace"` as
       `%{"module", "function", "arity", "file", "line"}` frames, one per module function
-      called, the file relative to the project root. An `ExUnit.AssertionError` adds its `"expr"` and, when
-      it has them, `"left"` and `"right"` as the CLI formatter prints them: values
-      inspected, a pattern written as code.
+      called, the file relative to the project root. An `ExUnit.AssertionError` adds its
+      `"expr"` and, when it has them, `"left"` and `"right"` as the CLI formatter prints
+      them: values inspected, a pattern written as code;
+    * `"reason"` — for a state the formatter cannot read, that state inspected, the status
+      being `"invalid"`.
   """
 
   use GenServer
@@ -60,47 +65,80 @@ defmodule Grasp.Test.Formatter do
     {:noreply, put_in(state.tests[Join.function_id(test.module, test.name, 1)], result(test))}
   end
 
-  def handle_cast({:suite_finished, _times}, %{run_file: run_file} = state)
-      when is_binary(run_file) do
+  def handle_cast({event, _detail}, state) when event in [:suite_finished, :sigquit] do
+    write_run(state)
+    {:noreply, state}
+  end
+
+  def handle_cast(_event, state), do: {:noreply, state}
+
+  # A suite interrupted by SIGQUIT never finishes, so the tests finished before the signal
+  # are written then; a later write of the same run replaces the file whole.
+  defp write_run(%{run_file: run_file, tests: tests}) when is_binary(run_file) do
     run = %{
       finished_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
-      tests: state.tests
+      tests: tests
     }
 
     temporary = run_file <> ".tmp"
     File.mkdir_p!(Path.dirname(run_file))
     File.write!(temporary, :erlang.term_to_binary(run))
     File.rename!(temporary, run_file)
-    {:noreply, state}
   end
 
-  def handle_cast(_event, state), do: {:noreply, state}
+  defp write_run(_state), do: :ok
 
   @doc """
   The result of one finished test, as the formatter records it.
+
+  It never raises, so no one test can cost the run its record: a state ExUnit does not
+  document, or one the encoding cannot read, is `"invalid"` with the state inspected as its
+  `"reason"`.
   """
   @spec result(ExUnit.Test.t()) :: %{String.t() => term()}
   def result(%ExUnit.Test{state: state, time: time}) do
-    {status, errors} =
-      case state do
-        nil -> {"passed", []}
-        {:failed, failures} -> {"failed", Enum.map(List.wrap(failures), &error/1)}
-        {:skipped, _reason} -> {"skipped", []}
-        {:excluded, _reason} -> {"excluded", []}
-        {:invalid, _module} -> {"invalid", []}
-      end
+    case state do
+      nil ->
+        result("passed", time, [])
 
-    %{"status" => status, "time" => time, "errors" => errors}
+      {:failed, failures} when is_list(failures) ->
+        result("failed", time, Enum.map(failures, &error/1))
+
+      {:skipped, _reason} ->
+        result("skipped", time, [])
+
+      {:excluded, _reason} ->
+        result("excluded", time, [])
+
+      {:invalid, _module} ->
+        result("invalid", time, [])
+
+      _other ->
+        unreadable(state, time)
+    end
+  rescue
+    _raised -> unreadable(state, time)
   end
+
+  defp result(status, time, errors), do: %{"status" => status, "time" => time, "errors" => errors}
+
+  defp unreadable(state, time),
+    do: %{"status" => "invalid", "time" => time, "errors" => [], "reason" => inspect(state)}
 
   defp error({kind, reason, stacktrace}) do
     %{
-      "kind" => Atom.to_string(kind),
+      "kind" => kind_name(kind),
       "message" => message(kind, reason),
       "stacktrace" => Enum.flat_map(List.wrap(stacktrace), &frame/1)
     }
     |> Map.merge(assertion(reason))
   end
+
+  defp error(other), do: %{"kind" => "unknown", "message" => inspect(other), "stacktrace" => []}
+
+  # A test whose process a linked process took down fails with the kind `{:EXIT, pid}`.
+  defp kind_name(kind) when is_atom(kind), do: Atom.to_string(kind)
+  defp kind_name(kind), do: inspect(kind)
 
   defp message(:error, %ExUnit.AssertionError{message: message}) when is_binary(message),
     do: message

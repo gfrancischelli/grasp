@@ -7,10 +7,12 @@ defmodule Mix.Tasks.Grasp.TestIntegrationTest do
   @fixture Path.expand("../../fixtures/sample_app", __DIR__)
 
   @passing ~s(SampleApp.TallyTest."test init keeps the start count"/1)
+  # Tagged and inside a `describe`: its span starts at the `@tag`, a line above the test.
+  @tagged ~s(SampleApp.TallyTest."test handle_call/3 replies with the next number"/1)
   # The route tests need an endpoint the fixture's suite never starts.
   @failing ~s(SampleAppWeb.RoutesTest."test a plain path reaches the controller"/1)
 
-  test "records a passing and a failing test, and a later run leaves the failure as it stood" do
+  test "records a passing and a failing test, and a later run leaves the failure alone" do
     dir = Path.join(System.tmp_dir!(), "grasp-test-#{System.unique_integer([:positive])}")
     index_path = Path.join(dir, "index.json")
     out = Path.join(dir, "results.json")
@@ -49,8 +51,9 @@ defmodule Mix.Tasks.Grasp.TestIntegrationTest do
                  &1["file"] == "test/sample_app_web/routes_test.exs" and is_integer(&1["line"]))
            )
 
-    {output, status} = grasp_test([@passing], index_path, out)
+    {output, status} = grasp_test([@passing, @tagged], index_path, out)
     assert status == 0, output
+    assert output =~ "Grasp test results written to #{out} (2 passed)"
 
     {:ok, results} = Grasp.TestResults.decode(File.read!(out))
 
@@ -58,6 +61,11 @@ defmodule Mix.Tasks.Grasp.TestIntegrationTest do
              Grasp.TestResults.for_test(results, passing)
 
     assert second_run != first_run
+    {:ok, tagged} = Grasp.Index.fetch_function(index, @tagged)
+    assert tagged["span"]["start_line"] < hd(hd(tagged["clauses"]))
+
+    assert {:fresh, %{"status" => "passed", "run_id" => ^second_run}} =
+             Grasp.TestResults.for_test(results, tagged)
 
     assert {:fresh, %{"status" => "failed", "run_id" => ^first_run}} =
              Grasp.TestResults.for_test(results, failing)

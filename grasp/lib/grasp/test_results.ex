@@ -146,12 +146,13 @@ defmodule Grasp.TestResults do
   @doc """
   Writes the document to `path`, creating its directory.
 
-  The JSON lands in a file beside `path` and is renamed over it, so a reader watching `path`
-  never sees a document half written.
+  The JSON lands in a file beside `path` named for this writer alone and is renamed over
+  it, so a reader watching `path` never sees a document half written, and two writers never
+  write into one file.
   """
   @spec write(document(), Path.t()) :: :ok | {:error, File.posix()}
   def write(document, path) when is_map(document) do
-    temporary = path <> ".tmp"
+    temporary = "#{path}.#{System.pid()}-#{System.unique_integer([:positive])}.tmp"
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
          :ok <- File.write(temporary, encode(document)),
@@ -161,6 +162,100 @@ defmodule Grasp.TestResults do
       {:error, reason} ->
         File.rm(temporary)
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Merges one run's results into the document at `path` with `merge/3` and writes it back,
+  answering the document written and, when the document at `path` does not decode, the
+  path it is set aside at (`nil` otherwise).
+
+  The read, merge and write run holding `path <> ".lock"`, so runs finishing together each
+  keep the other's results. The lock is a file created exclusively and removed when the
+  write is done; a writer finding it waits up to 30 seconds, polling every
+  100 ms, and answers `{:error, :locked}` if it is still held. A lock older than ten minutes
+  belongs to a writer that died holding it and is taken over.
+
+  A document that exists but does not decode is renamed to `path <> ".corrupt"`, replacing
+  any earlier one, and the run's results start a document of their own; one that cannot be
+  read at all is an error, and nothing is written.
+  """
+  @spec merge_file(Path.t(), %{String.t() => result()}, map()) ::
+          {:ok, document(), set_aside :: Path.t() | nil} | {:error, term()}
+  def merge_file(path, results, meta) when is_map(results) do
+    with_lock(path, fn ->
+      with {:ok, document, set_aside} <- read_or_set_aside(path),
+           document = merge(document, results, meta),
+           :ok <- write(document, path) do
+        {:ok, document, set_aside}
+      end
+    end)
+  end
+
+  defp read_or_set_aside(path) do
+    case read(path) do
+      {:ok, document} ->
+        {:ok, document, nil}
+
+      {:error, reason} when is_atom(reason) ->
+        {:error, reason}
+
+      {:error, _undecodable} ->
+        set_aside = path <> ".corrupt"
+
+        case File.rename(path, set_aside) do
+          :ok -> {:ok, new(), set_aside}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  @lock_wait_ms 30_000
+  @lock_poll_ms 100
+  @lock_stale_s 600
+
+  defp with_lock(path, fun) do
+    lock = path <> ".lock"
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- acquire(lock, System.monotonic_time(:millisecond) + @lock_wait_ms) do
+      try do
+        fun.()
+      after
+        File.rm(lock)
+      end
+    end
+  end
+
+  defp acquire(lock, deadline) do
+    case File.open(lock, [:write, :exclusive]) do
+      {:ok, device} ->
+        IO.write(device, System.pid())
+        File.close(device)
+
+      {:error, :eexist} ->
+        cond do
+          stale?(lock) ->
+            File.rm(lock)
+            acquire(lock, deadline)
+
+          System.monotonic_time(:millisecond) >= deadline ->
+            {:error, :locked}
+
+          true ->
+            Process.sleep(@lock_poll_ms)
+            acquire(lock, deadline)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stale?(lock) do
+    case File.stat(lock, time: :posix) do
+      {:ok, %File.Stat{mtime: mtime}} -> System.os_time(:second) - mtime > @lock_stale_s
+      {:error, _gone} -> false
     end
   end
 

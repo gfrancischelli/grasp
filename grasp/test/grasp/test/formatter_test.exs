@@ -172,24 +172,66 @@ defmodule Grasp.Test.FormatterTest do
            ] = run.tests[~s(Acme.TallyTest."test exits"/1)]["errors"]
   end
 
-  test "the run file comes from the application environment when ExUnit names none",
+  test "a describe test's id carries the describe in its name", %{tmp_dir: tmp_dir} do
+    run = run(tmp_dir, [test_named(:"test handle_call/3 replies with the next number", nil)])
+
+    assert Map.keys(run.tests) == [
+             ~s(Acme.TallyTest."test handle_call/3 replies with the next number"/1)
+           ]
+  end
+
+  test "a failure whose kind is not an atom, and a state it cannot read, record the run",
        %{tmp_dir: tmp_dir} do
-    run_file = Path.join(tmp_dir, "from-env.bin")
-    previous = Application.fetch_env(:grasp, Formatter)
-    Application.put_env(:grasp, Formatter, run_file: run_file)
+    pid = self()
 
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:grasp, Formatter, value)
-        :error -> Application.delete_env(:grasp, Formatter)
-      end
-    end)
+    run =
+      run(tmp_dir, [
+        test_named(:"test dies", {:failed, [{{:EXIT, pid}, :killed, []}, :odd]}),
+        test_named(:"test is strange", {:strange, 1}),
+        test_named(:"test is broken", {:failed, :not_a_list})
+      ])
 
-    {:ok, formatter} = Formatter.start_link(seed: 0)
-    GenServer.cast(formatter, {:suite_finished, %{run: 1, async: 0, load: nil}})
+    assert run.tests[~s(Acme.TallyTest."test dies"/1)] == %{
+             "status" => "failed",
+             "time" => 10,
+             "errors" => [
+               %{"kind" => inspect({:EXIT, pid}), "message" => ":killed", "stacktrace" => []},
+               %{"kind" => "unknown", "message" => ":odd", "stacktrace" => []}
+             ]
+           }
+
+    assert run.tests[~s(Acme.TallyTest."test is strange"/1)] == %{
+             "status" => "invalid",
+             "time" => 10,
+             "errors" => [],
+             "reason" => "{:strange, 1}"
+           }
+
+    assert %{"status" => "invalid", "reason" => "{:failed, :not_a_list}"} =
+             run.tests[~s(Acme.TallyTest."test is broken"/1)]
+  end
+
+  test "an interrupted suite writes the tests finished before the signal, and other events " <>
+         "change nothing",
+       %{tmp_dir: tmp_dir} do
+    run_file = Path.join(tmp_dir, "sigquit.bin")
+    {:ok, formatter} = Formatter.start_link(run_file: run_file)
+
+    for event <- [
+          {:suite_started, []},
+          {:module_started, %ExUnit.TestModule{name: Acme.TallyTest}},
+          {:test_started, test_named(:"test counts up", nil)},
+          {:test_finished, test_named(:"test counts up", nil)},
+          {:module_finished, %ExUnit.TestModule{name: Acme.TallyTest}},
+          :max_failures_reached,
+          {:sigquit, []}
+        ] do
+      GenServer.cast(formatter, event)
+    end
+
     GenServer.stop(formatter)
 
     assert %{tests: tests} = run_file |> File.read!() |> :erlang.binary_to_term()
-    assert tests == %{}
+    assert Map.keys(tests) == [~s(Acme.TallyTest."test counts up"/1)]
   end
 end

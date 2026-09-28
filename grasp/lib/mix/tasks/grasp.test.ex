@@ -11,10 +11,11 @@ defmodule Mix.Tasks.Grasp.Test do
 
   A test id is the id of a test record in the index,
   `SampleApp.TallyTest."test init keeps the start count"/1`, and names the file and line
-  `mix test` is given for it: the record's `file` and the first line of its `span`. An id
+  `mix test` is given for it: the record's `file` and the line of its `test` call, where
+  its one clause starts (the first line of its `span` for a record without clauses). An id
   the index holds no test for aborts the task, listing every such id. `--changed` runs the
-  tests the index marks added or modified against its base ref, and does nothing when there
-  are none; `--all` runs the whole suite.
+  tests the index marks added or modified against its base ref, does nothing when there are
+  none, and aborts for an index built without a base ref; `--all` runs the whole suite.
 
   The suite runs in the project root with `MIX_ENV=test` over the environment this task
   runs in, its output streamed to the terminal:
@@ -26,14 +27,16 @@ defmodule Mix.Tasks.Grasp.Test do
   environment, and runs `mix test` with `Grasp.Test.Formatter` beside
   `ExUnit.CLIFormatter`, in place of any formatter the project configures. The formatter
   writes the run's results to `RUN_FILE`, beside the results document, and this task merges
-  them into the document with `Grasp.TestResults.merge/3`, stamping each with the run's id,
-  its finish time and the hash of the test's indexed source. The results of tests the run
-  does not name are left as they stood. The run file is removed afterwards.
+  them into the document with `Grasp.TestResults.merge_file/3`, under the document's lock,
+  stamping each with the run's id, its finish time and the hash of the test's indexed
+  source. The results of tests the run does not name are left as they stood. The run file
+  is removed afterwards.
 
   The task exits with the suite's status. A run that records nothing — a project that does
   not compile, a suite that cannot start — aborts with that status and leaves the document
-  untouched. An umbrella's apps each run their own suite, so the task refuses to run at an
-  umbrella root: run it inside the app.
+  untouched. A run in which every test is excluded says it ran no test. An umbrella's apps
+  each run their own suite, so the task refuses to run at an umbrella root: run it inside
+  the app.
 
   ## Options
 
@@ -120,6 +123,10 @@ defmodule Mix.Tasks.Grasp.Test do
         locations(Enum.map(tests, &Map.fetch!(index.functions, &1)))
 
       {[], true, false} ->
+        if get_in(index.git || %{}, ["base_ref"]) == nil do
+          Mix.raise("grasp.test: the index has no base ref; run mix grasp.index --base REF first")
+        end
+
         index
         |> Grasp.Index.functions()
         |> Enum.filter(&(test?(index, &1["id"]) and &1["change"] in ~w(added modified)))
@@ -146,10 +153,16 @@ defmodule Mix.Tasks.Grasp.Test do
 
   defp locations(records) do
     records
-    |> Enum.map(fn %{"file" => file, "span" => %{"start_line" => line}} -> "#{file}:#{line}" end)
+    |> Enum.map(&"#{&1["file"]}:#{test_line(&1)}")
     |> Enum.uniq()
     |> Enum.sort()
   end
+
+  # A test's span starts at the first attribute or comment attached to it, and `mix test`
+  # runs the test nearest at or before the line it is given, so the line named is the
+  # `test` call's: where the one clause of a test block starts.
+  defp test_line(%{"clauses" => [[line | _end] | _more]}) when is_integer(line), do: line
+  defp test_line(%{"span" => %{"start_line" => line}}), do: line
 
   defp run_suite(root, index, out, files, runner) do
     grasp_ebin = ebin!()
@@ -175,7 +188,7 @@ defmodule Mix.Tasks.Grasp.Test do
     run =
       case File.read(run_file) do
         {:ok, binary} ->
-          :erlang.binary_to_term(binary)
+          :erlang.binary_to_term(binary, [:safe])
 
         {:error, _reason} ->
           Mix.shell().error(
@@ -185,34 +198,33 @@ defmodule Mix.Tasks.Grasp.Test do
           exit({:shutdown, if(status == 0, do: 1, else: status)})
       end
 
-    document =
-      case Grasp.TestResults.read(out) do
-        {:ok, document} ->
-          document
+    meta = %{run_id: run_id, finished_at: run.finished_at, index: index}
 
-        {:error, reason} ->
+    case Grasp.TestResults.merge_file(out, run.tests, meta) do
+      {:ok, _document, set_aside} ->
+        if set_aside do
           Mix.shell().info(
-            "grasp: #{out} cannot be read (#{inspect(reason)}); it is replaced by this run's results"
+            "grasp: #{out} could not be decoded; it is kept as #{set_aside} and the " <>
+              "results start again from this run"
           )
+        end
 
-          Grasp.TestResults.new()
-      end
-
-    document =
-      Grasp.TestResults.merge(document, run.tests, %{
-        run_id: run_id,
-        finished_at: run.finished_at,
-        index: index
-      })
-
-    case Grasp.TestResults.write(document, out) do
-      :ok ->
         Mix.shell().info("Grasp test results written to #{out} (#{summary(run.tests)})")
 
+        if not Enum.any?(Map.values(run.tests), &(&1["status"] != "excluded")) do
+          Mix.shell().info("grasp: the run ran no test")
+        end
+
+      {:error, :locked} ->
+        Mix.raise("grasp.test: #{out}.lock is held by another run; its results were not written")
+
       {:error, reason} ->
-        Mix.raise("grasp.test: cannot write #{out}: #{:file.format_error(reason)}")
+        Mix.raise("grasp.test: cannot write #{out}: #{format_error(reason)}")
     end
   end
+
+  defp format_error(reason) when is_atom(reason), do: :file.format_error(reason)
+  defp format_error(reason), do: inspect(reason)
 
   defp summary(tests) do
     counts = tests |> Map.values() |> Enum.frequencies_by(& &1["status"])
