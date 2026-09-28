@@ -374,23 +374,43 @@ test paths uncompared.
 
 ## Runs and failures (milestone 10.4)
 
-- **Run.** A test card has `run`; a tests badge has `run all`; the Changes group has `run
-  changed tests`; the toolbar's coverage menu has `run coverage`, which runs
-  `mix grasp.cover`; MCP `run_tests(ids | "changed")` and `run_coverage()`. Each runs the host's test command with
-  `file:line` arguments and `--formatter Grasp.Test.Formatter --formatter
-  ExUnit.CLIFormatter`, Grasp's beams on the path. The formatter writes
-  `.grasp/results.json`: per test id, `passed`, `failed`, `skipped` or `excluded`, its time,
-  and for a failure the assertion's expression, `left`, `right` and message, and the
-  stacktrace as `{module, function, arity, file, line}` frames. One run at a time; output
-  streams to a panel.
-- **Badges.** A test card wears its latest result. A tests badge counts failures among the
-  tests it lists.
-- **A failure is a chain of cards.** `open failure` on a failed test lays its stacktrace out
-  from the test card: each frame whose function is indexed becomes a card, opened from the
-  previous one as a callee, highlighting the frame's line, so the red test reads as the
-  path into the code that failed. The assertion's message and its `left`/`right` render as
-  a panel under the failing line of the test card — part of the result, not a stored
-  comment.
+- **Running tests.** `mix grasp.test [TEST_ID ... | --changed | --all]` runs the host's own
+  suite, or part of it, and records each test's result. It runs a script Grasp ships with
+  `MIX_ENV=test mix run --no-start`, as the test trace does: Mix compiles the project and
+  settles the code path, then the script prepends Grasp's dev-build `ebin` — a code path
+  added from the command line is pruned by Mix before `mix test` would load from it — and
+  calls `mix test` in the same process with the tests' `file:line` arguments and
+  `--formatter Grasp.Test.Formatter --formatter ExUnit.CLIFormatter`. Test ids name their
+  file and line through the index; `--changed` is the added and modified tests of a review
+  against a base ref.
+- **Results.** `Grasp.Test.Formatter` writes `.grasp/results.json`: per test id, `passed`,
+  `failed`, `skipped`, `excluded` or `invalid`, its time, and for a failure each error's
+  kind, message and, for an assertion, its expression, `left` and `right` as ExUnit prints
+  them, with the stacktrace as `{module, function, arity, file, line}` frames. A run merges
+  its tests' results into the document and leaves every other test's result as it stood,
+  so running one test updates that test alone. Each result records the run that produced
+  it and the source hash of the test at that moment; a test whose source differs reads as
+  stale, as coverage does.
+- **The run machinery.** `Grasp.Runs` runs one command at a time — a test run or a coverage
+  run (`mix grasp.cover`) — as a port in the project root with the environment the viewer
+  was started with, and broadcasts its status and each line of output. A second request
+  while one runs is refused with the running one's description. A run can be cancelled.
+- **Controls.** A test card has `run`; the callers menu's Tests section has `run all`; the
+  Changes group has `run changed tests`; the toolbar has `runs`, which opens a panel above
+  it — beside the chat panel's place — with the running command, its output as it streams,
+  `cancel`, and `run coverage`. Keys: none.
+- **Badges.** A test card wears its latest result (`passed`, `failed`, `skipped`), or
+  `stale`. The tests badge on a function card counts the failures among the tests it lists.
+- **A failure is a chain of cards.** A failed test card shows each error under the line the
+  test's own frame names — the message and, for an assertion, `left` and `right` — as part
+  of the result, not a stored comment. `open failure` lays the stacktrace out from the test
+  card: each frame whose function is indexed becomes a card, opened from the previous one as
+  a callee, with the frame's line highlighted, so the red test reads as the path into the
+  code that failed.
+- **MCP.** `run_tests(test_ids | "changed")` and `run_coverage()` start a run and answer at
+  once with what was started, or with the run already under way; `run_status()` answers
+  the running command and its last output lines, or the last run's outcome with, for a test
+  run, each test's result and failures. An MCP call does not wait for a suite.
 
 ## Test review (milestone 10.5)
 
