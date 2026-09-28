@@ -622,18 +622,21 @@ test paths uncompared.
 - **The recipe.** `Grasp.TestPlan` holds one recipe, used by everything below: for a target —
   a function id, or the review's changes — the agent reads the functions under test
   (`get_function`), the tests that reach each (`tests_for`) and its coverage (`coverage`).
-  For the changes, the functions under test are the changed application functions
-  `list_changes` returns, not the tests and setups, beginning with those `untested_changes`
-  names, since no test reaches them. When `coverage` answers `none`, the agent says that
-  `mix grasp.cover` writes it and plans from the tests alone. It then lays the canvas out
+  For the changes, the functions under test are the added or modified application functions
+  `list_changes` returns, not the removed ones nor the tests and setups, beginning with
+  those `untested_changes` names, since no test reaches them. When `coverage` answers
+  `none`, the agent says that `mix grasp.cover` writes it; when it answers `stale`, that it
+  describes older code and a coverage run would refresh it; either way it plans from the
+  tests alone. It then lays the canvas out
   with one group per function under test, titled with its id, holding the function and the
   tests that reach it (`set_cards`, `group_cards`); comments on every clause and arm
   coverage reports never entered, and on the first line of every function no test reaches,
   saying what a test for it would have to exercise — the input, the path it takes and what
   to assert (`add_comment`); and stops there, telling the reader the plan is on the canvas
   for review, without writing a test. Asked afterwards to write the tests, the agent writes
-  them against that plan and runs them (`run_tests`, `run_status`), and reads the coverage
-  again once a coverage run has finished. In read mode it says it can neither write a test
+  them against that plan and runs them (`run_tests`, `run_status`), and in edit mode, once
+  they pass, starts a coverage run (`run_coverage`) and reads the coverage again when it has
+  finished. In read mode it says it can neither write a test
   nor start a run, and leaves both to the reader. `Grasp.TestPlan.request/1` gives the
   words that ask for a plan: `Plan tests for <function id>`, or `Plan tests for the changes`.
 - **The chat.** The agent's system prompt carries the recipe in both modes, after the
@@ -642,7 +645,7 @@ test paths uncompared.
   `Plan tests for the changes` beside `Show me what changed`, under the same condition —
   the index records a base ref or holds changed functions — and
   `Plan tests for <focused function>` beside `Explain <focused function>` when a card is
-  focused. The suggestions read, in order: what changed, plan tests for the changes, explain
+  focused, unless the focused record is a test or a setup. The suggestions read, in order: what changed, plan tests for the changes, explain
   the focused card, plan tests for it, publish the comments, the first route. Either plan
   suggestion sends exactly those words, which the recipe answers.
 - **MCP.** The server declares the `prompts` capability beside `tools` and serves one

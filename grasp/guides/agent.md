@@ -88,21 +88,23 @@ config :grasp, agent_command: "/opt/homebrew/bin/claude", agent_model: "opus"
 "Plan tests for the changes" and "Plan tests for `Mod.fun/arity`" ask the agent for a plan of
 tests, laid out on the canvas for you to review before a test is written. The panel offers
 the first when the index holds a branch's changes — it records a base ref, or holds changed
-functions — and the second when a card is focused; either sends exactly those words.
+functions — and the second when a card is focused, unless that card is a test or a setup;
+either sends exactly those words.
 
 The agent follows one recipe, in both modes. For the changes, the functions under test are
-the application functions the branch changed, not its tests and setups, beginning with those
-no test reaches. It reads each with `get_function`, the tests that reach it with `tests_for`,
+the application functions the branch added or modified, not the ones it removed nor its tests
+and setups, beginning with those no test reaches. It reads each with `get_function`, the tests that reach it with `tests_for`,
 and what the suite ran of it with `coverage` — when there is no coverage it says that
-`mix grasp.cover` writes it, and plans from the tests alone. It lays out one group per
+`mix grasp.cover` writes it, and when the coverage is stale that it describes older code and
+a coverage run would refresh it, and plans from the tests alone. It lays out one group per
 function under test, titled with its id, holding the function and the tests that reach it.
 It comments on every clause and arm the coverage says no test entered, and on the first line
 of every function no test reaches, saying what a test would have to exercise: the input, the
 path it takes and what to assert. Then it stops, and says the plan is on the canvas.
 
 Ask it afterwards to write the tests and, in edit mode, it writes them against that plan,
-runs them with `run_tests`, reads each result with `run_status`, and reads the coverage again
-once a coverage run has finished. In read-only mode it plans but writes and runs nothing: it
+runs them with `run_tests`, reads each result with `run_status`, and once they pass starts a
+coverage run with `run_coverage` and reads the coverage again when it has finished. In read-only mode it plans but writes and runs nothing: it
 says so, and leaves the tests to you, from the runs panel or after switching to edit mode.
 
 The recipe is instructions to the agent, not code, so a plan is as good as the agent's
@@ -257,7 +259,7 @@ The server declares MCP prompts beside its tools, and serves one:
   `set_cards` one group per flow.
 - "Publish the comments to the PR." `publish_comments`, in either mode.
 - "Plan tests for the changes." Either mode: `list_changes`, then `get_function`,
-  `tests_for` and `coverage` for each changed function, one `set_cards` with a group per
+  `tests_for` and `coverage` for each added or modified function, one `set_cards` with a group per
   function and its tests, and an `add_comment` on each gap. No test is written until you ask.
 - "Run the tests this branch changed and show me what failed." Edit mode: `run_tests` with
   `changed: true`, `run_status` until the run has finished, then `set_cards` from each

@@ -1533,7 +1533,7 @@ conversation.
   sent during a run is queued, shown under the log with a way to withdraw it, and starts when
   the run ends; Stop and New empty the queue. An empty transcript offers starting prompts —
   what changed and plan tests for the changes (in PR mode), explain the focused card and plan
-  tests for it, publish the comments, follow the first route — each sent as typed.
+  tests for it (unless it is a test or a setup), publish the comments, follow the first route — each sent as typed.
 - **Scrolling, failures, copying.** The log follows new output only while the reader is at
   its bottom; otherwise a "latest" pill offers the way down. A failed run shows the CLI's log
   inline under the error with a Retry button that sends the last prompt again. Every

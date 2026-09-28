@@ -997,7 +997,7 @@ defmodule GraspWeb.ReviewLive do
       ),
       case focused_function(forest) do
         nil -> []
-        function_id -> ["Explain #{function_id}", TestPlan.request(function_id)]
+        function_id -> ["Explain #{function_id}" | plan_tests(index, function_id)]
       end,
       if(comments == %{}, do: [], else: ["Publish the comments"]),
       case first_route(index) do
@@ -1008,6 +1008,16 @@ defmodule GraspWeb.ReviewLive do
   end
 
   defp chat_suggestions(_agent, _index, _forest, _comments), do: []
+
+  # A plan of tests is for the code under test, so a test or a setup card is offered none.
+  defp plan_tests(%Index{} = index, function_id) do
+    case Index.fetch_function(index, function_id) do
+      {:ok, %{"kind" => kind}} when kind in ["test", "setup"] -> []
+      _application -> [TestPlan.request(function_id)]
+    end
+  end
+
+  defp plan_tests(nil, _function_id), do: []
 
   defp pull_request?(%Index{git: %{"base_ref" => base_ref}}) when is_binary(base_ref), do: true
   defp pull_request?(%Index{} = index), do: Index.changed_functions(index) != []

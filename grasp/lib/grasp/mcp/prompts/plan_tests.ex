@@ -6,7 +6,8 @@ defmodule Grasp.MCP.Prompts.PlanTests do
   plan stops short of writing a test, so the reader reviews it first.
 
   Answers one user message: the request, the recipe of `Grasp.TestPlan`, and the session
-  its cards and comments go to. A function id the index does not hold is an error.
+  its cards and comments go to. A session name no session can carry, a request with no
+  index loaded, and a function id the index does not hold are errors.
   """
 
   use Anubis.Server.Component, type: :prompt
@@ -51,16 +52,13 @@ defmodule Grasp.MCP.Prompts.PlanTests do
     if Disk.valid_name?(session), do: {:ok, session}, else: {:error, Disk.name_rule()}
   end
 
-  defp target("changes"), do: {:ok, :changes}
+  defp target(target), do: target(Grasp.IndexStore.get(), target)
 
-  defp target(function_id) do
-    case Grasp.IndexStore.get() do
-      nil ->
-        {:error, "no index loaded"}
+  defp target(nil, _target), do: {:error, "no index loaded"}
+  defp target(_index, "changes"), do: {:ok, :changes}
 
-      index ->
-        with {:ok, record} <- Grasp.MCP.Tools.fetch_function(index, function_id),
-             do: {:ok, record["id"]}
-    end
+  defp target(index, function_id) do
+    with {:ok, record} <- Grasp.MCP.Tools.fetch_function(index, function_id),
+         do: {:ok, record["id"]}
   end
 end

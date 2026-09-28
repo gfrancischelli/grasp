@@ -20,11 +20,21 @@ defmodule Grasp.TestPlanTest do
     recipe = TestPlan.recipe()
 
     assert recipe =~
-             "for the changes, every changed application function list_changes returns — " <>
-               "not the tests and setups — beginning with those untested_changes names, " <>
-               "since no test reaches them"
+             "for the changes, every added or modified application function list_changes " <>
+               "returns — not the removed ones, nor the tests and setups — beginning with " <>
+               "those untested_changes names, since no test reaches them"
 
     assert recipe =~ "call get_function, tests_for for the tests that reach it, and coverage"
+  end
+
+  test "recipe/0 plans from the tests alone when coverage is missing or describes older code" do
+    recipe = TestPlan.recipe()
+
+    assert recipe =~ "When coverage answers `none`, say that `mix grasp.cover` writes it"
+
+    assert recipe =~
+             "when it answers `stale`, say that it describes older code and a coverage run " <>
+               "would refresh it; either way plan from the tests alone"
   end
 
   test "recipe/0 lays out one group per function under test with the tests that reach it" do
@@ -54,8 +64,9 @@ defmodule Grasp.TestPlanTest do
 
     assert recipe =~
              "Asked afterwards to write the tests, write them against that plan, " <>
-               "run them with run_tests and read each result with run_status, " <>
-               "then read coverage again once a coverage run has finished."
+               "run them with run_tests and read each result with run_status. " <>
+               "In edit mode, once they pass, start a coverage run with run_coverage and " <>
+               "read coverage again when it has finished."
 
     assert recipe =~ "In read mode you can neither write a test nor start a run"
     assert recipe =~ "leave writing and running them to the reader"

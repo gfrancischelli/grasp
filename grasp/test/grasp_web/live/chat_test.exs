@@ -2,6 +2,8 @@ defmodule GraspWeb.ChatTest do
   use GraspWeb.ConnCase, async: true
 
   @greeter "SampleApp.Greeter.greet/2"
+  @tally_test ~s|SampleApp.TallyTest."test init keeps the start count"/1|
+  @tally_setup "SampleApp.TallyTest.__ex_unit_setup_0/1"
 
   setup %{conn: conn} do
     name = "t-#{System.unique_integer([:positive])}"
@@ -291,6 +293,18 @@ defmodule GraspWeb.ChatTest do
 
     assert has_element?(view, ~s(#chat .msg[data-type="user"]), "Plan tests for #{@greeter}")
     assert_receive {:agent, ^name, %{running?: false}}, 2_000
+  end
+
+  test "a focused test or setup card is offered no plan of tests of its own", %{view: view} do
+    view |> element("#toggle-chat") |> render_click()
+
+    for id <- [@tally_test, @tally_setup] do
+      view |> element("#chat") |> render_hook("open_root", %{"id" => id})
+
+      assert has_element?(view, ~s(#chat .chat__suggest button), "Explain #{id}")
+      refute has_element?(view, ~s(#chat .chat__suggest button), "Plan tests for #{id}")
+      assert has_element?(view, ~s(#chat .chat__suggest button), "Plan tests for the changes")
+    end
   end
 
   defp suggestions(view) do
