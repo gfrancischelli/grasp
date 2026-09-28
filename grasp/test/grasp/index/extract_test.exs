@@ -812,6 +812,80 @@ defmodule Grasp.Index.ExtractTest do
     end
   end
 
+  describe "double sites" do
+    @doubles_source ~S"""
+    defmodule SampleApp.ClockTest do
+      use ExUnit.Case, async: true
+      import Mox
+      alias SampleApp.Mocks.Clock
+
+      setup do
+        stub(Clock, :now, fn -> 0 end)
+        :ok
+      end
+
+      test "reads the clock" do
+        expect(GeolocationMock, :lookup, fn _ip -> {:ok, "PT"} end)
+        Mox.expect(Clock, :at, 2, fn zone, when_ when is_binary(zone) -> when_ end)
+        Mox.stub(GeolocationMock, :lookup, &SampleApp.Geo.lookup/1)
+        expect(mock(), :lookup, fn _ip -> :ok end)
+        expect(GeolocationMock, name(), fn _ip -> :ok end)
+        GeolocationMock |> expect(:country, fn -> "PT" end) |> stub(:city, fn _a, _b -> "" end)
+      end
+
+      defp mock, do: GeolocationMock
+      defp name, do: :lookup
+    end
+    """
+
+    test "records each expect and stub on a literal mock and function, local or on Mox" do
+      {:ok, %{definitions: defs}} = Extract.extract(@doubles_source, "test/clock_test.exs")
+      test = find(defs, "SampleApp.ClockTest", :"test reads the clock")
+
+      assert test.double_sites == [
+               %{
+                 mock: "GeolocationMock",
+                 function: :lookup,
+                 arity: 1,
+                 range: %{start: {12, 5}, end: {12, 11}}
+               },
+               %{
+                 mock: "SampleApp.Mocks.Clock",
+                 function: :at,
+                 arity: 2,
+                 range: %{start: {13, 5}, end: {13, 15}}
+               },
+               %{
+                 mock: "GeolocationMock",
+                 function: :lookup,
+                 arity: nil,
+                 range: %{start: {14, 5}, end: {14, 13}}
+               },
+               %{
+                 mock: "GeolocationMock",
+                 function: :country,
+                 arity: 0,
+                 range: %{start: {17, 24}, end: {17, 30}}
+               },
+               %{
+                 mock: "GeolocationMock",
+                 function: :city,
+                 arity: 2,
+                 range: %{start: {17, 60}, end: {17, 64}}
+               }
+             ]
+    end
+
+    test "records a setup's stubs, and none on a definition that writes no expectation" do
+      {:ok, %{definitions: defs}} = Extract.extract(@doubles_source, "test/clock_test.exs")
+
+      assert [%{mock: "SampleApp.Mocks.Clock", function: :now, arity: 0}] =
+               find(defs, "SampleApp.ClockTest", :__ex_unit_setup_0).double_sites
+
+      assert find(defs, "SampleApp.ClockTest", :mock).double_sites == []
+    end
+  end
+
   describe "clauses and arms" do
     @branch_source ~S"""
     defmodule SampleApp.Branches do

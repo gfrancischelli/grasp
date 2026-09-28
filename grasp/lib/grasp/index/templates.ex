@@ -132,6 +132,7 @@ defmodule Grasp.Index.Templates do
           do: Extract.template_route_sites(source, {1, 0}, nil),
           else: []
         ),
+      double_sites: [],
       head_positions: [],
       head_ranges: [],
       clauses: [],

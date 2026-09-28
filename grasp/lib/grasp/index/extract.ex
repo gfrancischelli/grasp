@@ -77,6 +77,14 @@ defmodule Grasp.Index.Extract do
   its body's, which is where the tracer reports them: the compiled function is the caller of
   every call in the body.
 
+  A definition records its **double sites** too: every Mox `expect(Mock, :fun, …)` or
+  `stub(Mock, :fun, …)` its body writes, local or on `Mox`, called on the mock or piped
+  from it, whose mock is a literal alias and whose function a literal atom. A site holds
+  the mock's full name, expanded through the file's `alias` lines, the function, the
+  parameter count of a literal `fn` handed over as the code — `nil` for any other code —
+  and the range of the call's name. `Grasp.Index.Doubles` resolves them against the mocks
+  the project declares.
+
   Each definition also records where its clause heads are: `head_positions` is the
   `{line, column}` of the function name in every clause and `head_ranges` the matching
   ranges over that name. `Grasp.Index.Join` uses the positions to drop the events the
@@ -98,7 +106,7 @@ defmodule Grasp.Index.Extract do
   their start line, then their end line.
   """
 
-  alias Grasp.Index.Heex
+  alias Grasp.Index.{Doubles, Heex}
 
   @type range :: %{start: {pos_integer(), pos_integer()}, end: {pos_integer(), pos_integer()}}
   @type position :: {pos_integer(), pos_integer()}
@@ -123,6 +131,16 @@ defmodule Grasp.Index.Extract do
   # `["greet", "bob"]`, `"/"` is `[]`, and a segment an interpolation reaches into is
   # `:dynamic`, which matches whatever the route writes in that position.
   @type route_site :: %{verb: String.t(), path: [segment()], range: range()}
+  # A Mox expectation: `mock` is the mock's full name, the alias written expanded through the
+  # file's `alias` lines; `function` the atom the call names; `arity` the parameter count of
+  # the literal `fn` handed over, `nil` when the code is anything else; `range` the call's
+  # name, as a call site's range covers it.
+  @type double_site :: %{
+          mock: String.t(),
+          function: atom(),
+          arity: non_neg_integer() | nil,
+          range: range()
+        }
   # `:template` is not a kind this module reads: `Grasp.Index.Templates` builds a definition
   # of that kind, in this same shape, for every file an `embed_templates` pattern matches.
   @type kind ::
@@ -156,6 +174,7 @@ defmodule Grasp.Index.Extract do
           source: String.t(),
           call_sites: [call_site()],
           route_sites: [route_site()],
+          double_sites: [double_site()],
           head_positions: [position()],
           head_ranges: [range()],
           clauses: [line_range()],
@@ -239,7 +258,14 @@ defmodule Grasp.Index.Extract do
       lines = String.split(source, "\n")
 
       acc =
-        walk(ast, [], %{definitions: [], modules: [], embeds: [], lines: lines, file: file})
+        walk(ast, [], %{
+          definitions: [],
+          modules: [],
+          embeds: [],
+          lines: lines,
+          file: file,
+          aliases: Doubles.aliases(ast)
+        })
 
       {:ok,
        %{
@@ -432,6 +458,7 @@ defmodule Grasp.Index.Extract do
       source: nil,
       call_sites: sites.call_sites,
       route_sites: sites.route_sites,
+      double_sites: double_sites(block, acc.aliases),
       head_positions: [],
       head_ranges: [],
       clauses: [{head_line, end_line}],
@@ -499,6 +526,7 @@ defmodule Grasp.Index.Extract do
           source: nil,
           call_sites: sites.call_sites,
           route_sites: sites.route_sites,
+          double_sites: node |> elem(2) |> tl() |> double_sites(acc.aliases),
           head_positions: head_positions,
           head_ranges: head_ranges,
           clauses: if(bodiless?(node), do: [], else: [{head_line, end_line}]),
@@ -521,6 +549,7 @@ defmodule Grasp.Index.Extract do
             arities: Enum.uniq(Enum.sort(existing.arities ++ clause.arities)),
             call_sites: existing.call_sites ++ clause.call_sites,
             route_sites: existing.route_sites ++ clause.route_sites,
+            double_sites: existing.double_sites ++ clause.double_sites,
             head_positions: Enum.uniq(existing.head_positions ++ clause.head_positions),
             head_ranges: Enum.uniq(existing.head_ranges ++ clause.head_ranges),
             clauses: existing.clauses ++ clause.clauses,
@@ -1017,6 +1046,73 @@ defmodule Grasp.Index.Extract do
         nil
     end
   end
+
+  # Every `expect` and `stub` a body writes whose mock is a literal alias and whose function
+  # a literal atom, local or on `Mox`, and piped into from the mock as well:
+  # `Mock |> expect(:fun, fn _ -> :ok end)`. `expect` takes a count before the code, so the
+  # code is the last argument either way. Sites come in source order.
+  defp double_sites(ast, aliases) do
+    {_, sites} =
+      Macro.prewalk(ast, [], fn node, sites ->
+        case double_call(node) do
+          {mock, {:__block__, _, [function]}, code, call} when is_atom(function) ->
+            with mock when is_binary(mock) <- Doubles.expand(mock, aliases),
+                 {_line, _column, range} <- call_range(call) do
+              site = %{mock: mock, function: function, arity: fn_arity(code), range: range}
+              {node, [site | sites]}
+            else
+              _not_a_double -> {node, sites}
+            end
+
+          _other ->
+            {node, sites}
+        end
+      end)
+
+    Enum.sort_by(sites, & &1.range.start)
+  end
+
+  defp double_call({:|>, _meta, [left, right]}) do
+    case mox_call(right) do
+      {kind, [function | rest]} -> double_args(kind, [leftmost(left), function | rest], right)
+      nil -> nil
+    end
+  end
+
+  defp double_call(node) do
+    case mox_call(node) do
+      {kind, args} -> double_args(kind, args, node)
+      nil -> nil
+    end
+  end
+
+  defp mox_call({{:., _, [{:__aliases__, _, [:Mox]}, kind]}, _meta, args})
+       when kind in [:expect, :stub] and is_list(args),
+       do: {kind, args}
+
+  defp mox_call({kind, _meta, args}) when kind in [:expect, :stub] and is_list(args),
+    do: {kind, args}
+
+  defp mox_call(_node), do: nil
+
+  defp double_args(:expect, [mock, function, code], call), do: {mock, function, code, call}
+
+  defp double_args(:expect, [mock, function, _count, code], call),
+    do: {mock, function, code, call}
+
+  defp double_args(:stub, [mock, function, code], call), do: {mock, function, code, call}
+  defp double_args(_kind, _args, _call), do: nil
+
+  defp leftmost({:|>, _meta, [left, _right]}), do: leftmost(left)
+  defp leftmost(node), do: node
+
+  defp fn_arity({:fn, _meta, [{:->, _, [[{:when, _, params_and_guard}], _body]} | _]}),
+    do: length(params_and_guard) - 1
+
+  defp fn_arity({:fn, _meta, [{:->, _, [params, _body]} | _]}) when is_list(params),
+    do: length(params)
+
+  defp fn_arity(_code), do: nil
 
   defp written_arity({:__block__, _meta, [arity]}) when is_integer(arity), do: arity
   defp written_arity(_other), do: nil

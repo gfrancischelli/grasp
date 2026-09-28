@@ -40,7 +40,9 @@ defmodule Grasp.Index.Resolve do
   Takes and returns the JSON shape `Grasp.Index.Builder.function_json/1` writes. Every
   derived edge is undone first — a call of kind `"route"` is dropped, an enqueue call
   becomes the call its `"via"` names — so what comes back is decided by `entries` alone
-  and resolving twice against the same entry points says the same thing. A record written
+  and resolving twice against the same entry points says the same thing. A call of kind
+  `"double"` is kept as it is, with its `"double"` object: the entry points decide nothing
+  about it, and only a full build reads the declarations it came from. A record written
   without its `"route_sites"`, or without its `"calls"`, is returned unchanged.
   """
   @spec refresh(map(), [map()]) :: map()
@@ -69,7 +71,8 @@ defmodule Grasp.Index.Resolve do
   A call of kind `:route` carries the route it reaches, so a reader is told which one of a
   controller's actions the link goes to without opening the router. A call of kind
   `:enqueue` carries the worker and the queue the job runs on, and under `"via"` the call
-  it stands for.
+  it stands for. A call of kind `:double` carries under `"double"` the Mox mock a test set up
+  and the behaviour the mock stands in for.
   """
   @spec call_json(Join.call()) :: map()
   def call_json(call) do
@@ -84,6 +87,7 @@ defmodule Grasp.Index.Resolve do
     |> put_route(call)
     |> put_job(call)
     |> put_via(call)
+    |> put_double(call)
   end
 
   @doc "One call read back out of a document, in the shape the resolvers work on."
@@ -97,6 +101,7 @@ defmodule Grasp.Index.Resolve do
     |> take_route(call)
     |> take_job(call)
     |> take_via(call)
+    |> take_double(call)
   end
 
   @doc """
@@ -163,6 +168,16 @@ defmodule Grasp.Index.Resolve do
     do: Map.put(record, :via, %{target: target, kind: String.to_existing_atom(kind)})
 
   defp take_via(record, _call), do: record
+
+  defp put_double(json, %{double: %{mock: mock, behaviour: behaviour}}),
+    do: Map.put(json, "double", %{"mock" => mock, "behaviour" => behaviour})
+
+  defp put_double(json, _call), do: json
+
+  defp take_double(record, %{"double" => %{"mock" => mock, "behaviour" => behaviour}}),
+    do: Map.put(record, :double, %{mock: mock, behaviour: behaviour})
+
+  defp take_double(record, _call), do: record
 
   defp range_record(%{"start" => start, "end" => finish}),
     do: %{start: List.to_tuple(start), end: List.to_tuple(finish)}

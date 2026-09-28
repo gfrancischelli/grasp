@@ -58,6 +58,9 @@ defmodule Grasp.Index.Join do
       `use` — and is kept as a hidden call so the graph stays complete even though
       nothing in the source can be clicked.
 
+  A definition's double sites — the Mox expectations it writes — pass through too, on the
+  records of the definitions that have any, for `Grasp.Index.Doubles` to resolve.
+
   A definition's route sites pass through untouched: nothing here knows what path the
   router answers to, so `Grasp.Index.Routes` resolves them into calls of kind `:route`
   once the project's routes have been detected.
@@ -82,11 +85,12 @@ defmodule Grasp.Index.Join do
 
   @type call :: %{
           required(:target) => String.t(),
-          required(:kind) => Tracer.kind() | :template | :route | :enqueue,
+          required(:kind) => Tracer.kind() | :template | :route | :enqueue | :double,
           required(:range) => Extract.range(),
           optional(:route) => %{verb: String.t(), path: String.t()},
           optional(:job) => %{worker: String.t(), queue: String.t()},
-          optional(:via) => %{target: String.t(), kind: Tracer.kind() | :template}
+          optional(:via) => %{target: String.t(), kind: Tracer.kind() | :template},
+          optional(:double) => %{mock: String.t(), behaviour: String.t()}
         }
   # `:route` is written by `Grasp.Index.Routes` on a call of kind `:route` alone, and holds
   # the router's own verb and path, which is what the reader is told the link reaches.
@@ -94,11 +98,15 @@ defmodule Grasp.Index.Join do
   # the worker and the queue the job runs on.
   # `:via` is the call an enqueue edge stands for, kept so the edge can be undone and drawn
   # again when the workers change.
+  # `:double` is written by `Grasp.Index.Doubles` on a call of kind `:double` alone, and names
+  # the Mox mock a test set up and the behaviour the mock stands in for.
   @type hidden_call :: %{target: String.t(), kind: Tracer.kind(), line: pos_integer()}
 
-  # `test` is carried over from the definition, which has one only for a test or a setup.
+  # `test` is carried over from the definition, which has one only for a test or a setup, and
+  # `double_sites` from a definition that writes a Mox expectation, for `Grasp.Index.Doubles`.
   @type function_record :: %{
           optional(:test) => Extract.test_info() | nil,
+          optional(:double_sites) => [Extract.double_site()],
           id: String.t(),
           module: String.t(),
           name: atom(),
@@ -347,5 +355,9 @@ defmodule Grasp.Index.Join do
       arms: Map.get(definition, :arms, [])
     }
     |> Map.merge(Map.take(definition, [:test]))
+    |> put_double_sites(Map.get(definition, :double_sites, []))
   end
+
+  defp put_double_sites(record, []), do: record
+  defp put_double_sites(record, sites), do: Map.put(record, :double_sites, sites)
 end

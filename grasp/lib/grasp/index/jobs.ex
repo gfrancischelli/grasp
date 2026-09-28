@@ -61,6 +61,10 @@ defmodule Grasp.Index.Jobs do
     end
   end
 
+  # A double stands in for the function it names rather than enqueueing anything, even when
+  # that function is a worker's `new/1`.
+  defp call(%{kind: :double} = call, _workers), do: call
+
   # The suffix is read before the regex because on any real project all but a handful of
   # calls fail it, and every call of every record passes through here.
   defp call(%{target: target} = call, workers) do

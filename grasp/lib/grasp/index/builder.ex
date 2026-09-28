@@ -36,6 +36,7 @@ defmodule Grasp.Index.Builder do
   alias Grasp.Index.{
     BaseRef,
     Changes,
+    Doubles,
     EntryPoints,
     Extract,
     Join,
@@ -90,7 +91,10 @@ defmodule Grasp.Index.Builder do
   test file the branch changed is read at the base too, so its tests are added, modified,
   unchanged or removed as functions are, and a request a test makes reaches the route it
   names. The project block then names `"test_paths"`, the test environment's, so a reader
-  knows which records are tests. A trace that fails is reported with the last lines of its
+  knows which records are tests. A test's Mox `expect` and `stub` calls become calls of kind
+  `:double` on the application functions the mock stands in for, by `Grasp.Index.Doubles`,
+  against the mocks `test_helper.exs` under each test path and the files the trace read
+  declare. A trace that fails is reported with the last lines of its
   output and leaves the index the application's alone, its classification included: a
   changed test file is classified only once its tests were indexed.
   """
@@ -123,7 +127,9 @@ defmodule Grasp.Index.Builder do
     report_skipped(detected.skipped)
     entries = Enum.map(detected.entry_points, &entry_point_json/1)
 
-    tests = trace_tests(root, paths, functions, base_only(root, base, test_paths), tests?)
+    implementations = Enum.map(extracted.modules, &module_json(&1, detected.behaviours))
+    candidates = base_only(root, base, test_paths)
+    tests = trace_tests(root, paths, {functions, implementations}, candidates, tests?)
     traced = %{paths: Map.get(tests.project, "test_paths", []), files: tests.compared}
 
     records =
@@ -452,8 +458,9 @@ defmodule Grasp.Index.Builder do
 
   # The application's ids are handed to the join, because a test's calls reach out of the
   # files being joined: a hidden call into an application function is kept only when the
-  # join knows the index holds that function.
-  defp trace_tests(root, paths, functions, candidates, true) do
+  # join knows the index holds that function. The application's functions and its modules'
+  # behaviours are what a test's Mox expectations resolve against.
+  defp trace_tests(root, paths, {functions, modules}, candidates, true) do
     Mix.shell().info("grasp: tracing tests (MIX_ENV=test)")
 
     case TestTrace.run(root, paths, candidates: candidates) do
@@ -461,9 +468,19 @@ defmodule Grasp.Index.Builder do
         extracted = extract(root, trace.files)
         report_failures(extracted.failures)
 
+        declarations =
+          root
+          |> declaration_files(trace.test_paths, trace.files)
+          |> read_sources()
+          |> Doubles.declarations()
+
+        records =
+          extracted.definitions
+          |> Join.join(trace.events, known_ids: indexed_ids(functions))
+          |> Doubles.resolve(declarations, modules, functions)
+
         %{
-          records:
-            Join.join(extracted.definitions, trace.events, known_ids: indexed_ids(functions)),
+          records: records,
           modules: extracted.modules,
           compared: trace.files ++ trace.selected,
           project: %{"test_paths" => trace.test_paths}
@@ -478,7 +495,28 @@ defmodule Grasp.Index.Builder do
     end
   end
 
-  defp trace_tests(_root, _paths, _functions, _candidates, false), do: @no_tests
+  defp trace_tests(_root, _paths, _application, _candidates, false), do: @no_tests
+
+  # Where a project declares its Mox mocks: the `test_helper.exs` of each test path, which
+  # `mix test` runs and the trace never requires, and the files the trace read.
+  defp declaration_files(root, test_paths, files) do
+    helpers =
+      for path <- test_paths,
+          helper = Path.join(path, "test_helper.exs"),
+          File.regular?(Path.join(root, helper)),
+          do: helper
+
+    Enum.map(Enum.uniq(helpers ++ files), &Path.join(root, &1))
+  end
+
+  defp read_sources(files) do
+    Enum.flat_map(files, fn file ->
+      case File.read(file) do
+        {:ok, source} -> [source]
+        {:error, _reason} -> []
+      end
+    end)
+  end
 
   defp extract_file(file, relative) do
     case File.read(file) do
