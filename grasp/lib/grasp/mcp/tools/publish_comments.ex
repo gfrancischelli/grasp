@@ -1,7 +1,8 @@
 defmodule Grasp.MCP.Tools.PublishComments do
   @moduledoc """
-  Post the review comments written in Grasp onto the project's pull request, as review
-  comments with their replies under them.
+  Post the review comments written in one review session onto the project's pull request,
+  as review comments with their replies under them. Another session's threads are another
+  review's, and are not posted.
 
   A thread whose line the pull request's diff covers goes on that line; one written on a
   line the diff does not show, or on the base version of a modified function, goes on the
@@ -20,7 +21,14 @@ defmodule Grasp.MCP.Tools.PublishComments do
   alias Grasp.Comments.Publisher
   alias Grasp.MCP.Tools
 
+  @session_field Tools.comment_session_field_description()
+
   schema do
+    field(:session, :string,
+      required: true,
+      description: @session_field
+    )
+
     field(:pull_request, :integer,
       description:
         "The number of the pull request to publish to; the current branch's pull request " <>
@@ -35,17 +43,21 @@ defmodule Grasp.MCP.Tools.PublishComments do
 
   @impl true
   def execute(params, frame) do
-    opts = [
-      pull_request: Map.get(params, :pull_request),
-      include_resolved: Map.get(params, :include_resolved, false)
-    ]
-
-    with {:ok, index} <- Tools.index(),
-         {:ok, report} <- Publisher.publish(index, opts) do
+    with {:ok, session} <- Tools.check_session(Map.get(params, :session)),
+         {:ok, index} <- Tools.index(),
+         {:ok, report} <- Publisher.publish(index, publish_opts(session, params)) do
       Tools.reply(frame, report_map(report))
     else
       {:error, reason} -> Tools.error(frame, reason)
     end
+  end
+
+  defp publish_opts(session, params) do
+    [
+      session: session,
+      pull_request: Map.get(params, :pull_request),
+      include_resolved: Map.get(params, :include_resolved, false)
+    ]
   end
 
   defp report_map(report) do

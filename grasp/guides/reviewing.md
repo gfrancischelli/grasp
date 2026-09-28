@@ -199,16 +199,21 @@ A thread whose line moved re-anchors wherever its text went. One that matches no
 in the card's footer, marked outdated. One whose function has left the index is listed muted
 in the sidebar and draws nothing.
 
-The sidebar's Comments group lists every open thread under its module and jumps to the line
-when you click it.
+The sidebar's Comments group lists every open thread of the session under its module and
+jumps to the line when you click it.
 
-Comments belong to the project rather than to a session: they are kept in
-`.grasp/comments.json` under the directory Grasp was started in, and show on whatever canvas
-draws the function. The file travels with the checkout — commit it alongside the changes it
+Comments belong to the session they were written in. Two sessions on one checkout are two
+reviews — say, two pull requests read side by side — and each keeps its own conversation: a
+comment shows on the cards of its own session, and another session drawing the same function
+does not show it. Deleting a session from the session menu deletes its comments with it.
+Every session's comments are kept in one file, `.grasp/comments.json` under the directory
+Grasp was started in; a thread in that file with no `session` belongs to `default`. The file
+travels with the checkout — commit it alongside the changes it
 is about if you want the discussion to go with the branch, or add it to `.gitignore` if you
 would rather keep review chatter out of the repository.
 
-An agent reads and answers the same threads, and can post them to GitHub. See
+An agent reads and answers the threads of the session it is driving, and can post them to
+GitHub. See
 [The agent](agent.md) and [Pull requests](pull-requests.md).
 
 ## Sessions

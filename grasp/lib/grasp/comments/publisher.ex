@@ -2,12 +2,12 @@ defmodule Grasp.Comments.Publisher do
   @moduledoc """
   Posts the review threads written in the viewer onto a pull request.
 
-  A review read in Grasp ends up where the rest of the team reads reviews. The threads are
-  the same threads the cards show, so publishing walks the store in id order, posts each
-  one as a review comment with its replies under it, and stamps the thread with what GitHub
-  answered. The stamp is what makes a second publish safe: a thread already carrying one is
-  skipped rather than posted twice, so a reviewer can publish, write three more comments
-  and publish again.
+  A review read in Grasp ends up where the rest of the team reads reviews. A review is one
+  session, and its threads are the ones that session's cards show, so publishing walks that
+  session's threads in id order, posts each one as a review comment with its replies under
+  it, and stamps the thread with what GitHub answered. The stamp is what makes a second
+  publish safe: a thread already carrying one is skipped rather than posted twice, so a
+  reviewer can publish, write three more comments and publish again.
 
   Where a thread lands depends on the pull request's own diff. GitHub accepts a line comment
   only on a line the diff covers, so the diff's hunks are read first and a thread whose line
@@ -43,8 +43,10 @@ defmodule Grasp.Comments.Publisher do
   @agent_prefix "claude: "
 
   @doc """
-  Publishes the project's open review threads to a pull request of its checkout.
+  Publishes the open review threads of one session to a pull request of the checkout.
 
+  `:session` (required) names the session whose threads are posted: a thread belongs to the
+  session it was written in, and another session's threads are another review's.
   `:pull_request` names the pull request by number, and defaults to the one the checkout's
   current branch is open on; `:include_resolved` (false by default) publishes the resolved
   threads as well. The project root the index names has to be a directory on this machine,
@@ -55,7 +57,8 @@ defmodule Grasp.Comments.Publisher do
   thread is attempted, and what happened to each is in the report.
   """
   @spec publish(Index.t(), keyword()) :: {:ok, report()} | {:error, String.t()}
-  def publish(%Index{} = index, opts \\ []) when is_list(opts) do
+  def publish(%Index{} = index, opts) when is_list(opts) do
+    session = Keyword.fetch!(opts, :session)
     root = index.project["root"]
     number = opts[:pull_request]
 
@@ -64,7 +67,12 @@ defmodule Grasp.Comments.Publisher do
          {:ok, pull_request} <- GitHub.pull_request(root, number),
          {:ok, diff} <- GitHub.diff(root, pull_request.number) do
       ranges = Diff.commentable_lines(diff)
-      threads = Comments.list(include_resolved: Keyword.get(opts, :include_resolved, false))
+
+      threads =
+        Comments.list(
+          session: session,
+          include_resolved: Keyword.get(opts, :include_resolved, false)
+        )
 
       report =
         Enum.reduce(

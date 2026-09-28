@@ -6,6 +6,9 @@ defmodule Grasp.MCP.Tools.ResolveComment do
   resolve one only once what it asked for is done or answered — it is the record of what is
   still outstanding, not a way to tidy the gutter. `resolved: false` puts a thread back on
   the list when it turns out the matter is not settled.
+
+  A thread is closed in the session it belongs to: an id of another session's thread is
+  refused as an unknown comment.
   """
 
   use Anubis.Server.Component, type: :tool
@@ -14,7 +17,14 @@ defmodule Grasp.MCP.Tools.ResolveComment do
   alias Grasp.MCP.Comments, as: Shape
   alias Grasp.MCP.Tools
 
+  @session_field Tools.comment_session_field_description()
+
   schema do
+    field(:session, :string,
+      required: true,
+      description: @session_field
+    )
+
     field(:comment_id, :integer,
       required: true,
       description: "Id of the thread to close, as `list_comments` reports it"
@@ -28,17 +38,21 @@ defmodule Grasp.MCP.Tools.ResolveComment do
 
   @impl true
   def execute(%{comment_id: id} = params, frame) do
-    with {:ok, index} <- Tools.index(),
-         {:ok, thread} <- set_resolved(id, Map.get(params, :resolved, true)) do
+    with {:ok, session} <- Tools.check_session(Map.get(params, :session)),
+         {:ok, index} <- Tools.index(),
+         {:ok, thread} <- set_resolved(session, id, Map.get(params, :resolved, true)) do
       Tools.reply(frame, Shape.thread_map(thread, index))
     else
       {:error, reason} -> Tools.error(frame, reason)
     end
   end
 
-  defp set_resolved(id, resolved) do
-    case Comments.set_resolved(id, resolved) do
-      {:ok, thread} -> {:ok, thread}
+  defp set_resolved(session, id, resolved) do
+    with {:ok, _thread} <- Comments.fetch(id, session),
+         {:ok, thread} <- Comments.set_resolved(id, resolved) do
+      {:ok, thread}
+    else
+      :error -> {:error, "unknown comment: #{id}"}
       {:error, :unknown} -> {:error, "unknown comment: #{id}"}
     end
   end

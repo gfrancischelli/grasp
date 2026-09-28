@@ -1,8 +1,9 @@
 defmodule Grasp.MCP.Tools.ListComments do
   @moduledoc """
-  Read the review comments written on the project's code — the reviewer's, and the ones the
-  agent left itself. Each thread carries the function and line it was written on, the text
-  of that line, its author and its replies.
+  Read the review comments written in one review session — the reviewer's, and the ones the
+  agent left itself. A thread belongs to the session it was written in, so another
+  session's threads are not listed. Each thread carries the function and line it was
+  written on, the text of that line, its author and its replies.
 
   The first call when picking up a review: it says what the reviewer is asking about, and
   each thread can then be answered with `reply_comment` and closed with `resolve_comment`.
@@ -22,7 +23,14 @@ defmodule Grasp.MCP.Tools.ListComments do
   alias Grasp.MCP.Comments, as: Shape
   alias Grasp.MCP.Tools
 
+  @session_field Tools.comment_session_field_description()
+
   schema do
+    field(:session, :string,
+      required: true,
+      description: @session_field
+    )
+
     field(:function_id, :string,
       description:
         "Keep only the threads on this function, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
@@ -36,21 +44,21 @@ defmodule Grasp.MCP.Tools.ListComments do
 
   @impl true
   def execute(params, frame) do
-    case Tools.index() do
-      {:error, response} ->
-        {:reply, response, frame}
+    with {:ok, session} <- Tools.check_session(Map.get(params, :session)),
+         {:ok, index} <- Tools.index() do
+      threads =
+        Comments.list(
+          session: session,
+          function_id: function_id(index, Map.get(params, :function_id)),
+          include_resolved: Map.get(params, :include_resolved, false)
+        )
 
-      {:ok, index} ->
-        threads =
-          Comments.list(
-            function_id: function_id(index, Map.get(params, :function_id)),
-            include_resolved: Map.get(params, :include_resolved, false)
-          )
-
-        Tools.reply(frame, %{
-          "total" => length(threads),
-          "comments" => Enum.map(threads, &Shape.thread_map(&1, index))
-        })
+      Tools.reply(frame, %{
+        "total" => length(threads),
+        "comments" => Enum.map(threads, &Shape.thread_map(&1, index))
+      })
+    else
+      {:error, response} -> Tools.error(frame, response)
     end
   end
 

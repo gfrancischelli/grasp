@@ -7,6 +7,9 @@ defmodule Grasp.MCP.Tools.ReplyComment do
   suggestion does not hold — so the exchange stays on the line it is about instead of
   scattering across the chat. A thread that is answered and needs nothing further is then
   closed with `resolve_comment`.
+
+  A thread is answered in the session it belongs to: an id of another session's thread is
+  refused as an unknown comment.
   """
 
   use Anubis.Server.Component, type: :tool
@@ -15,7 +18,14 @@ defmodule Grasp.MCP.Tools.ReplyComment do
   alias Grasp.MCP.Comments, as: Shape
   alias Grasp.MCP.Tools
 
+  @session_field Tools.comment_session_field_description()
+
   schema do
+    field(:session, :string,
+      required: true,
+      description: @session_field
+    )
+
     field(:comment_id, :integer,
       required: true,
       description: "Id of the thread to answer, as `list_comments` reports it"
@@ -25,18 +35,22 @@ defmodule Grasp.MCP.Tools.ReplyComment do
   end
 
   @impl true
-  def execute(%{comment_id: id, body: body}, frame) do
-    with {:ok, index} <- Tools.index(),
-         {:ok, thread} <- reply(id, body) do
+  def execute(%{comment_id: id, body: body} = params, frame) do
+    with {:ok, session} <- Tools.check_session(Map.get(params, :session)),
+         {:ok, index} <- Tools.index(),
+         {:ok, thread} <- reply(session, id, body) do
       Tools.reply(frame, Shape.thread_map(thread, index))
     else
       {:error, reason} -> Tools.error(frame, reason)
     end
   end
 
-  defp reply(id, body) do
-    case Comments.reply(id, %{body: body, author: "agent"}) do
-      {:ok, thread} -> {:ok, thread}
+  defp reply(session, id, body) do
+    with {:ok, _thread} <- Comments.fetch(id, session),
+         {:ok, thread} <- Comments.reply(id, %{body: body, author: "agent"}) do
+      {:ok, thread}
+    else
+      :error -> {:error, "unknown comment: #{id}"}
       {:error, :unknown} -> {:error, "unknown comment: #{id}"}
       {:error, :invalid} -> {:error, "body must not be blank"}
     end

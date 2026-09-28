@@ -31,7 +31,7 @@ defmodule GraspWeb.Sidebar do
   base ref, or a branch that changed nothing.
 
   Above even that is the Comments group, the unresolved review threads of the session being
-  read under the modules they were written on. A thread is a question waiting on someone, so it
+  read, under the modules they were written on. A thread is a question waiting on someone, so it
   leads; the row carries the function, the line and the opening words of the body, and
   clicking it draws the card and lights the line up. A thread on a function the index no
   longer holds has nothing to draw, so it is listed muted and clicking it does nothing.

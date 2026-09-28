@@ -439,7 +439,7 @@ defmodule GraspWeb.CommentsLiveTest do
     {view, name}
   end
 
-  # The store holds the whole project's threads, other tests' included, so what a submission
+  # The store holds every session's threads, other tests' included, so what a submission
   # did is asked of the anchor this test writes at rather than of the store as a whole.
   defp threads_at(function_id, line) do
     Comments.list(function_id: function_id, include_resolved: true)

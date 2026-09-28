@@ -83,7 +83,10 @@ the index it wrote, and lays the change out one group per flow. See [The agent](
 ## Publishing comments to GitHub
 
 "Publish the comments to PR 1212" sends the review to GitHub. The agent calls
-`publish_comments`, which posts each thread as a review comment with its replies under it:
+`publish_comments`, which posts each thread of the session you are reading as a review
+comment with its replies under it. Another session's threads are another review's and stay
+where they are, so a pull request read in a session of its own publishes only what was
+written about it:
 
 - A thread whose line the pull request's diff covers goes **on that line**.
 - One the diff does not show — a line outside every hunk, or a comment on the base side of a

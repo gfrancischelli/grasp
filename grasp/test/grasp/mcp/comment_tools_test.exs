@@ -8,12 +8,20 @@ defmodule Grasp.MCP.CommentToolsTest do
   @greet "SampleApp.Greeter.greet/2"
   @shout "SampleApp.Formatter.shout/1"
 
+  # Every comment tool acts for one session, so a test that is not about sessions reads and
+  # writes one of this module's own; a call that names a session keeps the one it names.
+  @session "mcp-comments"
+
   defp json!(%Response{content: [%{"type" => "text", "text" => text}]}), do: Jason.decode!(text)
 
-  defp run(tool, params) do
+  defp run(tool, params), do: run_as(tool, Map.put_new(params, :session, @session))
+
+  defp run_as(tool, params) do
     {:reply, response, _frame} = tool.execute(params, %Frame{})
     response
   end
+
+  defp other_session, do: "mcp-other-#{System.unique_integer([:positive])}"
 
   # The store is shared by the whole suite, so a test recognises its own threads by a body
   # no other test writes and never counts what the listing holds.
@@ -235,12 +243,96 @@ defmodule Grasp.MCP.CommentToolsTest do
     end
   end
 
+  describe "sessions" do
+    test "add_comment writes into the session named, and list_comments lists that one alone" do
+      elsewhere = other_session()
+      thread = add(%{session: elsewhere, function_id: @greet, line: 9, body: unique_body()})
+
+      assert find(listed(%{session: elsewhere}), thread["id"])
+      refute find(listed(%{session: @session}), thread["id"])
+      refute find(listed(%{session: other_session()}), thread["id"])
+      assert {:ok, %{session: ^elsewhere}} = Grasp.Comments.fetch(thread["id"])
+    end
+
+    test "reply_comment and resolve_comment do not know another session's thread" do
+      thread = add(%{function_id: @greet, line: 9, body: unique_body()})
+      id = thread["id"]
+      elsewhere = other_session()
+
+      replied = run(Tools.ReplyComment, %{session: elsewhere, comment_id: id, body: "hello"})
+      assert replied.isError
+      assert message(replied) == "unknown comment: #{id}"
+
+      resolved = run(Tools.ResolveComment, %{session: elsewhere, comment_id: id})
+      assert resolved.isError
+      assert message(resolved) == "unknown comment: #{id}"
+
+      assert %{"replies" => [], "resolved" => false} = find(listed(%{}), id)
+    end
+
+    test "get_function carries the named session's threads, and none without a session" do
+      thread = add(%{function_id: @greet, line: 9, body: unique_body()})
+      carried = &Enum.find(&1["comments"], fn comment -> comment["id"] == thread["id"] end)
+
+      assert carried.(json!(run(Tools.GetFunction, %{id: @greet})))
+      refute carried.(json!(run(Tools.GetFunction, %{id: @greet, session: other_session()})))
+      assert json!(run_as(Tools.GetFunction, %{id: @greet}))["comments"] == []
+    end
+
+    test "a name no session could carry is refused by every comment tool" do
+      thread = add(%{function_id: @greet, line: 9, body: unique_body()})
+
+      calls = [
+        {Tools.AddComment, %{function_id: @greet, line: 9, body: unique_body()}},
+        {Tools.ListComments, %{}},
+        {Tools.ReplyComment, %{comment_id: thread["id"], body: "hello"}},
+        {Tools.ResolveComment, %{comment_id: thread["id"]}},
+        {Tools.PublishComments, %{}},
+        {Tools.GetFunction, %{id: @greet}}
+      ]
+
+      for {tool, params} <- calls, session <- ["no/such session", ""] do
+        response = run_as(tool, Map.put(params, :session, session))
+        assert response.isError, "#{inspect(tool)} took #{inspect(session)}"
+        assert message(response) == Grasp.Session.Disk.name_rule()
+      end
+
+      for {tool, params} <- calls, tool != Tools.GetFunction do
+        response = run_as(tool, params)
+        assert response.isError, "#{inspect(tool)} ran without a session"
+        assert message(response) == Grasp.Session.Disk.name_rule()
+      end
+
+      assert %{"replies" => [], "resolved" => false} = find(listed(%{}), thread["id"])
+    end
+  end
+
   describe "input schemas" do
-    test "name the thread, the line and the body" do
-      refute Tools.ListComments.input_schema()["required"]
-      assert Enum.sort(Tools.AddComment.input_schema()["required"]) == ~w(body function_id line)
-      assert Enum.sort(Tools.ReplyComment.input_schema()["required"]) == ~w(body comment_id)
-      assert Tools.ResolveComment.input_schema()["required"] == ["comment_id"]
+    test "name the session, the thread, the line and the body" do
+      assert Tools.ListComments.input_schema()["required"] == ["session"]
+
+      assert Enum.sort(Tools.AddComment.input_schema()["required"]) ==
+               ~w(body function_id line session)
+
+      assert Enum.sort(Tools.ReplyComment.input_schema()["required"]) ==
+               ~w(body comment_id session)
+
+      assert Enum.sort(Tools.ResolveComment.input_schema()["required"]) ==
+               ~w(comment_id session)
+
+      assert Tools.PublishComments.input_schema()["required"] == ["session"]
+      assert Tools.GetFunction.input_schema()["required"] == ["id"]
+
+      for tool <- [
+            Tools.AddComment,
+            Tools.ListComments,
+            Tools.ReplyComment,
+            Tools.ResolveComment,
+            Tools.PublishComments
+          ] do
+        assert tool.input_schema()["properties"]["session"]["description"] =~
+                 Grasp.Session.Disk.name_rule()
+      end
 
       # Anubis leaves a field's default out of the JSON schema, so the description carries it
       assert Tools.ListComments.input_schema()["properties"]["include_resolved"]["description"] =~

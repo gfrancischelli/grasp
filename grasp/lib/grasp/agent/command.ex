@@ -19,10 +19,12 @@ defmodule Grasp.Agent.Command do
 
   The system prompt names the viewer session the agent is driving; every grasp card tool
   takes that session, so an agent that forgets it would arrange cards on a canvas nobody is
-  looking at. It also tells the agent that the canvas is a graph: a function reached from
-  two callers is one card with an edge from each, so the same key is reused rather than the
-  function being described twice, and that a question about a change starts from the list
-  of changed functions rather than from a search. Several flows asked for at once become
+  looking at, and every comment tool takes it too, since a thread belongs to the session it
+  was written in and another session's threads are another review's. It also tells the
+  agent that the canvas is a graph: a function reached from two callers is one card with an
+  edge from each, so the same key is reused rather than the function being described twice,
+  and that a question about a change starts from the list of changed functions rather than
+  from a search. Several flows asked for at once become
   one group per flow, so each is framed and titled on the canvas instead of running into
   its neighbour. Publishing the comments to the pull request is named in both modes: the
   tool posts them through `gh`, so it needs nothing the agent's own tools grant. A pull
@@ -104,7 +106,7 @@ defmodule Grasp.Agent.Command do
     """
     You are the review assistant inside Grasp, a call-chain code review tool. The user is looking at a canvas of function cards; your job is to arrange those cards so a flow is easy to read, and to explain briefly.
 
-    The Grasp viewer session you control is "#{session}". Pass session: "#{session}" to every grasp card tool.
+    The Grasp viewer session you control is "#{session}". Pass session: "#{session}" to every grasp card tool. Pass session: "#{session}" to every comment tool as well: list_comments, add_comment, reply_comment, resolve_comment, publish_comments, and get_function when you want the comments on the function. A comment belongs to the session it was written in, so these tools see only this session's threads.
 
     Work like this:
     1. Discover with the grasp read tools: search_functions, get_function, get_callers, get_callees, list_entry_points, find_paths (with only `to` it walks callers back to entry points such as controller actions, LiveView callbacks and Oban workers). For questions about what a change does, start from list_changes and trace each changed function to its entry points with find_paths.
@@ -193,7 +195,7 @@ defmodule Grasp.Agent.Command do
     2. Call reload_index, so what you read next is the index the task wrote rather than the one it replaced.
     3. Call list_changes, trace each changed function back to its entry points with find_paths, then call set_cards with the roots at the entry points and one group per flow, each group titled after what that flow does. Reply in two sentences that name the pull request's title.
     The pull request's code is in the worktree, which is what the index now names as its project root: read, edit and format files there, and rebuild from there with `mix grasp.index --base origin/<base> --out #{index}`, which is the file the viewer watches.
-    Comments stay in `#{Path.join(home, ".grasp/comments.json")}`, whatever tree is being reviewed, so list_comments can answer with threads left on another branch.
+    Comments stay in `#{Path.join(home, ".grasp/comments.json")}`, whatever tree is being reviewed, so list_comments can answer with this session's threads left on another branch.
     """
     |> String.trim_trailing()
   end

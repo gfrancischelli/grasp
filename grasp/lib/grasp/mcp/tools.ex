@@ -29,6 +29,34 @@ defmodule Grasp.MCP.Tools do
   end
 
   @doc """
+  The description every comment tool's `session` field carries, the field being required.
+
+  Built from `Grasp.Session.Disk.name_rule/0`, as `session_field_description/0` is, so a
+  comment tool and a card tool state the same rule. It names no default: a thread belongs
+  to the session it was written in, and a comment tool that fell back to one would read and
+  write another review's threads without a word.
+  """
+  @spec comment_session_field_description() :: String.t()
+  def comment_session_field_description do
+    "The review session whose comments to act on; #{Disk.name_rule()}. " <>
+      "Threads belong to the session they were written in, so pass the session you are driving"
+  end
+
+  @doc """
+  `session` when it is a name a session can carry, or the tool error such a name is
+  answered with; `nil`, a session not given, is refused the same way.
+
+  The comment tools check a name without starting a session under it: reading or answering
+  threads leaves the viewer's sessions as they are.
+  """
+  @spec check_session(term()) :: {:ok, Session.name()} | {:error, Response.t()}
+  def check_session(session) do
+    if Disk.valid_name?(session),
+      do: {:ok, session},
+      else: {:error, Response.error(Response.tool(), Disk.name_rule())}
+  end
+
+  @doc """
   Starts the session named `session`, or the tool error a name no session can carry is
   answered with.
 
@@ -40,11 +68,9 @@ defmodule Grasp.MCP.Tools do
   """
   @spec ensure_session(Session.name()) :: {:ok, Session.name()} | {:error, Response.t()}
   def ensure_session(session) when is_binary(session) do
-    if Disk.valid_name?(session) do
+    with {:ok, session} <- check_session(session) do
       :ok = Session.ensure(session)
       {:ok, session}
-    else
-      {:error, Response.error(Response.tool(), Disk.name_rule())}
     end
   end
 

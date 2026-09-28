@@ -46,10 +46,13 @@ defmodule Grasp.MCP.PublishCommentsTest do
 
   defp published(body, id), do: Enum.find(body["published"], &(&1["comment_id"] == id))
 
-  test "publishes the open threads and reports where each one went" do
-    thread = json!(run(Tools.AddComment, %{function_id: @greet, line: 7, body: unique_body()}))
+  test "publishes the session's open threads and reports where each one went" do
+    session = "mcp-publish-#{System.unique_integer([:positive])}"
+    add = &json!(run(Tools.AddComment, %{session: &1, function_id: @greet, line: 7, body: &2}))
+    thread = add.(session, unique_body())
+    elsewhere = add.("mcp-publish-other-#{System.unique_integer([:positive])}", unique_body())
 
-    body = json!(run(Tools.PublishComments, %{}))
+    body = json!(run(Tools.PublishComments, %{session: session}))
 
     assert body["pull_request"] == %{
              "number" => 42,
@@ -61,8 +64,13 @@ defmodule Grasp.MCP.PublishCommentsTest do
     assert is_list(body["skipped"])
     assert is_list(body["failed"])
     assert is_list(body["warnings"])
+    refute published(body, elsewhere["id"])
 
-    listed = json!(run(Tools.ListComments, %{function_id: @greet, include_resolved: true}))
+    listed =
+      json!(
+        run(Tools.ListComments, %{session: session, function_id: @greet, include_resolved: true})
+      )
+
     listed = Enum.find(listed["comments"], &(&1["id"] == thread["id"]))
 
     assert listed["github_url"] == published(body, thread["id"])["url"]
@@ -70,7 +78,7 @@ defmodule Grasp.MCP.PublishCommentsTest do
 
   test "answers the failure when the branch has no pull request" do
     assert %Response{isError: true, content: [%{"text" => text}]} =
-             run(Tools.PublishComments, %{pull_request: 404})
+             run(Tools.PublishComments, %{session: "default", pull_request: 404})
 
     assert text =~ "no pull requests"
   end
@@ -78,16 +86,16 @@ defmodule Grasp.MCP.PublishCommentsTest do
   test "answers a number no pull request can have rather than raising" do
     for number <- [0, -1] do
       assert %Response{isError: true, content: [%{"text" => text}]} =
-               run(Tools.PublishComments, %{pull_request: number})
+               run(Tools.PublishComments, %{session: "default", pull_request: number})
 
       assert text == "pull_request must be a positive number"
     end
   end
 
-  test "the schema takes a pull request number and a resolved switch, neither required" do
+  test "the schema takes a session, a pull request number and a resolved switch" do
     schema = Tools.PublishComments.input_schema()
 
-    refute schema["required"]
+    assert schema["required"] == ["session"]
     assert schema["properties"]["pull_request"]["type"] == "integer"
     assert schema["properties"]["include_resolved"]["description"] =~ "default false"
   end

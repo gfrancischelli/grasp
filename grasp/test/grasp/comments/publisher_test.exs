@@ -56,7 +56,7 @@ defmodule Grasp.Comments.PublisherTest do
       body = unique_body()
       thread = open(%{function_id: @greet, line: 7, body: body})
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
 
       assert report.pull_request == %{
                number: 42,
@@ -82,7 +82,7 @@ defmodule Grasp.Comments.PublisherTest do
       body = unique_body()
       thread = open(%{function_id: @greet, line: 6, end_line: 8, body: body})
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
       assert %{kind: :line} = entry(report.published, thread.id)
 
       call = api_call(log, body)
@@ -99,7 +99,7 @@ defmodule Grasp.Comments.PublisherTest do
       body = unique_body()
       thread = open(%{function_id: @greet, line: 6, end_line: 10, body: body})
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
       assert %{kind: :file} = entry(report.published, thread.id)
 
       call = api_call(log, body)
@@ -111,8 +111,8 @@ defmodule Grasp.Comments.PublisherTest do
     test "skips a thread it has already published", %{index: index} do
       thread = open(%{function_id: @greet, line: 7})
 
-      assert {:ok, _report} = Publisher.publish(index)
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, _report} = Publisher.publish(index, session: "default")
+      assert {:ok, report} = Publisher.publish(index, session: "default")
 
       assert entry(report.skipped, thread.id) == %{
                comment_id: thread.id,
@@ -129,7 +129,7 @@ defmodule Grasp.Comments.PublisherTest do
       body = unique_body()
       thread = open(%{function_id: @shout, line: 9, author: "agent", body: body})
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
       assert %{kind: :file} = entry(report.published, thread.id)
 
       call = api_call(log, body)
@@ -154,7 +154,7 @@ defmodule Grasp.Comments.PublisherTest do
           snippet: "def shout(text), do: text"
         })
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
       assert %{kind: :file} = entry(report.published, thread.id)
 
       call = api_call(log, body)
@@ -171,7 +171,7 @@ defmodule Grasp.Comments.PublisherTest do
       thread = open(%{function_id: @greet, line: 7, body: body})
       {:ok, _thread} = Comments.reply(thread.id, %{body: reply_body, author: "agent"})
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
       assert entry(report.published, thread.id)
       refute Enum.any?(report.warnings, &(&1 =~ "comment #{thread.id}"))
 
@@ -188,7 +188,7 @@ defmodule Grasp.Comments.PublisherTest do
     test "reports a comment GitHub refuses and leaves it unstamped", %{index: index} do
       thread = open(%{function_id: @greet, line: 7, body: "GHFAIL"})
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
       assert %{error: error} = entry(report.failed, thread.id)
       assert error =~ "422"
       refute entry(report.published, thread.id)
@@ -200,7 +200,7 @@ defmodule Grasp.Comments.PublisherTest do
       thread = open(%{function_id: @greet, line: 7})
       gone = %Index{index | functions: Map.delete(index.functions, @greet)}
 
-      assert {:ok, report} = Publisher.publish(gone)
+      assert {:ok, report} = Publisher.publish(gone, session: "default")
 
       assert entry(report.failed, thread.id) == %{
                comment_id: thread.id,
@@ -209,7 +209,7 @@ defmodule Grasp.Comments.PublisherTest do
     end
 
     test "answers the failure when the checkout has no pull request", %{index: index} do
-      assert {:error, message} = Publisher.publish(index, pull_request: 404)
+      assert {:error, message} = Publisher.publish(index, session: "default", pull_request: 404)
       assert message =~ "no pull requests"
     end
 
@@ -220,21 +220,22 @@ defmodule Grasp.Comments.PublisherTest do
       gone = Path.join(tmp_dir, "moved-away")
       elsewhere = %Index{index | project: Map.put(index.project, "root", gone)}
 
-      assert Publisher.publish(elsewhere) ==
+      assert Publisher.publish(elsewhere, session: "default") ==
                {:error, "project root #{gone} is not a directory on this machine"}
     end
 
     test "answers the failure when the index names no project root", %{index: %Index{} = index} do
       rootless = %Index{index | project: Map.delete(index.project, "root")}
 
-      assert Publisher.publish(rootless) == {:error, "the index names no project root"}
+      assert Publisher.publish(rootless, session: "default") ==
+               {:error, "the index names no project root"}
     end
 
     test "refuses a number no pull request can have", %{index: index} do
-      assert Publisher.publish(index, pull_request: 0) ==
+      assert Publisher.publish(index, session: "default", pull_request: 0) ==
                {:error, "pull_request must be a positive number"}
 
-      assert Publisher.publish(index, pull_request: -1) ==
+      assert Publisher.publish(index, session: "default", pull_request: -1) ==
                {:error, "pull_request must be a positive number"}
     end
 
@@ -242,10 +243,10 @@ defmodule Grasp.Comments.PublisherTest do
       thread = open(%{function_id: @greet, line: 7})
       {:ok, _thread} = Comments.set_resolved(thread.id, true)
 
-      assert {:ok, report} = Publisher.publish(index)
+      assert {:ok, report} = Publisher.publish(index, session: "default")
       refute entry(report.published, thread.id)
 
-      assert {:ok, report} = Publisher.publish(index, include_resolved: true)
+      assert {:ok, report} = Publisher.publish(index, session: "default", include_resolved: true)
       assert %{kind: :line} = entry(report.published, thread.id)
     end
 
@@ -254,12 +255,30 @@ defmodule Grasp.Comments.PublisherTest do
     } do
       headless = %Index{index | git: Map.put(index.git, "head", "")}
 
-      assert {:ok, report} = Publisher.publish(headless)
+      assert {:ok, report} = Publisher.publish(headless, session: "default")
       assert Enum.any?(report.warnings, &(&1 =~ "the pull request head is 0000000"))
     end
 
+    test "publishes the threads of the session named and no other's", %{index: index, log: log} do
+      body = unique_body()
+      other_body = unique_body()
+      session = "publish-#{System.unique_integer([:positive])}"
+      thread = open(%{session: session, function_id: @greet, line: 7, body: body})
+      other = open(%{session: "#{session}-other", function_id: @greet, line: 7, body: other_body})
+
+      assert {:ok, report} = Publisher.publish(index, session: session)
+
+      assert %{kind: :line} = entry(report.published, thread.id)
+      refute entry(report.published, other.id)
+      refute entry(report.skipped, other.id)
+      refute entry(report.failed, other.id)
+      assert api_call(log, body)
+      refute api_call(log, other_body)
+      assert {:ok, %{github: nil}} = Comments.fetch(other.id)
+    end
+
     test "warns when the index was built at another commit", %{index: index} do
-      assert {:ok, report} = Publisher.publish(index, pull_request: 99)
+      assert {:ok, report} = Publisher.publish(index, session: "default", pull_request: 99)
 
       assert [warning] = Enum.filter(report.warnings, &(&1 =~ "9999999"))
       assert warning =~ "0000000"

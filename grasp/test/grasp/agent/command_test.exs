@@ -78,6 +78,16 @@ defmodule Grasp.Agent.CommandTest do
     assert prompt =~ "set_cards"
   end
 
+  test "system_prompt/3 names the session the agent must pass to every comment tool" do
+    for mode <- ~w(read edit) do
+      prompt = Command.system_prompt("s1", mode, "mix grasp.index")
+
+      assert prompt =~
+               ~s(Pass session: "s1" to every comment tool as well: list_comments, add_comment, ) <>
+                 ~s(reply_comment, resolve_comment, publish_comments, and get_function)
+    end
+  end
+
   test "system_prompt/3 asks for a group per flow when several flows are wanted" do
     prompt = Command.system_prompt("s1", "read", "mix grasp.index")
 

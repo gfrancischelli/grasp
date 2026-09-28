@@ -451,9 +451,10 @@ poll) and broadcasts the reload.
   every line or only the changed hunks with three lines of context, `:auto` resolving to
   `:hunks` when the function is longer than 100 lines and to `:full` otherwise.
 - `focus`: the focused card id.
-- Review comments are not session state: they belong to the code under review and live in
-  `Grasp.Comments` (see [Comments](#comments)), so every session on the project reads the
-  same threads.
+- Review comments are not part of the forest, but they belong to the session: they live in
+  `Grasp.Comments` (see [Comments](#comments)), each thread recording the session it was
+  written in, and a session shows, lists and publishes only its own threads. Deleting a
+  session deletes its threads.
 
 Every mutation broadcasts on `session:<name>` and schedules a write of
 `<project.root>/.grasp/sessions/<name>.json`, coalesced: the first mutation after a write starts a
@@ -846,9 +847,18 @@ A reviewer comments on a line of a card the way a pull request is commented on, 
 agent reads, answers and resolves those comments over MCP — so "address every comment and
 redraw the flow" is one prompt in the chat panel.
 
+- **Sessions.** A thread belongs to the session it was written in. Two sessions on one
+  checkout are two reviews, and each is its own conversation, so every read and write of a
+  thread names a session: the viewer reads its own session's threads, the comment tools
+  take a `session`, and `publish_comments` posts one session's threads. Ids are unique across
+  the store, so an id naming another session's thread is refused as unknown
+  (`Grasp.Comments.fetch/2`). `Grasp.Session.delete/1` deletes the session's threads
+  (`Grasp.Comments.delete_session/1`).
 - **Store.** `Grasp.Comments` is one GenServer for the project, started after the index
-  store. A thread is `%{id, function_id, side, line, snippet, body, author, created_at,
-  resolved, replies}`: `side` is `"new"` for a line of the current source, numbered as the
+  store. A thread is `%{id, session, function_id, side, line, snippet, body, author,
+  created_at, resolved, replies}`: `session` is the name of the session it was written in,
+  a name a session can carry, and a thread with no `session` in the file belongs to
+  `default`; `side` is `"new"` for a line of the current source, numbered as the
   file is, or `"old"` for a line the diff deleted, numbered from 1 within `base_source` as
   the diff view numbers them; `snippet` is the trimmed text of the line when the comment
   was made; `author` is `"human"` or `"agent"`; `created_at` is ISO 8601 UTC; `edited_at`
@@ -858,7 +868,8 @@ redraw the flow" is one prompt in the chat panel.
   always the first line's text, which is what re-anchoring reads; `github` is `nil` until the thread is published to a
   pull request, then `%{id, url, published_at}` — the review comment's id and link, kept
   so a second publish skips it. Ids are never reused. A body is stored trimmed and may
-  not be blank. Every change broadcasts `:comments_changed` on the `"comments"` topic and
+  not be blank. Every change broadcasts `{:comments_changed, session}` on the `"comments"`
+  topic, naming the session whose threads changed so a view refreshes only for its own, and
   rewrites `<project.root>/.grasp/comments.json` (`version`, `next_id`, `comments`), which is
   read back when the viewer starts, so comments outlive the viewer and travel with the
   checkout. When the root the index names is not a directory on this machine the store
@@ -891,17 +902,18 @@ redraw the flow" is one prompt in the chat panel.
   (`composing`), so one composer is open at a time. In signature mode threads and composers
   go with the body they hang under. The body is a `div` of block
   `span.line`s, no longer a `pre`, so a thread can sit between two lines.
-- **Sidebar.** A Comments group heads the sidebar when there are open threads, counting
+- **Sidebar.** A Comments group heads the sidebar when the session has open threads, counting
   them, one row per thread under its module — `name/arity · L12` and the first words of
   the body — that opens the function's card and highlights the line. It opens on arrival
   whenever it has rows, as Changes does, and is recomputed with the other defaults at mount
   and on an index reload only; a comment made later does not reopen a group the reader
   closed.
 - **Agent.** `list_comments`, `add_comment`, `reply_comment` and `resolve_comment` (Part 3)
-  give the agent the threads, with each one's placement, and `get_function` carries a
-  function's open threads. The system prompt tells the agent what a comment is and how to
-  answer one; in *edit mode* (see the chat panel) it can also act on one.
-- **Publishing.** `publish_comments` (Part 3) posts the open threads to the pull request
+  give the agent one session's threads, with each one's placement, and `get_function`
+  carries a function's open threads in the session it names. The system prompt names the
+  session for the comment tools as it does for the card tools, tells the agent what a
+  comment is and how to answer one; in *edit mode* (see the chat panel) it can also act on one.
+- **Publishing.** `publish_comments` (Part 3) posts one session's open threads to the pull request
   of the current branch as GitHub review comments through `gh`, so a review done in Grasp
   ends up where the author reads it. A thread on the `"new"` side whose line falls inside
   the pull request's diff (the changed lines and the context GitHub shows around them) is
@@ -1080,9 +1092,9 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
   so a thread addressed in place goes to the footer as outdated once the index is rebuilt.
   That is what GitHub does with an outdated comment, and the reply the agent leaves says
   what changed.
-- **One store per project root.** Comments are keyed by function id, not by branch, so a
-  checkout that switches branches under a running viewer shows one branch's threads over
-  the other's code until they are resolved or deleted.
+- **One store per project root.** Comments are keyed by session and function id, not by
+  branch, so a checkout that switches branches under a running viewer shows one branch's
+  threads over the other's code until they are resolved or deleted.
 - **Frames overlap when cards are dragged across.** A frame follows its cards wherever they
   go, so two frames can cover the same ground; nothing pushes them apart, and a drop inside
   both joins the later section. Reset layout untangles them.
@@ -1230,11 +1242,11 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
 - **Publishing is one way.** Replies and resolutions made on GitHub after publishing do not
   come back into `.grasp/comments.json`; a thread published once is never posted again,
   even if its Grasp replies grew since.
-- **Publishing takes the whole store.** `publish_comments` posts every open thread in
-  `.grasp/comments.json`, including ones written against another branch that were never
-  resolved, and the stamp is per thread, not per pull request — a thread that landed on the
-  wrong pull request cannot be published again to the right one. Resolve or delete threads
-  from an earlier review before publishing the next.
+- **Publishing takes the whole session.** `publish_comments` posts every open thread of the
+  session, including ones written against another branch that were never resolved, and the
+  stamp is per thread, not per pull request — a thread that landed on the wrong pull request
+  cannot be published again to the right one. Review each pull request in a session of its
+  own, or resolve or delete an earlier review's threads before publishing the next.
 - **The launcher needs git and the network on first run.** Closed in milestone 7: the
   launcher is gone. `mix grasp.serve` clones the
   viewer and downloads its dependencies and esbuild once; after that it runs offline. The
@@ -1315,21 +1327,25 @@ first reference. Results are JSON text content, so any MCP client can read them.
   else is a tool error naming the function. `set_view` also takes `context` — `"hunks"`,
   `"full"` or `"auto"` — deciding whether the diff shows every line or only the changed
   hunks with context (see [Highlighting and diffs](#highlighting-and-diffs)).
-- Comments add four tools, none of which takes a session: `list_comments(function_id?,
-  include_resolved?)` answers `total` and the threads sorted by id — each with its fields,
+- Comments add four tools, each taking a required `session`, the session whose threads it
+  acts on, described from the same name rule as the card tools' `session` but with no
+  default: `list_comments(session, function_id?, include_resolved?)` answers `total` and
+  that session's threads sorted by id — each with its fields,
   the function's `file`, its `status` (`anchored`, `outdated` or `orphan`) and the
-  `anchored_line` it is shown at (null when not anchored); `add_comment(function_id, line,
-  body, side?)` leaves a thread as the agent (`author: "agent"`) on a line of the function's
+  `anchored_line` it is shown at (null when not anchored); `add_comment(session, function_id,
+  line, body, side?)` leaves a thread in that session as the agent (`author: "agent"`) on a line of the function's
   current source (`side` `"new"`, the default) or of its base source (`"old"`), taking the
   snippet from the index, and is a tool error naming the function and its span when the
   line is outside it; `end_line` (optional, greater than `line`, inside the span) makes it
-  a ranged thread, and every thread carries `end_line` in its map; `reply_comment(comment_id, body)` appends a reply as the agent;
-  `resolve_comment(comment_id, resolved?)` resolves (default) or reopens a thread. Unknown
-  ids and blank bodies are tool errors. `get_function` carries `comments`, the function's
-  open threads with the same fields, and every thread carries `github_url` (null until
+  a ranged thread, and every thread carries `end_line` in its map; `reply_comment(session, comment_id, body)` appends a reply as the agent;
+  `resolve_comment(session, comment_id, resolved?)` resolves (default) or reopens a thread.
+  Unknown ids, ids of another session's threads (the same `unknown comment` error), blank
+  bodies and names no session can carry are tool errors. `get_function` takes an optional
+  `session` and carries `comments`, the function's open threads in that session with the
+  same fields — none when no session is named — and every thread carries `github_url` (null until
   published). There is no tool that deletes a comment: what a reviewer wrote is theirs to
   remove, from the card.
-- `publish_comments(pull_request?, include_resolved?)` posts the threads to a pull request
+- `publish_comments(session, pull_request?, include_resolved?)` posts the session's threads to a pull request
   (see [Comments](#comments), Publishing). Without `pull_request` it takes the one open for
   the current branch (`gh pr view --json`). It reads the pull request's diff (`gh pr diff`)
   to decide which threads can be line comments, posts each unpublished thread with

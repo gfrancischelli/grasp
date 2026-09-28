@@ -100,7 +100,8 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
 - `search_functions` — find functions by name. An exact `Module.fun/arity` ranks first, then
   ids containing the query, then a fuzzy match.
 - `get_function` — one function's source, span, calls, callers, callees, the entry points
-  that reach it, and the review comments still open on its lines.
+  that reach it, and, given a `session`, that session's review comments still open on its
+  lines.
 - `get_callers` / `get_callees` — one hop up or down the call graph.
 - `find_paths` — shortest call paths down to a function, from another function or, with no
   `from`, from whatever entry points reach it. Each path reads in call order and carries the
@@ -145,21 +146,29 @@ canvas at `/grasp/s/<name>` and is created on first mention.
 
 ### Comments
 
-- `list_comments` — the review threads written on the project's lines, the reviewer's and the
-  agent's own, with their replies. Open threads only unless `include_resolved` is set. Each
+Every comment tool takes a required `session`, the session whose threads it acts on. A
+comment belongs to the session it was written in, so the agent reads, writes, answers and
+publishes only the threads of the session it is driving, and a thread id of another session
+is answered as an unknown comment. The chat's system prompt names the session for the
+comment tools as it does for the card tools.
+
+- `list_comments` — the session's review threads, the reviewer's and the agent's own, with
+  their replies. Open threads only unless `include_resolved` is set. Each
   one says where it now sits: `anchored` on `anchored_line`, `outdated` when the line it was
   written on has been edited away, or `orphan` when the function has left the index.
-- `add_comment` — write a comment on a line, or on a range of lines, as the agent. `side` is
+- `add_comment` — write a comment on a line, or on a range of lines, of the session, as the
+  agent. `side` is
   `new` for the branch's code and `old` for the base version of a modified function, which is
   how a comment lands on a line the branch deleted; `end_line` covers everything from `line`
   to it, for a finding about a whole clause rather than about one line of it.
 - `reply_comment` — answer a thread, as the agent.
 - `resolve_comment` — close a thread once it is dealt with, or reopen one.
-- `publish_comments` — post the threads to a pull request as review comments, each with its
-  replies under it. See [Pull requests](pull-requests.md).
+- `publish_comments` — post the session's threads to a pull request as review comments, each
+  with its replies under it. See [Pull requests](pull-requests.md).
 
-`get_function` carries a function's open threads under `comments`, so reading the code and
-reading what the reviewer said about it is one call.
+`get_function` given a `session` carries that session's open threads on the function under
+`comments`, so reading the code and reading what the reviewer said about it is one call;
+without a `session` it carries none.
 
 ## Example prompts
 

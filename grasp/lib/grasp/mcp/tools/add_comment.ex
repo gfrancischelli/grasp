@@ -2,8 +2,9 @@ defmodule Grasp.MCP.Tools.AddComment do
   @moduledoc """
   Write a review comment on a line, or a range of lines, of a function, as the agent. The
   thread appears in the reviewer's gutter beside that code, next to the human's own comments,
-  and is kept with the project rather than with the canvas — closing the card does not lose
-  it.
+  and belongs to the review session it is written in: that session's viewer shows it, and
+  no other does. It outlives the canvas — closing the card does not lose it — and goes when
+  the session is deleted.
 
   Use it to leave a finding where the code is, rather than in prose the reviewer has to map
   back onto the file: one thread per finding, on the line it is about. The line is numbered
@@ -26,7 +27,14 @@ defmodule Grasp.MCP.Tools.AddComment do
 
   @sides ~w(new old)
 
+  @session_field Tools.comment_session_field_description()
+
   schema do
+    field(:session, :string,
+      required: true,
+      description: @session_field
+    )
+
     field(:function_id, :string,
       required: true,
       description:
@@ -58,12 +66,14 @@ defmodule Grasp.MCP.Tools.AddComment do
   def execute(%{function_id: function_id, line: line, body: body} = params, frame) do
     end_line = Map.get(params, :end_line)
 
-    with {:ok, index} <- Tools.index(),
+    with {:ok, session} <- Tools.check_session(Map.get(params, :session)),
+         {:ok, session} <- Tools.ensure_session(session),
+         {:ok, index} <- Tools.index(),
          {:ok, side} <- side(Map.get(params, :side, "new")),
          {:ok, record} <- Tools.fetch_function(index, function_id),
          :ok <- Shape.check_line(record, side, line),
          :ok <- check_end_line(record, side, line, end_line),
-         {:ok, thread} <- add(record, side, line, end_line, body) do
+         {:ok, thread} <- add(session, record, side, line, end_line, body) do
       Tools.reply(frame, Shape.thread_map(thread, index))
     else
       {:error, reason} -> Tools.error(frame, reason)
@@ -85,11 +95,10 @@ defmodule Grasp.MCP.Tools.AddComment do
 
   # The snippet is read off the record now, since it is the text the comment is about and
   # the line it sits on may be edited before anyone reads the thread. A range records its
-  # first line, which is the line the thread is anchored by. The tool names no session, so
-  # the thread is written into the default one, the session a viewer opens with.
-  defp add(record, side, line, end_line, body) do
+  # first line, which is the line the thread is anchored by.
+  defp add(session, record, side, line, end_line, body) do
     attrs = %{
-      session: "default",
+      session: session,
       function_id: record["id"],
       side: side,
       line: line,
