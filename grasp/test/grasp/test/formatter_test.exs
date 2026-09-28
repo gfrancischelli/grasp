@@ -1,6 +1,8 @@
 defmodule Grasp.Test.FormatterTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   alias Grasp.Test.Formatter
 
   @moduletag :tmp_dir
@@ -233,5 +235,26 @@ defmodule Grasp.Test.FormatterTest do
 
     assert %{tests: tests} = run_file |> File.read!() |> :erlang.binary_to_term()
     assert Map.keys(tests) == [~s(Acme.TallyTest."test counts up"/1)]
+  end
+
+  test "a run file that cannot be written is reported, and the formatter carries on",
+       %{tmp_dir: tmp_dir} do
+    blocker = Path.join(tmp_dir, "a-file")
+    File.write!(blocker, "")
+    run_file = Path.join(blocker, "run.bin")
+
+    output =
+      capture_io(:stderr, fn ->
+        {:ok, formatter} = Formatter.start_link(run_file: run_file)
+        ref = Process.monitor(formatter)
+        GenServer.cast(formatter, {:test_finished, test_named(:"test counts up", nil)})
+        GenServer.cast(formatter, {:sigquit, []})
+        GenServer.cast(formatter, {:suite_finished, %{run: 1, async: 0, load: nil}})
+        assert :ok = GenServer.stop(formatter)
+        assert_receive {:DOWN, ^ref, :process, ^formatter, :normal}
+      end)
+
+    assert output =~ "grasp: could not record this run's results: not a directory"
+    refute File.exists?(run_file)
   end
 end

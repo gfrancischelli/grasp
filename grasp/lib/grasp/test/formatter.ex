@@ -17,7 +17,8 @@ defmodule Grasp.Test.Formatter do
   document (see `Grasp.TestResults`), adding what only the index knows. The file lands
   beside its path and is renamed over it, so a file that exists holds a whole run. A suite
   interrupted by SIGQUIT never finishes; the tests it finished before the signal are written
-  when the signal arrives.
+  when the signal arrives. A run file that cannot be written is reported on stderr, and the
+  suite finishes as it would without the formatter.
 
   A result is a map with string keys, the shape the results document stores:
 
@@ -73,7 +74,9 @@ defmodule Grasp.Test.Formatter do
   def handle_cast(_event, state), do: {:noreply, state}
 
   # A suite interrupted by SIGQUIT never finishes, so the tests finished before the signal
-  # are written then; a later write of the same run replaces the file whole.
+  # are written then; a later write of the same run replaces the file whole. ExUnit stops
+  # its formatters when the suite ends, and one that crashes then takes the runner down with
+  # it, so a failed write is reported and the formatter carries on.
   defp write_run(%{run_file: run_file, tests: tests}) when is_binary(run_file) do
     run = %{
       finished_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
@@ -81,9 +84,20 @@ defmodule Grasp.Test.Formatter do
     }
 
     temporary = run_file <> ".tmp"
-    File.mkdir_p!(Path.dirname(run_file))
-    File.write!(temporary, :erlang.term_to_binary(run))
-    File.rename!(temporary, run_file)
+
+    with :ok <- File.mkdir_p(Path.dirname(run_file)),
+         :ok <- File.write(temporary, :erlang.term_to_binary(run)),
+         :ok <- File.rename(temporary, run_file) do
+      :ok
+    else
+      {:error, reason} ->
+        File.rm(temporary)
+
+        IO.puts(
+          :stderr,
+          "grasp: could not record this run's results: #{:file.format_error(reason)}"
+        )
+    end
   end
 
   defp write_run(_state), do: :ok

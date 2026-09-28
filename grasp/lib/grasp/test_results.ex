@@ -40,6 +40,11 @@ defmodule Grasp.TestResults do
   every other test's result as it stood (see `merge/3`). `"source_hash"` is the sha256 of
   the test record's `source` as the index holds it when the run is merged, so a test whose
   current `source` hashes differently reads as stale, as coverage does.
+
+  `merge_file/3` writes the document under a lock, so runs finishing together keep each
+  other's results. A document that does not decode is never discarded: it is kept beside
+  the document as `results.json.<timestamp>-<unique>.corrupt`, one file per document set
+  aside, and the results start again from the run.
   """
 
   @statuses ~w(passed failed skipped excluded invalid)
@@ -176,8 +181,9 @@ defmodule Grasp.TestResults do
   100 ms, and answers `{:error, :locked}` if it is still held. A lock older than ten minutes
   belongs to a writer that died holding it and is taken over.
 
-  A document that exists but does not decode is renamed to `path <> ".corrupt"`, replacing
-  any earlier one, and the run's results start a document of their own; one that cannot be
+  A document that exists but does not decode is renamed beside `path` to a name of its own,
+  `results.json.<timestamp>-<unique>.corrupt`, so every document set aside is kept, and the
+  run's results start a document of their own; one that cannot be
   read at all is an error, and nothing is written.
   """
   @spec merge_file(Path.t(), %{String.t() => result()}, map()) ::
@@ -201,7 +207,10 @@ defmodule Grasp.TestResults do
         {:error, reason}
 
       {:error, _undecodable} ->
-        set_aside = path <> ".corrupt"
+        stamp = DateTime.utc_now() |> Calendar.strftime("%Y%m%dT%H%M%SZ")
+
+        set_aside =
+          "#{path}.#{stamp}-#{System.pid()}-#{System.unique_integer([:positive])}.corrupt"
 
         case File.rename(path, set_aside) do
           :ok -> {:ok, new(), set_aside}

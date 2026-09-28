@@ -200,8 +200,9 @@ defmodule Mix.Tasks.Grasp.TestTest do
 
     output = run_task(["--index", index, "--out", out, @counts], fake_runner(tests, 0))
 
-    assert output =~ "it is kept as #{out}.corrupt"
-    assert File.read!(out <> ".corrupt") == "{not json"
+    assert [set_aside] = Path.wildcard(out <> ".*.corrupt")
+    assert output =~ "it is kept as #{set_aside}"
+    assert File.read!(set_aside) == "{not json"
     assert {:ok, %{"tests" => %{@counts => _}}} = Grasp.TestResults.read(out)
   end
 

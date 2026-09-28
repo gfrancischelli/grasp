@@ -212,16 +212,24 @@ defmodule Grasp.TestResultsTest do
       refute File.exists?(lock)
     end
 
-    test "a document that does not decode is set aside", %{tmp_dir: tmp_dir} do
+    test "each document that does not decode is set aside under a name of its own",
+         %{tmp_dir: tmp_dir} do
       path = Path.join(tmp_dir, "results.json")
-      File.write!(path, ~s({"version": 7}))
 
-      assert {:ok, document, set_aside} =
-               TestResults.merge_file(path, run_results("fresh", 1), meta("one", nil))
+      set_asides =
+        for text <- [~s({"version": 7}), "{not json"] do
+          File.write!(path, text)
 
-      assert set_aside == path <> ".corrupt"
-      assert File.read!(set_aside) == ~s({"version": 7})
-      assert map_size(document["tests"]) == 1
+          assert {:ok, document, set_aside} =
+                   TestResults.merge_file(path, run_results("fresh", 1), meta("one", nil))
+
+          assert map_size(document["tests"]) == 1
+          assert Path.dirname(set_aside) == tmp_dir
+          assert Path.basename(set_aside) =~ ~r/^results\.json\.\d{8}T\d{6}Z-[\d-]+\.corrupt$/
+          set_aside
+        end
+
+      assert Enum.map(set_asides, &File.read!/1) == [~s({"version": 7}), "{not json"]
     end
   end
 end
