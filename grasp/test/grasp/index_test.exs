@@ -524,6 +524,50 @@ defmodule Grasp.IndexTest do
     end
   end
 
+  describe "changed_tests/2" do
+    test "is the changed tests reaching a changed function, nearest first" do
+      index =
+        reach_index([
+          changed(record("MyApp.Wallets.credit/2"), "modified"),
+          changed(
+            record("MyApp.Wallets.post/1", "MyApp.Wallets", ["MyApp.Wallets.credit/2"]),
+            "unchanged"
+          ),
+          changed(
+            test_record("MyApp.WalletsTest", "posts", ["MyApp.Wallets.post/1"]),
+            "modified"
+          ),
+          changed(
+            test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"]),
+            "added"
+          ),
+          changed(
+            test_record("MyApp.WalletsTest", "keeps", ["MyApp.Wallets.credit/2"]),
+            "unchanged"
+          )
+        ])
+
+      assert ids(Index.changed_tests(index, "MyApp.Wallets.credit/2")) == [
+               test_id("MyApp.WalletsTest", "credits"),
+               test_id("MyApp.WalletsTest", "posts")
+             ]
+    end
+
+    test "answers nothing for a function the branch did not change" do
+      index =
+        reach_index([
+          changed(record("MyApp.Wallets.credit/2"), "unchanged"),
+          changed(
+            test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"]),
+            "added"
+          )
+        ])
+
+      assert Index.changed_tests(index, "MyApp.Wallets.credit/2") == []
+      assert Index.changed_tests(index, "MyApp.Wallets.missing/0") == []
+    end
+  end
+
   describe "untested_changes/1" do
     test "is the added and modified application functions no test reaches, sorted by id" do
       index =

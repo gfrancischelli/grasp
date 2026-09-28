@@ -30,6 +30,12 @@ defmodule GraspWeb.Sidebar do
   on arrival whenever there is one, and is absent from a review with nothing to show — no
   base ref, or a branch that changed nothing.
 
+  Under each changed application function the Changes group lists, indented, the changed
+  tests that reach it, so code and tests changed together read as pairs; a changed function
+  no test reaches is marked `untested` instead, and the Untested changes group after it lists
+  those functions under their modules, opening on arrival whenever there is one. Both
+  answers are read from the index, which walks back from the changes once when it is built.
+
   Above even that is the Comments group, the unresolved review threads of the session being
   read, under the modules they were written on. A thread is a question waiting on someone, so it
   leads; the row carries the function, the line and the opening words of the body, and
@@ -72,7 +78,7 @@ defmodule GraspWeb.Sidebar do
   ]
 
   @known_kinds Enum.flat_map(@groups, fn {_kind, _title, kinds} -> kinds end)
-  @group_kinds ["comments", "changes"] ++
+  @group_kinds ["comments", "changes", "untested"] ++
                  Enum.map(@groups, fn {kind, _title, _kinds} -> kind end) ++
                  ~w(other tests modules)
 
@@ -94,7 +100,7 @@ defmodule GraspWeb.Sidebar do
 
   An open thread is someone waiting on an answer, so the comments open while any is left.
   What the branch changed is why a reviewer is here at all, so it opens whenever there is
-  any. The routes are the table of contents of a web app, so they open while they still
+  any, and so do the changes no test reaches. The routes are the table of contents of a web app, so they open while they still
   read as one; a project with no entry points at all is a library, where the module list is
   the only way in.
   """
@@ -116,6 +122,12 @@ defmodule GraspWeb.Sidebar do
       case Index.changed_functions(index) do
         [] -> entries
         _changes -> MapSet.put(entries, "changes")
+      end
+
+    entries =
+      case Index.untested_changes(index) do
+        [] -> entries
+        _untested -> MapSet.put(entries, "untested")
       end
 
     if open_threads > 0, do: MapSet.put(entries, "comments"), else: entries
@@ -210,6 +222,7 @@ defmodule GraspWeb.Sidebar do
   def entry_groups(assigns) do
     index = assigns.index
     changes = Index.changed_functions(index)
+    untested = Index.untested_changes(index)
     threads = open_threads(assigns.comments)
     tests = Index.tests(index)
     suite = MapSet.new(tests, & &1.module)
@@ -224,6 +237,9 @@ defmodule GraspWeb.Sidebar do
           tests |> Enum.flat_map(& &1.describes) |> Enum.map(&length(elem(&1, 1))) |> Enum.sum(),
         changes: changes_by_module(changes),
         change_count: length(changes),
+        untested: changes_by_module(untested),
+        untested_ids: MapSet.new(untested, & &1["id"]),
+        untested_count: length(untested),
         threads: rows_by_module(threads, assigns.index),
         thread_count: length(threads)
       )
@@ -271,6 +287,52 @@ defmodule GraspWeb.Sidebar do
         >
           <div :for={{module, records} <- @changes} class="group__module">
             <h2 class="group__heading">{module}</h2>
+            <%= for record <- records do %>
+              <button
+                class={
+                  if MapSet.member?(@untested_ids, record["id"]),
+                    do: "entry entry--untested",
+                    else: "entry"
+                }
+                phx-click="open_root"
+                phx-value-id={record["id"]}
+                title={record["id"]}
+              >
+                <.change_badge change={record["change"]} /><.test_badge kind={record["kind"]} />{title(
+                  record
+                ).name}<span
+                  :if={MapSet.member?(@untested_ids, record["id"])}
+                  class="badge badge--untested"
+                  data-untested
+                >untested</span>
+              </button>
+              <button
+                :for={test <- Index.changed_tests(@index, record["id"])}
+                class="entry entry--paired"
+                phx-click="open_root"
+                phx-value-id={test["id"]}
+                title={test["id"]}
+              >
+                <.change_badge change={test["change"]} /><.test_badge kind="test" />{full_title(test)}
+              </button>
+            <% end %>
+          </div>
+        </div>
+      </section>
+      <section :if={@untested != []} class="group" data-kind="untested">
+        <.group_title
+          kind="untested"
+          title="Untested changes"
+          count={@untested_count}
+          open?={open?(@expanded, "untested")}
+        />
+        <div
+          id="group-untested"
+          class="group__body"
+          hidden={not open?(@expanded, "untested")}
+        >
+          <div :for={{module, records} <- @untested} class="group__module">
+            <h2 class="group__heading">{module}</h2>
             <button
               :for={record <- records}
               class="entry"
@@ -278,9 +340,7 @@ defmodule GraspWeb.Sidebar do
               phx-value-id={record["id"]}
               title={record["id"]}
             >
-              <.change_badge change={record["change"]} /><.test_badge kind={record["kind"]} />{title(
-                record
-              ).name}
+              <.change_badge change={record["change"]} />{title(record).name}
             </button>
           </div>
         </div>
@@ -500,6 +560,13 @@ defmodule GraspWeb.Sidebar do
       {head, ""} -> head
       {head, _rest} -> head <> "…"
     end
+  end
+
+  # A paired test sits under the function it reaches rather than under its own module, so it
+  # is named as its card names it, module or describe included.
+  defp full_title(record) do
+    %{module: module, separator: separator, name: name} = title(record)
+    "#{module}#{separator}#{name}"
   end
 
   # Changed functions arrive sorted by id, which orders each module's rows the way the

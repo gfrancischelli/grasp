@@ -36,7 +36,9 @@ defmodule Grasp.Index do
             callers: %{},
             entry_points_by_target: %{},
             tests: [],
-            tests_by_module: %{}
+            tests_by_module: %{},
+            untested: [],
+            changed_tests: %{}
 
   @type function_record :: %{required(String.t()) => term()}
   @type t :: %__MODULE__{
@@ -52,7 +54,9 @@ defmodule Grasp.Index do
           callers: %{String.t() => [String.t()]},
           entry_points_by_target: %{String.t() => [map()]},
           tests: [test_module()],
-          tests_by_module: %{String.t() => [String.t()]}
+          tests_by_module: %{String.t() => [String.t()]},
+          untested: [String.t()],
+          changed_tests: %{String.t() => [String.t()]}
         }
 
   @doc "Reads and decodes an index document from `path`."
@@ -137,7 +141,22 @@ defmodule Grasp.Index do
       |> Enum.filter(&(&1["kind"] == "test"))
       |> Enum.group_by(& &1["module"], & &1["id"])
 
-    %{index | tests: test_modules(index), tests_by_module: tests_by_module}
+    index = %{index | tests: test_modules(index), tests_by_module: tests_by_module}
+
+    # The branch's changes are known once the records are, and they are few beside the
+    # codebase: walking back from each once here answers every render of the review.
+    reach = Map.new(changed_application_functions(index), &{&1["id"], tests_for(index, &1["id"])})
+
+    changed_tests =
+      for {id, tests} <- reach,
+          changed = for(%{test: test} <- tests, changed_test?(index, test), do: test),
+          changed != [],
+          into: %{},
+          do: {id, changed}
+
+    untested = for {id, []} <- reach, do: id
+
+    %{index | untested: Enum.sort(untested), changed_tests: changed_tests}
   end
 
   defp arities(record) do
@@ -242,18 +261,42 @@ defmodule Grasp.Index do
   A function counts when `changed_functions/1` lists it as added or modified, it is not a
   test or a setup, and its file lies outside the project's `test_paths`. A removed function
   has no body left for a test to reach, so it never counts. An index built without a base
-  ref marks no function added or modified and answers `[]`.
+  ref marks no function added or modified and answers `[]`. The list is computed once, when
+  the index is built from its document.
   """
   @spec untested_changes(t()) :: [function_record()]
-  def untested_changes(%__MODULE__{} = index) do
+  def untested_changes(%__MODULE__{} = index),
+    do: Enum.map(index.untested, &Map.fetch!(index.functions, &1))
+
+  @doc """
+  The tests the branch added, modified or removed that reach the changed application
+  function `id` within `tests_for/3`'s default bound, nearest first and then by id.
+
+  The functions answered for are `untested_changes/1`'s: added or modified, not a test or a
+  setup, outside the project's `test_paths`. Any other id, and a changed function no changed
+  test reaches, answers `[]`. Like `untested_changes/1`, the answer is computed once, when
+  the index is built from its document.
+  """
+  @spec changed_tests(t(), String.t()) :: [function_record()]
+  def changed_tests(%__MODULE__{} = index, id) do
+    index.changed_tests |> Map.get(id, []) |> Enum.map(&Map.fetch!(index.functions, &1))
+  end
+
+  defp changed_application_functions(index) do
     index
     |> changed_functions()
     |> Enum.filter(fn record ->
       record["change"] in ~w(added modified) and record["removed"] != true and
-        record["kind"] not in ["test", "setup"] and not test_file?(index, record["file"]) and
-        tests_for(index, record["id"]) == []
+        record["kind"] not in ["test", "setup"] and not test_file?(index, record["file"])
     end)
   end
+
+  defp changed_test?(index, id),
+    do:
+      match?(
+        %{"kind" => "test", "change" => change} when change in ~w(added modified removed),
+        index.functions[id]
+      )
 
   @typedoc """
   One test module as the sidebar lists it: its name, the file it is written in, its setup

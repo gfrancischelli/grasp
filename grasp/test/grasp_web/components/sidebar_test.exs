@@ -5,6 +5,7 @@ defmodule GraspWeb.SidebarTest do
   alias GraspWeb.Sidebar
 
   @greet "SampleApp.Greeter.greet/2"
+  @credits ~s|SampleApp.WalletsTest."test credits a wallet"/1|
 
   @entry_kinds ~w(route live_route oban_worker live_view live_component genserver supervisor
                   application plug)
@@ -172,6 +173,116 @@ defmodule GraspWeb.SidebarTest do
     assert MapSet.member?(expanded, "routes")
 
     refute [] |> index(unchanged: true) |> Sidebar.default_expanded() |> MapSet.member?("changes")
+  end
+
+  describe "a review against a base ref, with the tests that reach its changes" do
+    setup do
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "functions" => [
+            changed(function("credit/2"), "modified"),
+            changed(function("debit/2"), "modified"),
+            changed(function("audit/1"), "added"),
+            changed(test_function("credits a wallet", ["SampleApp.Wallets.credit/2"]), "added"),
+            changed(test_function("debits a wallet", ["SampleApp.Wallets.debit/2"]), "unchanged")
+          ]
+        })
+
+      %{index: index}
+    end
+
+    test "marks the changed function no test reaches as untested", %{index: index} do
+      changes = index |> render_sidebar(MapSet.new(["changes"])) |> group_body("changes")
+
+      assert changes =~
+               ~r|<button class="entry entry--untested"[^>]*phx-value-id="SampleApp.Wallets.audit/1"|
+
+      assert changes =~ ~s|data-untested|
+      refute changes =~ ~r|entry--untested"[^>]*phx-value-id="SampleApp.Wallets.credit/2"|
+      refute changes =~ ~r|entry--untested"[^>]*phx-value-id="SampleApp.Wallets.debit/2"|
+    end
+
+    test "lists the untested changes in a group of their own, after Changes", %{index: index} do
+      html = render_sidebar(index, MapSet.new(["changes", "untested"]))
+
+      assert before?(html, ~s|data-kind="changes"|, ~s|data-kind="untested"|)
+      assert html =~ ~s|Untested changes<span class="group__count">1</span>|
+
+      untested = group_body(html, "untested")
+      assert untested =~ ~s|class="group__heading">SampleApp.Wallets</h2>|
+      assert untested =~ ~s|phx-click="open_root"|
+      assert untested =~ ~s|phx-value-id="SampleApp.Wallets.audit/1"|
+      refute untested =~ "credit/2"
+      refute untested =~ "debit/2"
+    end
+
+    test "pairs a changed function with the changed test that reaches it", %{index: index} do
+      changes = index |> render_sidebar(MapSet.new(["changes"])) |> group_body("changes")
+
+      [_before, credit] = String.split(changes, ~s|phx-value-id="SampleApp.Wallets.credit/2"|)
+      [paired, debit] = String.split(credit, ~s|phx-value-id="SampleApp.Wallets.debit/2"|)
+
+      assert paired =~ ~s|class="entry entry--paired"|
+      assert paired =~ ~s|phx-value-id="#{html_escape(@credits)}"|
+      assert paired =~ "SampleApp.WalletsTest › credits a wallet"
+
+      refute debit =~ "entry--paired"
+      refute changes =~ "debits a wallet"
+    end
+
+    test "opens the untested changes on arrival", %{index: index} do
+      assert index |> Sidebar.default_expanded() |> MapSet.member?("untested")
+      assert "untested" in Sidebar.group_kinds()
+    end
+
+    test "has no Untested changes group when every change is reached" do
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "functions" => [
+            changed(function("credit/2"), "modified"),
+            changed(test_function("credits a wallet", ["SampleApp.Wallets.credit/2"]), "added")
+          ]
+        })
+
+      refute index |> render_sidebar(MapSet.new(["untested"])) =~ ~s|data-kind="untested"|
+      refute index |> Sidebar.default_expanded() |> MapSet.member?("untested")
+    end
+  end
+
+  defp function(name_arity) do
+    [name, arity] = String.split(name_arity, "/")
+
+    %{
+      "id" => "SampleApp.Wallets.#{name_arity}",
+      "kind" => "def",
+      "module" => "SampleApp.Wallets",
+      "name" => name,
+      "arity" => String.to_integer(arity),
+      "calls" => []
+    }
+  end
+
+  defp test_function(name, calls) do
+    %{
+      "id" => ~s|SampleApp.WalletsTest."test #{name}"/1|,
+      "kind" => "test",
+      "module" => "SampleApp.WalletsTest",
+      "name" => "test #{name}",
+      "arity" => 1,
+      "test" => %{"describe" => nil, "name" => name, "tags" => []},
+      "calls" => Enum.map(calls, &%{"target" => &1, "kind" => "remote"})
+    }
+  end
+
+  defp changed(record, change), do: Map.put(record, "change", change)
+
+  defp html_escape(text), do: text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+  defp group_body(html, kind) do
+    [_before, body] = String.split(html, ~s|<div id="group-#{kind}"|, parts: 2)
+    body |> String.split("</section>", parts: 2) |> hd()
   end
 
   # The fixture is the only index with entry points of every kind, so kinds are removed

@@ -309,6 +309,16 @@ kbd {
 .entry--orphan {
   color: var(--fg-faint);
 }
+.entry--paired {
+  padding-inline-start: calc(var(--space-m) + var(--space-l));
+  color: var(--fg-muted);
+}
+.entry .badge--untested {
+  margin-inline-start: var(--space-xs);
+  font-size: 10px;
+  background: var(--diff-del-bg);
+  color: var(--diff-del-fg);
+}
 .entry__excerpt {
   color: var(--fg-muted);
   font-family: var(--sans);
