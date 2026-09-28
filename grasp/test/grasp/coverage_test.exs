@@ -44,6 +44,11 @@ defmodule Grasp.CoverageTest do
     )
   end
 
+  defp entries(records) do
+    counts = %{{"Acme.Tally", "next", 1} => %{3 => 1}, {"Acme.Tally", "reset", 0} => %{6 => 1}}
+    Coverage.build(index(records), counts, @meta)
+  end
+
   describe "build/3" do
     test "keeps each function's counted lines inside its span, as offsets from its start" do
       next = record("Acme.Tally.next/1", "lib/acme/tally.ex", 2, 4, %{"source" => @next_source})
@@ -113,6 +118,87 @@ defmodule Grasp.CoverageTest do
     end
   end
 
+  describe "in_checkout/3" do
+    @tally_file """
+    defmodule Acme.Tally do
+      def next(count) when count >= 0 do
+        count + 1
+      end
+
+      def reset, do: 0
+    end
+    """
+
+    @tag :tmp_dir
+    test "keeps an entry whose source is its file's text at its span, and drops one that differs",
+         %{tmp_dir: tmp_dir} do
+      File.mkdir_p!(Path.join(tmp_dir, "lib/acme"))
+      File.write!(Path.join(tmp_dir, "lib/acme/tally.ex"), @tally_file)
+
+      next =
+        record("Acme.Tally.next/1", "lib/acme/tally.ex", 2, 4, %{
+          "source" => "  def next(count) when count >= 0 do\n    count + 1\n  end"
+        })
+
+      reset =
+        record("Acme.Tally.reset/0", "lib/acme/tally.ex", 6, 6, %{
+          "source" => "  def reset, do: 1"
+        })
+
+      document = entries([next, reset])
+      assert map_size(document["functions"]) == 2
+
+      {kept, skipped} = Coverage.in_checkout(document, index([next, reset]), tmp_dir)
+
+      assert Map.keys(kept["functions"]) == ["Acme.Tally.next/1"]
+      assert kept["functions"]["Acme.Tally.next/1"] == document["functions"]["Acme.Tally.next/1"]
+      assert skipped == 1
+    end
+
+    @tag :tmp_dir
+    test "drops an entry whose file is missing from the checkout", %{tmp_dir: tmp_dir} do
+      next =
+        record("Acme.Tally.next/1", "lib/acme/tally.ex", 2, 4, %{
+          "source" => "  def next(count) when count >= 0 do\n    count + 1\n  end"
+        })
+
+      {kept, skipped} = Coverage.in_checkout(entries([next]), index([next]), tmp_dir)
+
+      assert kept["functions"] == %{}
+      assert skipped == 1
+    end
+
+    @tag :tmp_dir
+    test "keeps an entry whose source matches the checkout under an index rooted elsewhere",
+         %{tmp_dir: tmp_dir} do
+      File.mkdir_p!(Path.join(tmp_dir, "lib/acme"))
+      File.write!(Path.join(tmp_dir, "lib/acme/tally.ex"), @tally_file)
+
+      next =
+        record("Acme.Tally.next/1", "lib/acme/tally.ex", 2, 4, %{
+          "source" => "  def next(count) when count >= 0 do\n    count + 1\n  end"
+        })
+
+      {:ok, elsewhere} =
+        Grasp.Index.from_document(%{
+          "version" => 1,
+          "generated_at" => "2026-09-28T11:58:00Z",
+          "project" => %{
+            "root" => Path.join(tmp_dir, "worktree"),
+            "test_paths" => ["test"]
+          },
+          "functions" => [next]
+        })
+
+      document = Coverage.build(elsewhere, %{{"Acme.Tally", "next", 1} => %{3 => 1}}, @meta)
+      {kept, skipped} = Coverage.in_checkout(document, elsewhere, tmp_dir)
+
+      assert kept["functions"] == document["functions"]
+      assert map_size(kept["functions"]) == 1
+      assert skipped == 0
+    end
+  end
+
   describe "decode/1" do
     test "reads back what encode/1 wrote" do
       document =
@@ -131,6 +217,30 @@ defmodule Grasp.CoverageTest do
 
       assert Coverage.decode("[]") == {:error, {:unsupported_document, nil}}
       assert {:error, %Jason.DecodeError{}} = Coverage.decode("{")
+    end
+
+    test "drops an entry it cannot read, so its function reads none" do
+      good = %{"source_hash" => "ab", "lines" => %{"0" => 1, "2" => 0}}
+
+      json =
+        Jason.encode!(%{
+          "version" => 1,
+          "functions" => %{
+            "Acme.Tally.next/1" => good,
+            "Acme.Tally.key/1" => %{"source_hash" => "ab", "lines" => %{"first" => 1}},
+            "Acme.Tally.partial/1" => %{"source_hash" => "ab", "lines" => %{"1x" => 1}},
+            "Acme.Tally.negative/1" => %{"source_hash" => "ab", "lines" => %{"0" => -1}},
+            "Acme.Tally.count/1" => %{"source_hash" => "ab", "lines" => %{"0" => "1"}},
+            "Acme.Tally.hash/1" => %{"source_hash" => 1, "lines" => %{"0" => 1}},
+            "Acme.Tally.shape/1" => %{"source_hash" => "ab", "lines" => [1]}
+          }
+        })
+
+      assert {:ok, %{"functions" => functions} = document} = Coverage.decode(json)
+      assert functions == %{"Acme.Tally.next/1" => good}
+
+      key = record("Acme.Tally.key/1", "lib/acme/tally.ex", 2, 4)
+      assert Coverage.for_function(document, key) == :none
     end
   end
 
@@ -182,6 +292,17 @@ defmodule Grasp.CoverageTest do
 
     test "is none for an entry it cannot read", %{record: record} do
       coverage = %{"functions" => %{record["id"] => %{"lines" => %{"0" => 1}}}}
+      assert Coverage.for_function(coverage, record) == :none
+    end
+
+    test "is none for an entry whose line key is not an offset, without raising",
+         %{record: record} do
+      coverage = %{
+        "functions" => %{
+          record["id"] => %{"source_hash" => "ab", "lines" => %{"first" => 1}}
+        }
+      }
+
       assert Coverage.for_function(coverage, record) == :none
     end
   end

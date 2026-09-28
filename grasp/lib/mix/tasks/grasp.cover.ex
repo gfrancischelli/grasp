@@ -19,6 +19,17 @@ defmodule Mix.Tasks.Grasp.Cover do
   document never describes a run other than this one. The export itself is left where Mix
   wrote it.
 
+  ## What the coverage describes
+
+  The counts are the suite's, run on the code in the project root, so a function keeps its
+  entry only when its indexed `source` is the text its file holds in the project root at its
+  span (see `Grasp.Coverage.in_checkout/3`). A function whose file is missing there or
+  differs gets no entry, and the task prints how many it skips: an index that lags the files
+  (run `mix grasp.index`), or one built for another tree, such as a pull request's worktree,
+  keeps only the functions the two hold alike. The check reads the files after the run, so
+  an edit saved while the suite runs, once it has compiled, is not caught: the counts
+  describe the text compiled before it.
+
   An umbrella's apps each export their own coverage, so the task refuses to run at an
   umbrella root: run it inside the app.
 
@@ -90,11 +101,18 @@ defmodule Mix.Tasks.Grasp.Cover do
     File.rm(export)
     run_suite(root, export, export_args)
 
-    document =
-      Grasp.Coverage.build(index, import_counts(export, test_ebin()), %{
+    {document, skipped} =
+      index
+      |> Grasp.Coverage.build(import_counts(export, test_ebin()), %{
         generated_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
         git_head: git_head(root)
       })
+      |> Grasp.Coverage.in_checkout(index, root)
+
+    Mix.shell().info(
+      "grasp: skipped #{skipped} #{if skipped == 1, do: "function", else: "functions"} " <>
+        "whose indexed source differs from the checkout"
+    )
 
     case Grasp.Coverage.write(document, out) do
       :ok ->

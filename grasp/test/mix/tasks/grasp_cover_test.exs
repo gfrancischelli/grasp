@@ -96,6 +96,27 @@ defmodule Mix.Tasks.Grasp.CoverTest do
     assert File.regular?(Path.join(tmp_dir, "cover/grasp.coverdata"))
   end
 
+  test "a function whose indexed source differs from its file gets no entry, and is counted",
+       %{tmp_dir: tmp_dir} do
+    write!(
+      Path.join(tmp_dir, "lib/acme/cover_greeter.ex"),
+      String.replace(@greeter, ~s("hello "), ~s("hi "))
+    )
+
+    output =
+      in_acme(tmp_dir, [], fn _root ->
+        Application.put_env(:grasp, :test_command, fake_suite(0))
+        capture_io(fn -> Mix.Tasks.Grasp.Cover.run([]) end)
+      end)
+
+    assert output =~ "grasp: skipped 1 function whose indexed source differs from the checkout"
+
+    {:ok, coverage} =
+      Grasp.Coverage.decode(File.read!(Path.join(tmp_dir, ".grasp/coverage.json")))
+
+    assert Map.keys(coverage["functions"]) == ["Acme.CoverTally.next/1"]
+  end
+
   test "a module whose test beam cannot be read contributes nothing", %{tmp_dir: tmp_dir} do
     in_acme(tmp_dir, [], fn _root ->
       Application.put_env(:grasp, :test_command, fake_suite(0))
@@ -305,7 +326,7 @@ defmodule Mix.Tasks.Grasp.CoverTest do
         "kind" => "def",
         "file" => "lib/acme/cover_tally.ex",
         "span" => %{"start_line" => 5, "end_line" => 11},
-        "source" => "def next",
+        "source" => span_text(@tally, 5, 11),
         "clauses" => [[5, 7], [9, 11]],
         "arms" => [],
         "calls" => []
@@ -319,7 +340,7 @@ defmodule Mix.Tasks.Grasp.CoverTest do
         "kind" => "def",
         "file" => "lib/acme/cover_greeter.ex",
         "span" => %{"start_line" => 2, "end_line" => 4},
-        "source" => "def hello",
+        "source" => span_text(@greeter, 2, 4),
         "clauses" => [[2, 4]],
         "arms" => [],
         "calls" => []
@@ -335,6 +356,10 @@ defmodule Mix.Tasks.Grasp.CoverTest do
         "functions" => records
       })
     )
+  end
+
+  defp span_text(text, first, last) do
+    text |> String.split("\n") |> Enum.slice(first - 1, last - first + 1) |> Enum.join("\n")
   end
 
   defp write!(path, contents) do

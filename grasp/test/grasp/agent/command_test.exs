@@ -109,6 +109,16 @@ defmodule Grasp.Agent.CommandTest do
     assert prompt =~ "untested_changes lists the changed functions no test reaches"
   end
 
+  test "system_prompt/3 sends a question about what a function ran through coverage" do
+    prompt = Command.system_prompt("s1", "read", "mix grasp.index")
+
+    assert prompt =~
+             "coverage says which lines of a function the suite last ran and never ran, " <>
+               "and the clauses and arms it never entered"
+
+    assert prompt =~ "mix grasp.cover"
+  end
+
   test "system_prompt/3 explains what a comment is and how a thread is closed, in both modes" do
     for mode <- ["read", "edit"] do
       prompt = Command.system_prompt("s1", mode, "mix grasp.index")

@@ -65,12 +65,33 @@ was written, the git head and the index's `generated_at`:
   absent: it is neither run nor never run.
 - **A changed function is stale.** When a function's source hashes other than its entry does,
   its counts describe another body, and the card says so rather than tinting the wrong lines.
+  A function's source is its whole span, which starts at its `@doc`, `@spec` and the
+  comments above it, so editing only those marks it stale too.
 - **Tests, setups, removed functions and files under the test paths** get no entry, and
   neither does a function with no counted line.
 - **Each count goes to one function.** `:cover` counts by module and line; the task reads
   the debug info of the test build's beams and credits each line to the one compiled
   function whose code carries it. A line two functions carry is credited to neither, so a
   line is untinted rather than tinted for the wrong function.
+
+## Whose code it describes
+
+The coverage describes your own checkout and its suite: the counts come from the beams the
+suite compiled from the files in the project root. After the run the task keeps a function's
+entry only when the source the index holds for it is the text of its file in the project
+root, at the lines of its span. A function whose indexed source differs from its file in
+the checkout, or whose file the checkout lacks, gets no entry, and the task prints how many
+it skipped:
+
+```
+grasp: skipped 3 functions whose indexed source differs from the checkout
+```
+
+- **An index behind the files** keeps coverage only for the functions it holds as they are
+  on disk; run `mix grasp.index` and then `mix grasp.cover` to cover the rest.
+- **During a pull-request review** the index is the pull request's, so only the functions
+  the pull request leaves as they are read fresh, counted by your checkout's tests; the
+  functions it changes get no entry and carry no coverage.
 
 ## Where the viewer reads it
 
@@ -95,5 +116,9 @@ already loaded. How the cards show it is in [Reviewing](reviewing.md).
 - **A module whose test-build beam has no debug info.**
 - **A `case` inside a `~H` sigil** is template text and adds no arm, so it is never marked
   as a branch never entered.
+
+- **An edit saved while the suite runs.** The task compares the index with the files after
+  the run, so an edit saved once the suite has compiled, with the index catching up before
+  the comparison, is not caught: its counts describe the text the suite compiled.
 
 `mix grasp.cover` runs the whole suite each time.

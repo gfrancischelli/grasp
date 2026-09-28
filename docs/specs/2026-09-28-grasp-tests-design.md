@@ -300,9 +300,20 @@ test paths uncompared.
   function that moves in its file with its source unchanged keeps its counts, read on the
   lines it occupies; a function whose current source hashes differently reads as stale: its
   counts describe a body other than the one the record holds. Macros and guards get no
-  entry: their bodies run when their callers compile, before `:cover` starts. The document
-  is written to a file beside its path and renamed over it, so a reader never sees one half
-  written.
+  entry: their bodies run when their callers compile, before `:cover` starts. A record's
+  `source` is its whole span, which starts at its `@doc`, `@spec` and leading comments, so
+  editing only those marks it stale. The document is written to a file beside its path and
+  renamed over it, so a reader never sees one half written.
+- **Whose code it describes.** The coverage describes the reader's own checkout and its
+  suite: the counts come from the beams the suite compiled from the files in the task's
+  project root. After the run the task keeps a record's entry only when its `source` equals
+  the text of its `file` under the task's project root at `span.start_line..span.end_line`,
+  joined as extraction joins it; a record whose file is missing there or differs gets no
+  entry, and the task prints one line counting the records it skipped. The index's own
+  `project.root` is not consulted, so while a pull request's index is loaded only the
+  functions the pull request leaves as they are read fresh, counted by the checkout's tests,
+  and the functions it changes get no entry; an index behind the files keeps only the
+  functions it holds as they are on disk.
 - **Attribution.** `:cover` counts by module and line, and a module can hold code whose lines
   are another file's. Each count goes to the one compiled function whose code carries that
   line, read from the debug info of the test build's beam, and a record takes the counts of
@@ -357,6 +368,9 @@ test paths uncompared.
 - **A module whose test-build beam has no debug info carries no coverage.**
 - **The whole suite runs.** `mix grasp.cover` runs every test, and starting it from the
   viewer or the agent is milestone 10.4's.
+- **An edit saved while the suite runs is not caught.** The task compares the index with the
+  files after the run, so an edit saved once the suite has compiled, with the index catching
+  up before the comparison, keeps counts that describe the text the suite compiled.
 
 ## Runs and failures (milestone 10.4)
 

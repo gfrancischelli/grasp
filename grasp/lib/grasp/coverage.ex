@@ -78,6 +78,65 @@ defmodule Grasp.Coverage do
     }
   end
 
+  @doc """
+  Keeps the entries of `document` whose record's `source` is the text of its file under
+  `root`, and answers how many it drops.
+
+  The counts are taken from the beams the suite compiled from the files under `root`, while
+  an entry's offsets and `source_hash` come from the index record. An entry describes the code
+  the suite ran only when the record's `source` equals the lines `span.start_line` to
+  `span.end_line` of `root`'s copy of its `file`, joined as the index joins them; an entry
+  whose file is missing or differs there is dropped. The index's own `project.root` plays no
+  part, so an index built for another tree keeps the entries of the functions both trees
+  hold alike.
+  """
+  @spec in_checkout(document(), Grasp.Index.t(), Path.t()) :: {document(), non_neg_integer()}
+  def in_checkout(%{"functions" => functions} = document, %Grasp.Index{} = index, root)
+      when is_binary(root) do
+    {kept, _files} =
+      Enum.reduce(functions, {%{}, %{}}, fn {id, entry}, {kept, files} ->
+        record = Map.get(index.functions, id)
+        {file_lines, files} = file_lines(record, root, files)
+
+        if record != nil and span_text(record, file_lines) == record["source"] do
+          {Map.put(kept, id, entry), files}
+        else
+          {kept, files}
+        end
+      end)
+
+    {%{document | "functions" => kept}, map_size(functions) - map_size(kept)}
+  end
+
+  defp file_lines(%{"file" => file}, root, files) when is_binary(file) do
+    case Map.fetch(files, file) do
+      {:ok, lines} ->
+        {lines, files}
+
+      :error ->
+        lines =
+          case File.read(Path.join(root, file)) do
+            {:ok, text} -> String.split(text, "\n")
+            {:error, _reason} -> nil
+          end
+
+        {lines, Map.put(files, file, lines)}
+    end
+  end
+
+  defp file_lines(_record, _root, files), do: {nil, files}
+
+  defp span_text(
+         %{"span" => %{"start_line" => first, "end_line" => last}},
+         lines
+       )
+       when is_list(lines) and is_integer(first) and is_integer(last) and first >= 1 and
+              last >= first and last <= length(lines) do
+    lines |> Enum.slice(first - 1, last - first + 1) |> Enum.join("\n")
+  end
+
+  defp span_text(_record, _lines), do: nil
+
   @doc "The document as pretty-printed JSON."
   @spec encode(document()) :: String.t()
   def encode(document) when is_map(document), do: Jason.encode!(document, pretty: true)
@@ -107,13 +166,15 @@ defmodule Grasp.Coverage do
   Reads a document back from its JSON.
 
   Anything but a version-1 document carrying a map of functions is rejected with
-  `{:error, {:unsupported_document, version}}`.
+  `{:error, {:unsupported_document, version}}`. Within one, an entry that is not a string
+  `"source_hash"` beside `"lines"` mapping integer offsets, written as strings, to
+  non-negative counts is dropped, so its function reads `:none`.
   """
   @spec decode(binary()) :: {:ok, document()} | {:error, term()}
   def decode(json) when is_binary(json) do
     case Jason.decode(json) do
       {:ok, %{"version" => 1, "functions" => functions} = document} when is_map(functions) ->
-        {:ok, document}
+        {:ok, %{document | "functions" => Map.filter(functions, &valid_entry?/1)}}
 
       {:ok, %{} = document} ->
         {:error, {:unsupported_document, document["version"]}}
@@ -141,14 +202,21 @@ defmodule Grasp.Coverage do
       ) do
     case Map.get(functions, id) do
       %{"source_hash" => hash, "lines" => lines} = entry when is_map(lines) ->
-        if hash == source_hash(record) do
-          {:fresh,
-           %{
-             lines:
-               Map.new(lines, fn {offset, count} -> {first + String.to_integer(offset), count} end)
-           }}
-        else
-          {:stale, entry}
+        cond do
+          not valid_entry?({id, entry}) ->
+            :none
+
+          hash == source_hash(record) ->
+            {:fresh,
+             %{
+               lines:
+                 Map.new(lines, fn {offset, count} ->
+                   {first + String.to_integer(offset), count}
+                 end)
+             }}
+
+          true ->
+            {:stale, entry}
         end
 
       _no_entry ->
@@ -179,6 +247,16 @@ defmodule Grasp.Coverage do
       counts != [] and Enum.all?(counts, &(&1 == 0))
     end)
   end
+
+  defp valid_entry?({_id, %{"source_hash" => hash, "lines" => lines}})
+       when is_binary(hash) and is_map(lines) do
+    Enum.all?(lines, fn {offset, count} ->
+      is_binary(offset) and match?({_offset, ""}, Integer.parse(offset)) and is_integer(count) and
+        count >= 0
+    end)
+  end
+
+  defp valid_entry?(_entry), do: false
 
   @unattributed_kinds ~w(test setup defmacro defmacrop defguard defguardp)
 
