@@ -621,32 +621,64 @@ test paths uncompared.
 
 - **The recipe.** `Grasp.TestPlan` holds one recipe, used by everything below: for a target —
   a function id, or the review's changes — the agent reads the functions under test
-  (`get_function`), the tests that reach each (`tests_for`) and its coverage (`coverage`);
-  lays the canvas out with one group per function under test holding the function and the
+  (`get_function`), the tests that reach each (`tests_for`) and its coverage (`coverage`).
+  For the changes, the functions under test are the changed application functions
+  `list_changes` returns, not the tests and setups, beginning with those `untested_changes`
+  names, since no test reaches them. When `coverage` answers `none`, the agent says that
+  `mix grasp.cover` writes it and plans from the tests alone. It then lays the canvas out
+  with one group per function under test, titled with its id, holding the function and the
   tests that reach it (`set_cards`, `group_cards`); comments on every clause and arm
-  coverage reports never entered, and on every function no test reaches, saying what a test
-  for it would have to exercise (`add_comment`); and stops there, telling the reader the plan
-  is on the canvas for review, without writing a test. Asked afterwards to write the tests,
-  the agent writes them against that plan and runs them (`run_tests`, `run_status`), and
-  reads the coverage again once a coverage run has finished.
-- **The chat.** The agent's system prompt carries the recipe. With an empty transcript the
-  chat panel offers `Plan tests for <focused function>` when a card is focused and
-  `Plan tests for the changes` in a review against a base ref; either sends exactly those
-  words, which the recipe answers.
-- **MCP.** A prompt, `plan_tests(target)` — `target` a function id or `changes` — hands an
-  MCP client the same recipe for that target, naming the session its cards go to.
+  coverage reports never entered, and on the first line of every function no test reaches,
+  saying what a test for it would have to exercise — the input, the path it takes and what
+  to assert (`add_comment`); and stops there, telling the reader the plan is on the canvas
+  for review, without writing a test. Asked afterwards to write the tests, the agent writes
+  them against that plan and runs them (`run_tests`, `run_status`), and reads the coverage
+  again once a coverage run has finished. In read mode it says it can neither write a test
+  nor start a run, and leaves both to the reader. `Grasp.TestPlan.request/1` gives the
+  words that ask for a plan: `Plan tests for <function id>`, or `Plan tests for the changes`.
+- **The chat.** The agent's system prompt carries the recipe in both modes, after the
+  comment paragraphs and before the pull-request recipe; it arranges cards and comments,
+  which read mode may do. With an empty transcript the chat panel offers
+  `Plan tests for the changes` beside `Show me what changed`, under the same condition —
+  the index records a base ref or holds changed functions — and
+  `Plan tests for <focused function>` beside `Explain <focused function>` when a card is
+  focused. The suggestions read, in order: what changed, plan tests for the changes, explain
+  the focused card, plan tests for it, publish the comments, the first route. Either plan
+  suggestion sends exactly those words, which the recipe answers.
+- **MCP.** The server declares the `prompts` capability beside `tools` and serves one
+  prompt, `plan_tests(target, session)`, both arguments required: `target` a function id
+  or `changes`, `session` a review session name under the rule the tools' `session` keeps.
+  It answers one user message: the request for that target, the recipe, and the session its
+  cards and comments go to. An id reached through a default-argument arity is answered with
+  the id of its definition. A function id the index does not hold, a request with no index
+  loaded, and a session name outside the rule are errors.
+
+### Known gaps (milestone 10.6)
+
+- **The recipe is instructions, not code.** Nothing checks that the agent followed it, so a
+  plan is as good as the agent's reading of the recipe.
+- **The chat agent reaches the recipe through its system prompt, not the MCP prompt.** The
+  CLI the panel runs reads no MCP prompt; the two carry the same `Grasp.TestPlan.recipe/0`.
+- **In read mode the agent plans but cannot write or run a test.** It lays the plan out and
+  comments on it, then leaves writing and running the tests to the reader.
 
 ## Milestones
 
+The tests work is milestones 10.1 to 10.6, listed under milestone 6 of
+[the main design](2026-09-15-grasp-design.md).
+
 1. **10.1** Test records: the test trace, ExUnit extraction, test ids, routes from test
    requests, base-ref classification, test cards, signature-mode assertions, Tests group.
+   Done.
 2. **10.2** Tested by: reach, tests badge and callers-menu section, untested changes and
-   paired changes in PR mode, `tests_for` and `untested_changes`.
+   paired changes in PR mode, `tests_for` and `untested_changes`. Done.
 3. **10.3** Coverage: `mix grasp.cover`, the coverage document, line tints, clause and arm
-   gaps, `coverage`.
+   gaps, `coverage`. Done.
 4. **10.4** Runs and failures: `mix grasp.test`, the formatter, the results document, the
    run machinery, the runs panel and run controls, result badges, failure panels and
-   chains, `run_tests`, `run_coverage` and `run_status`.
+   chains, `run_tests`, `run_coverage` and `run_status`. Done.
 5. **10.5** Test review: weakened assertions and added tests that assert nothing, their
    badges and the Test review group, `double` edges from Mox expectations, `test_review`.
-6. **10.6** Agent-written tests: `plan_tests`.
+   Done.
+6. **10.6** Agent-written tests: the `Grasp.TestPlan` recipe in the chat's system prompt,
+   the two plan-tests suggestions, and the MCP prompt `plan_tests`. Done.

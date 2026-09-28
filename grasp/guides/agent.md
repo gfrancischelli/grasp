@@ -27,8 +27,8 @@ The prompt box grows to six lines: Enter sends, Shift+Enter breaks a line, and A
 empty box recalls what was sent before. A prompt sent while a run is live is queued — it is
 drawn under the log with an × that withdraws it, and starts when the run ends; Stop and New
 throw the queue away. An empty transcript offers a few prompts to start from, drawn from
-what the index and the canvas hold: the branch's changes, the focused card, the open comment
-threads, the first route.
+what the index and the canvas hold: the branch's changes and a plan of tests for them, the
+focused card and a plan of tests for it, the open comment threads, the first route.
 
 The log follows the newest line only while you are at the bottom of it; read further up and
 a "↓ latest" pill offers the way back down. A run that fails shows the CLI's output under
@@ -82,6 +82,31 @@ config :grasp, agent_command: "/opt/homebrew/bin/claude", agent_model: "opus"
 
 `mix grasp.viewer` takes the same two as `--agent-command PATH` / `GRASP_AGENT_COMMAND` and
 `--agent-model NAME` / `GRASP_AGENT_MODEL`.
+
+### Planning tests
+
+"Plan tests for the changes" and "Plan tests for `Mod.fun/arity`" ask the agent for a plan of
+tests, laid out on the canvas for you to review before a test is written. The panel offers
+the first when the index holds a branch's changes — it records a base ref, or holds changed
+functions — and the second when a card is focused; either sends exactly those words.
+
+The agent follows one recipe, in both modes. For the changes, the functions under test are
+the application functions the branch changed, not its tests and setups, beginning with those
+no test reaches. It reads each with `get_function`, the tests that reach it with `tests_for`,
+and what the suite ran of it with `coverage` — when there is no coverage it says that
+`mix grasp.cover` writes it, and plans from the tests alone. It lays out one group per
+function under test, titled with its id, holding the function and the tests that reach it.
+It comments on every clause and arm the coverage says no test entered, and on the first line
+of every function no test reaches, saying what a test would have to exercise: the input, the
+path it takes and what to assert. Then it stops, and says the plan is on the canvas.
+
+Ask it afterwards to write the tests and, in edit mode, it writes them against that plan,
+runs them with `run_tests`, reads each result with `run_status`, and reads the coverage again
+once a coverage run has finished. In read-only mode it plans but writes and runs nothing: it
+says so, and leaves the tests to you, from the runs panel or after switching to edit mode.
+
+The recipe is instructions to the agent, not code, so a plan is as good as the agent's
+reading of it: read the comments before acting on them.
 
 ## Registering the MCP server
 
@@ -208,6 +233,16 @@ comment tools as it does for the card tools.
 `comments`, so reading the code and reading what the reviewer said about it is one call;
 without a `session` it carries none.
 
+### Prompts
+
+The server declares MCP prompts beside its tools, and serves one:
+
+- `plan_tests` — the test-planning recipe above, as one user message for an MCP client to
+  send: the request, the recipe, and the session to lay the plan out in. It takes `target`,
+  a function id or `changes`, and `session`, a review session name, both required. A
+  function id the index does not hold is an error, as is a session name no session can
+  carry. The chat panel's agent does not read it: its system prompt carries the same recipe.
+
 ## Example prompts
 
 - "Show me the flow from the checkout route to the ledger." The agent calls
@@ -221,6 +256,9 @@ without a `session` it carries none.
 - "Open PR 1251." Edit mode: `mix grasp.pr 1251`, `reload_index`, `list_changes`, then
   `set_cards` one group per flow.
 - "Publish the comments to the PR." `publish_comments`, in either mode.
+- "Plan tests for the changes." Either mode: `list_changes`, then `get_function`,
+  `tests_for` and `coverage` for each changed function, one `set_cards` with a group per
+  function and its tests, and an `add_comment` on each gap. No test is written until you ask.
 - "Run the tests this branch changed and show me what failed." Edit mode: `run_tests` with
   `changed: true`, `run_status` until the run has finished, then `set_cards` from each
   failing test down to the function its failure's frame names.

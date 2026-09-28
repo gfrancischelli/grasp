@@ -1420,6 +1420,13 @@ first reference. Results are JSON text content, so any MCP client can read them.
   `stale`, or `none` when the run recorded nothing for it — a failed one carrying `error`:
   its first error's `message`, `left`, `right` and `frame`, the deepest frame of the
   stacktrace in an indexed function (`id`, `file`, `line`), null when there is none.
+- Agent-written tests add one prompt (see [the tests design](2026-09-28-grasp-tests-design.md),
+  Agent-written tests), so the server declares the `prompts` capability beside `tools`.
+  `plan_tests(target, session)`, both required — `target` a function id or `changes`,
+  `session` a review session name under the rule the tools keep — answers one user message:
+  the request for that target, the recipe of `Grasp.TestPlan`, and the session its cards
+  and comments go to. A function id the index does not hold, a request with no index
+  loaded, and a session name outside the rule are errors.
 
 Registering in Claude Code:
 
@@ -1486,6 +1493,11 @@ conversation.
   `publish_comments`, says to pass the number when the request has one, and asks the agent
   to report which threads went on their line and which as file comments, and any failure,
   from the tool's answer.
+- "Plan tests for <function id>" and "Plan tests for the changes" are one prompt each in
+  either mode: the system prompt carries the recipe of `Grasp.TestPlan` — read the
+  functions under test with their tests and coverage, lay out one group per function with
+  the tests that reach it, comment on what no test covers, and stop without writing a test
+  (see [the tests design](2026-09-28-grasp-tests-design.md), Agent-written tests).
 - The runner parses the JSON stream line by line: `assistant` text blocks stream into the
   transcript, `tool_use` blocks become tool rows showing the tool name and its main
   argument, `tool_result` blocks mark the row done or failed, `system/init` records the
@@ -1520,8 +1532,8 @@ conversation.
   Shift+Enter breaks a line, ArrowUp on an empty box recalls the previous prompt. A prompt
   sent during a run is queued, shown under the log with a way to withdraw it, and starts when
   the run ends; Stop and New empty the queue. An empty transcript offers starting prompts —
-  what changed (in PR mode), explain the focused card, publish the comments, follow the first
-  route — each sent as typed.
+  what changed and plan tests for the changes (in PR mode), explain the focused card and plan
+  tests for it, publish the comments, follow the first route — each sent as typed.
 - **Scrolling, failures, copying.** The log follows new output only while the reader is at
   its bottom; otherwise a "latest" pill offers the way down. A failed run shows the CLI's log
   inline under the error with a Retry button that sends the last prompt again. Every
@@ -1845,6 +1857,15 @@ request switches the working tree" is closed.
      implementing the mocked behaviour, edges that never count as a test reaching the code;
      the MCP tool `test_review` answers the marks (see
      [the tests design](2026-09-28-grasp-tests-design.md)).
+   - Milestone 10.6: agent-written tests — `Grasp.TestPlan` holds one recipe for planning
+     tests of a function or of the changes: read each function under test with the tests
+     that reach it and its coverage, lay out one group per function holding it and those
+     tests, comment on every clause and arm never entered and on every function no test
+     reaches with what a test would have to exercise, and stop for the reader's review
+     before writing a test; the chat's system prompt carries it in both modes, an empty
+     transcript offers `Plan tests for the changes` and `Plan tests for <focused function>`,
+     and the MCP prompt `plan_tests` hands it to any client, the server declaring the
+     `prompts` capability (see [the tests design](2026-09-28-grasp-tests-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
    (see [Part 4](#part-4--in-app-grasp)).
