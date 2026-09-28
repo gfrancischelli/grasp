@@ -178,7 +178,29 @@ under the test paths are never counted as untested.
 
 Reach is read from the calls the compiler saw: a test that reaches a function only through
 `apply/3`, a function passed as a value, a behaviour dispatched at runtime or a test double
-is not counted, and a function more than four calls from every test reads as untested.
+is not counted, and a function more than four calls from every test reads as untested. A Mox
+double is drawn on the canvas (see [Edges](#edges)) but never counts as reach.
+
+### Test review
+
+In a review against a base ref, the tests the branch touched are read for what they stopped
+promising. Assertions are compared by their parsed form, so reformatting one, moving it to
+another line or editing a comment beside it changes nothing.
+
+- **`assertion weakened`** marks a modified test when it makes fewer assertions than the
+  base did (`removed:` and the assertion), calls an `assert_*` or `refute_*` function fewer
+  times (`dropped:` and its name), or turns an `assert left == right` (or `===`) into one
+  that accepts more — `left =~ …`, `left in …`, a `match?/2` on `left` or a bare
+  `assert left` (`loosened:` and the assertion). Hovering the badge reads the reasons. An
+  edit that keeps the number of assertions, such as a different expected value, is not a
+  weakening on its own.
+- **`asserts nothing`** marks an added test with no assertion in its body.
+
+Both are badges on the test card, and the sidebar's **Test review** group, after Untested
+changes and open whenever it has a row, lists every marked test with its badge; clicking
+one opens the test's card. Only assertions written in the test count: a test that asserts
+through a helper of another module reads as asserting nothing, and moving assertions into
+such a helper reads as removing them.
 
 ### Coverage
 
@@ -238,7 +260,7 @@ caller or the callee that is out of sight — which takes focus and pans into vi
 A dashed edge is a hop rather than a function call, and its call site is underlined with dots
 instead of dashes. One kind is a hop over HTTP: a link, a form action, an `hx-*` attribute or
 a `~p` sigil the router resolved to the action or LiveView it maps that path to, hovering it
-reading the verb and path the router matched. The other is a job put on a queue: a
+reading the verb and path the router matched. Another is a job put on a queue: a
 `Worker.new(...)` in front of an `Oban.insert` opens the worker's `perform/1`, so the
 function that queues the work is a caller of the work itself, and hovering the call reads the
 worker and the queue it runs on.
@@ -247,6 +269,15 @@ A request a test makes is a hop over HTTP too: `get(conn, ~p"/greet")`, `post(co
 "/bonuses", params)` or `live(conn, "/greet/live")` draws a dashed edge from the test card to
 the action or LiveView the router maps that path to, so an interface-level test reads through
 the route into the code it drives.
+
+A test double is a hop too. A Mox `expect(Mock, :fun, …)` or `stub(Mock, :fun, …)` in a test
+draws a dashed edge to `fun` of every application module implementing the behaviour the mock
+is declared for — `Mox.defmock(SampleApp.GeoMock, for: SampleApp.Geo)` in `test_helper.exs`
+or a support file — at the arity of the `fn` or capture it is given, or at every arity of
+`fun` for any other code, and hovering the call reads `Mox double of SampleApp.Geo`. The mock
+answers in the code's place, so the edge shows what the test stands in for, never a caller:
+the doubled function's callers menu leaves the test out, and the test does not count as
+reaching it.
 
 ## Comments
 

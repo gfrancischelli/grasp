@@ -341,6 +341,11 @@ touched is unchanged.
       "file": "test/my_app_web/controllers/player_controller_test.exs",
       // … every other field as above; only a record of kind "test" carries "test"
       "test": { "describe": "show/2", "name": "renders the player", "tags": ["slow"] }
+      // a Mox expectation the test sets up: a call of kind "double" carrying the mock and the
+      // behaviour it stands in for
+      // { "target": "MyApp.Geo.Static.lookup/1", "kind": "double",
+      //   "range": { "start": [12, 5], "end": [12, 11] },
+      //   "double": { "mock": "MyApp.GeoMock", "behaviour": "MyApp.Geo" } }
     }
   ],
   "entry_points": [
@@ -367,7 +372,10 @@ A record's `kind` is the definition form it was written as — `def`, `defp`, `d
 `embed_templates` pattern matched, which no source line defines, or `test` and `setup`, for
 an ExUnit `test` block and a `setup` or `setup_all` block. A call's `kind` is the
 tracer's — `remote`, `local`, `imported`, `remote_macro`, `local_macro`, `imported_macro`
-— or `template`, for a controller's `render` retargeted at the template it names. The word
+— or `template`, for a controller's `render` retargeted at the template it names, `route`
+and `enqueue`, for the hops above, or `double`, for a test's Mox expectation on the code the
+mock stands in for, which makes no caller (see
+[the tests design](2026-09-28-grasp-tests-design.md), Test review). The word
 means two different things in the two places: a record of kind `template` *is* a template,
 a call of kind `template` *reaches* one.
 
@@ -1381,6 +1389,12 @@ first reference. Results are JSON text content, so any MCP client can read them.
   naming it. `untested_changes()` answers `functions`, the application functions the
   branch added or modified that no test reaches within four hops, sorted by id, each with
   its `id`, `file` and `change` — empty for an index built without a base ref.
+- Test review adds one read tool (see [the tests design](2026-09-28-grasp-tests-design.md),
+  Test review). `test_review()` answers `tests`, the modified tests whose assertions the
+  branch weakened and the added tests that assert nothing, sorted by id, each with its `id`,
+  its `mark` — `weakened` or `asserts_nothing` — and its `reasons`: `removed: <assertion>`,
+  `dropped: <name>` or `loosened: <assertion>` — empty for an index built without a base
+  ref.
 - Coverage adds one read tool (see [the tests design](2026-09-28-grasp-tests-design.md),
   Coverage). `coverage(function_id)` answers the function's `id`, a `status` — `fresh`,
   `stale` when the function changed after the coverage was written, `none` when the
@@ -1819,6 +1833,15 @@ request switches the working tree" is closed.
      of the test its stacktrace passed through, `open failure` opens the stacktrace's indexed frames as a chain of
      callees, and the MCP tools `run_tests`, `run_coverage` and `run_status` start runs and
      read their outcome (see [the tests design](2026-09-28-grasp-tests-design.md)).
+   - Milestone 10.5: test review — PR mode compares each modified test's assertions with its
+     base's by their parsed form and marks it `assertion weakened` when the branch removed
+     assertions, dropped an `assert_*`/`refute_*` or loosened an `==` into `=~`, `in`,
+     `match?/2` or a bare `assert`, marks an added test that makes no assertion `asserts
+     nothing`, shows both as badges with their reasons and in a Test review group, and a
+     test's Mox `expect` and `stub` draw dashed `double` edges to every application module
+     implementing the mocked behaviour, edges that never count as a test reaching the code;
+     the MCP tool `test_review` answers the marks (see
+     [the tests design](2026-09-28-grasp-tests-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
    (see [Part 4](#part-4--in-app-grasp)).

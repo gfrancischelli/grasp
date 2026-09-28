@@ -120,6 +120,12 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
 - `untested_changes` — the functions the branch added or modified that no test reaches
   within four calls, each with its file and change. Tests, setups and functions in files
   under the test paths are left out. Empty without a base ref.
+- `test_review` — the modified tests whose assertions the branch weakened and the added
+  tests that assert nothing, sorted by id, each with its `mark` (`weakened` or
+  `asserts_nothing`) and its `reasons`: `removed:` an assertion the head makes fewer times
+  when it makes fewer in all, `dropped:` an `assert_*`/`refute_*` function called fewer
+  times, `loosened:` an `==` whose left side the head asserts with `=~`, `in`, `match?/2` or
+  on its own. Only assertions written in the test are read. Empty without a base ref.
 - `coverage` — what the test suite ran in a function: its `status` (`fresh`, `stale` when the
   function changed after the coverage was written, `none` when there is none for it), the
   lines that ran and never ran, and the clauses and arms never entered, as line ranges. Only

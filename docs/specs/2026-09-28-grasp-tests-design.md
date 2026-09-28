@@ -530,39 +530,77 @@ test paths uncompared.
 ## Test review (milestone 10.5)
 
 - **Assertions compared.** An assertion is a call named `assert`, `refute`, or starting with
-  `assert_` or `refute_` — local, imported or piped, as signature mode reads them — taken
-  from a parse of the test's source. In PR mode, for each modified test the assertions of
-  its `base_source` are compared with those of its `source` by a canonical form of the
-  parsed node — `Macro.to_string/1` of the node with its metadata stripped — so layout,
-  line breaks and comments do not count and the contents of a string do. A modified test
-  is marked `assertion weakened` when:
+  `assert_` or `refute_` — local, imported or piped, as signature mode reads them, a piped
+  one spanning its whole pipeline — taken from a parse of the test's source. In PR mode, for
+  each modified test the assertions of its `base_source` are compared with those of its
+  `source` by a canonical form of the parsed node — `Macro.to_string/1` of the node with its
+  metadata and Sourceror's literal wrappers stripped — so layout, line breaks and comments
+  do not count and the contents of a string do. A modified test is marked `assertion
+  weakened` when:
   - the head makes fewer assertion calls than the base, with the reason
-    `removed: <text>` for each assertion of the base with no canonical counterpart at the
-    head;
+    `removed: <text>` for each assertion of the base the head makes fewer times;
   - an `assert_*`/`refute_*` name the base calls is called fewer times at the head, with
     the reason `dropped: <name>`;
   - an `assert left == right` or `assert left === right` of the base has no canonical
-    counterpart at the head and its `left` appears at the head in an assertion using `=~`
-    or `in`, in a `match?/2`, or as a bare `assert left`, with the reason
+    counterpart at the head, and an `assert` at the head uses `=~` or `in` with the same
+    `left`, holds a `match?/2` on `left`, or is a bare `assert left`, with the reason
     `loosened: <text>`.
-  An edit that keeps the number of assertions — a different expected value, a different
+  Reasons come in that order, each kind in the order the base makes its assertions. An edit
+  that keeps the number of assertions — a different expected value, a different
   `assert_receive` timeout, a different `refute` — is not a weakening on its own. A reason's
-  text is the assertion's source with its whitespace collapsed. An added test with no
-  assertion at all is marked `asserts nothing`.
-- **Where it shows.** Both marks are badges on the test card and rows, with the reason, in a
-  **Test review** group of the sidebar, after Untested changes. They are computed once per
-  index load, as the untested changes are. MCP `test_review()` answers the same list.
-- **Doubles.** A `Mox.defmock(Mock, for: Behaviour)` in `test_helper.exs` or any test-only
-  support file names `Mock` a double of `Behaviour`; those files are parsed, never run.
-  An `expect(Mock, :fun, …)` or `stub(Mock, :fun, …)` in a test body — local or `Mox.`
-  remote — is an edge of kind `double`, dashed, from the test to `fun` of every indexed
-  application module (not a module under the test paths) whose behaviours include
-  `Behaviour`, at the arity of the `fn` passed when it is a literal or of the capture
-  passed (`&Impl.fun/1`), or every arity of `fun` the implementation defines otherwise.
-  The call site
-  reads `Mox double of Behaviour`. A double stands in for the code rather than running
-  it, so `double` edges are not reach: they count for no test in `tests_for`, untested
-  changes or anything built on them.
+  text is the base assertion's source with its whitespace collapsed. An added test with no
+  assertion at all is marked `asserts nothing`. A test whose source or base does not parse
+  is never marked.
+- **Where it shows.** Both marks are badges, `assertion weakened` and `asserts nothing`, on
+  the test card and on its row in a **Test review** group of the sidebar, after Untested
+  changes; a weakened mark's `title` holds its reasons, one a line. The group lists the
+  marked tests sorted by id, each row with its change and test badges and its title, opens on arrival
+  whenever it has a row, and a row opens the test's card as a root. The review is computed
+  once, when the index is built from its document, and only over the tests the branch added
+  or modified, so an index without a base ref marks none. MCP `test_review()` answers the
+  same list, each test with its `id`, its `mark` (`weakened` or `asserts_nothing`) and its
+  `reasons`.
+- **Doubles.** A `Mox.defmock(Mock, for: Behaviour)` — or a bare `defmock`, the options
+  written bare or in brackets — names `Mock` a double of `Behaviour`. The
+  declarations are read from each test path's `test_helper.exs` and every file the test
+  trace read, the test-only support files and the test files, which are parsed, never run;
+  their module names are expanded through the `alias` lines of the file that writes them.
+  An `expect(Mock, :fun, …)`, an `expect(Mock, :fun, n, …)` or a `stub(Mock, :fun, …)` —
+  local or `Mox.` remote, or piped from the mock — written in a test, a setup or any other
+  function a test file defines, with a literal mock and a literal function name, is a call
+  of kind `double` from that record to `fun` of every indexed application module (not a
+  module under the test paths) whose behaviours include `Behaviour`: at the parameter count
+  of the `fn` passed when it is a literal, at the arity of the capture passed
+  (`&Impl.fun/1`), or at every arity of `fun` the implementation defines otherwise. A target
+  the index holds no function for draws nothing. The call carries the mock and the behaviour
+  under `double`; its site is underlined with dots and titled `Mox double of Behaviour`, and
+  its edge is dashed. A double stands in for the code rather than running it, so a `double`
+  call makes no caller: it is left out of `Index.callers/2` and so of the callers menu,
+  `get_callers`, `find_paths`, `tests_for`, the walk back to a farther test, untested
+  changes and the paired tests, and kept in `callees`, since the test's card draws it. A
+  double is never read as an enqueue, even on a worker's `new/1`.
+
+### Known gaps (milestone 10.5)
+
+- **Assertions made through a remote helper are invisible to the comparison.** Only calls
+  written in the test are read, so moving assertions into a helper reads as removing them,
+  and a test asserting only through helpers reads as asserting nothing.
+- **An edit that keeps the number of assertions is not a weakening.** Replacing a strict
+  assertion with a looser one of a different shape, other than the `==`/`===` loosening
+  rule, goes unmarked.
+- **The canonical form reads different spellings of one literal as the same assertion.**
+  `assert x == 0x10` and `assert x == 16` compare equal.
+- **Some doubles draw no edge.** `stub_with/2`, a `for: [A, B]` list, a mock named through a
+  module attribute or a variable, and a double made without Mox draw nothing.
+- **A mock declared elsewhere draws no edge.** A `defmock` outside the `test_helper.exs`
+  files and the files the trace read names no double.
+- **Aliases in a declaration file are read file-wide.** An alias inside one module of the
+  file expands names in every other.
+- **Doubles are recorded on full builds only.** An incremental update keeps the `double`
+  calls a record already carries and reads no declarations, so an expectation written since
+  the last full build draws nothing until the next.
+- **Fakes under the test paths are not implementations.** A module under the test paths that
+  implements the behaviour is never a double's target.
 
 ## Agent-written tests (milestone 10.6)
 
@@ -584,5 +622,6 @@ test paths uncompared.
 4. **10.4** Runs and failures: `mix grasp.test`, the formatter, the results document, the
    run machinery, the runs panel and run controls, result badges, failure panels and
    chains, `run_tests`, `run_coverage` and `run_status`.
-5. **10.5** Test review: weakened assertions, empty tests, doubles.
+5. **10.5** Test review: weakened assertions and added tests that assert nothing, their
+   badges and the Test review group, `double` edges from Mox expectations, `test_review`.
 6. **10.6** Agent-written tests: `plan_tests`.

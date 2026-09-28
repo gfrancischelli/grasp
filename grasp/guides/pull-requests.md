@@ -67,6 +67,10 @@ Grasp in — so a review outlives the tree it was written against.
   are marked `untested` in Changes. Under each changed function, Changes lists the tests the
   branch added or modified that reach it, so a change and its tests read as a pair (see
   [Reviewing](reviewing.md)).
+- **Test review** lists the modified tests whose assertions the branch weakened, marked
+  `assertion weakened` with the reasons on hover, and the added tests that assert nothing,
+  open on arrival whenever there is one; the test cards wear the same marks (see
+  [Reviewing](reviewing.md#test-review)).
 - **A card wears its badge too**, and a modified one counts its lines (`+3 −1`) beside the
   title. The palette carries the same badge, so a search says which hits are part of the
   change.
