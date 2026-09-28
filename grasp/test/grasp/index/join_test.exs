@@ -52,6 +52,11 @@ defmodule Grasp.Index.JoinTest do
 
     assert_raise ArgumentError, fn -> String.to_existing_atom(unseen) end
 
+    control = "test acme #{System.unique_integer([:positive])} \\0 \0 end"
+
+    assert Join.function_id("SampleApp.GreeterTest", control, 1) ==
+             Join.function_id("SampleApp.GreeterTest", String.to_atom(control), 1)
+
     bare = "acme_unseen_#{System.unique_integer([:positive])}?"
     assert Join.function_id("SampleApp.Greeter", bare, 1) == "SampleApp.Greeter.#{bare}/1"
     assert_raise ArgumentError, fn -> String.to_existing_atom(bare) end
@@ -482,6 +487,26 @@ defmodule Grasp.Index.JoinTest do
     assert show.calls == [
              %{
                target: "Grasp.JoinTest.GreetHTML.show/1",
+               kind: :template,
+               range: %{start: {3, 5}, end: {3, 11}}
+             }
+           ]
+  end
+
+  test "retargets a render at a template whose name only a quoted id can spell" do
+    source = String.replace(@controller, "render(conn, :show,", ~S|render(conn, "my-page.html",|)
+    {:ok, %{definitions: controller}} = Extract.extract(source, "lib/greet_controller.ex")
+    {:ok, %{definitions: [show_html]}} = Extract.extract(@html, "lib/greet_html.ex")
+    page = %{show_html | name: :"my-page", kind: :template}
+
+    show =
+      (controller ++ [page])
+      |> Join.join([render_event()])
+      |> record("Grasp.JoinTest.GreetController", :show)
+
+    assert show.calls == [
+             %{
+               target: ~S|Grasp.JoinTest.GreetHTML."my-page"/1|,
                kind: :template,
                range: %{start: {3, 5}, end: {3, 11}}
              }

@@ -14,6 +14,8 @@ defmodule Grasp.Index do
   for instance in `:persistent_term`, rather than copying it into per-process state.
   """
 
+  alias Grasp.Index.Join
+
   defstruct version: 1,
             generated_at: nil,
             project: %{},
@@ -80,7 +82,7 @@ defmodule Grasp.Index do
 
     aliases =
       for record <- removed ++ live, arity <- arities(record), into: %{} do
-        {"#{record["module"]}.#{record["name"]}/#{arity}", record["id"]}
+        {Join.function_id(record["module"], record["name"], arity), record["id"]}
       end
 
     callers =

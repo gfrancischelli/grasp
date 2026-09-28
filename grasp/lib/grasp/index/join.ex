@@ -135,14 +135,16 @@ defmodule Grasp.Index.Join do
   # A name that is an atom already takes the atom's spelling, which covers every operator,
   # since the parser defines them all. Any other is an identifier or text only quoting can
   # write: `Code.Fragment.cursor_context/1` reads an identifier as the whole of the text it is
-  # given without creating an atom, and anything it reads differently is quoted.
+  # given without creating an atom, and anything it reads differently is quoted as a quoted
+  # atom is, printable or not. The rescue runs for every name the VM holds no atom for, as
+  # a test's name read back from an index document is, and costs one raised error each.
   defp function_name(name) when is_binary(name) do
     Macro.inspect_atom(:remote_call, String.to_existing_atom(name))
   rescue
     ArgumentError ->
       if Code.Fragment.cursor_context(name) == {:local_or_var, String.to_charlist(name)},
         do: name,
-        else: inspect(name)
+        else: inspect(name, binaries: :as_strings)
   end
 
   @doc """
@@ -224,7 +226,7 @@ defmodule Grasp.Index.Join do
     with template when is_binary(template) <- site.template,
          true <- String.ends_with?(definition.module, "Controller"),
          html = String.replace_suffix(definition.module, "Controller", "HTML"),
-         target = "#{html}.#{template}/1",
+         target = function_id(html, template, 1),
          true <- MapSet.member?(indexed, target) do
       %{target: target, kind: :template, range: site.range}
     else

@@ -613,6 +613,25 @@ defmodule Grasp.Index.ExtractTest do
       assert site(setup, 7, 24).callee == %{module: "String", name: :upcase, arity: 1}
     end
 
+    test "collects the call sites of every clause of a test's block" do
+      source = ~S"""
+      defmodule SampleApp.RescuingTest do
+        use ExUnit.Case, register: false
+
+        test "shouts on failure" do
+          raise "quiet"
+        rescue
+          error -> Formatter.shout(error.message)
+        end
+      end
+      """
+
+      {:ok, %{definitions: [test]}} = Extract.extract(source, "test/rescuing_test.exs")
+
+      assert site(test, 5, 5).callee == %{module: nil, name: :raise, arity: 1}
+      assert site(test, 7, 24).callee == %{module: "Formatter", name: :shout, arity: 1}
+    end
+
     test "names match the functions ExUnit compiles, and a pending test is no definition" do
       {:ok, %{definitions: defs}} = Extract.extract(@test_source, "test/greeter_test.exs")
       [{module, _bytecode}] = Code.compile_string(@test_source, "test/greeter_test.exs")

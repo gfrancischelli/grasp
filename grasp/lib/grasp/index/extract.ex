@@ -283,10 +283,10 @@ defmodule Grasp.Index.Extract do
   defp collect_expr({:test, _, [name | rest]} = node, {acc, scope, pending}) do
     description = test_description(scope.describe, literal_string(name))
 
-    case {description, do_body(List.last(rest))} do
-      {{describe, text, compiled}, {:ok, body}} ->
+    case {description, do_block(List.last(rest))} do
+      {{describe, text, compiled}, {:ok, block}} ->
         test = %{describe: describe, name: text, tags: tags(pending)}
-        {add_block(acc, scope.module, :test, compiled, node, body, pending, test), scope, []}
+        {add_block(acc, scope.module, :test, compiled, node, block, pending, test), scope, []}
 
       _pending_or_dynamic ->
         {acc, scope, []}
@@ -299,9 +299,9 @@ defmodule Grasp.Index.Extract do
     count = Map.fetch!(scope, counter)
 
     case setup_callbacks(args) do
-      {:body, body} ->
+      {:block, block} ->
         name = setup_name(setup, scope.describe, count)
-        acc = add_block(acc, scope.module, :setup, name, node, body, pending, nil)
+        acc = add_block(acc, scope.module, :setup, name, node, block, pending, nil)
         {acc, Map.put(scope, counter, count + 1), []}
 
       {:callbacks, callbacks} ->
@@ -311,14 +311,10 @@ defmodule Grasp.Index.Extract do
 
   defp collect_expr(_other, {acc, scope, _pending}), do: {acc, scope, []}
 
-  defp do_body(block) when is_list(block) do
-    case block do
-      [{{:__block__, _, [:do]}, body} | _] -> {:ok, body}
-      _other -> :error
-    end
-  end
-
-  defp do_body(_other), do: :error
+  # The whole keyword list of a `do` block — `do` and any `rescue`, `catch`, `else` or
+  # `after` clause — since ExUnit compiles every clause into the function the tracer names.
+  defp do_block([{{:__block__, _, [:do]}, _body} | _clauses] = block), do: {:ok, block}
+  defp do_block(_other), do: :error
 
   defp literal_string({:__block__, _, [text]}) when is_binary(text), do: text
   defp literal_string(_dynamic), do: nil
@@ -345,11 +341,11 @@ defmodule Grasp.Index.Extract do
   defp setup_name(:setup, nil, count), do: :"__ex_unit_setup_#{count}"
   defp setup_name(:setup, {_name, index}, count), do: :"__ex_unit_setup_#{index}_#{count}"
 
-  # A setup with a `do` body defines a function; any other argument names callbacks, which
+  # A setup with a `do` block defines a function; any other argument names callbacks, which
   # ExUnit registers one per entry of a literal list and one for anything else.
   defp setup_callbacks(args) do
-    case {do_body(List.last(args)), args} do
-      {{:ok, body}, _args} -> {:body, body}
+    case {do_block(List.last(args)), args} do
+      {{:ok, block}, _args} -> {:block, block}
       {:error, [{:__block__, _, [list]}]} when is_list(list) -> {:callbacks, length(list)}
       {:error, _args} -> {:callbacks, 1}
     end
@@ -375,11 +371,11 @@ defmodule Grasp.Index.Extract do
 
   defp tag_names(_dynamic), do: []
 
-  defp add_block(acc, module, kind, name, node, body, pending, test) do
+  defp add_block(acc, module, kind, name, node, block, pending, test) do
     first = List.first(pending) || node
     %{start: [line: start_line, column: _]} = Sourceror.get_range(first, include_comments: true)
     %{end: [line: end_line, column: _]} = Sourceror.get_range(node)
-    sites = collect_sites(body)
+    sites = collect_sites(block)
 
     definition = %{
       module: module,
