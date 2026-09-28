@@ -106,7 +106,10 @@ A test reaches a controller through a path, not a call: `get(conn, ~p"/greet")`,
 same shape. `~p` sigils already produce route sites. A call named `get`, `post`, `put`,
 `patch`, `delete`, `head`, `options`, `live` or `visit` whose second argument is a literal
 string or `~p` sigil is a route site too, with the verb the name gives (`live` and `visit`
-are GET), and `Grasp.Index.Routes` resolves it like any other. So an interface-level test
+are GET), and `Grasp.Index.Routes` resolves it like any other. The call counts when it is
+local or imported, or remote on a module whose alias ends in `Test` (`Phoenix.ConnTest`,
+`Phoenix.LiveViewTest`, a project's own `*Test` helper); a remote call on any other module
+(`Map.get(params, "/")`, an HTTP client's `get`) is not a request. So an interface-level test
 draws the chain it drives: test, route, controller action, context.
 
 ### Base ref

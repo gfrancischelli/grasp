@@ -578,6 +578,23 @@ defmodule Grasp.Index.ExtractTest do
       assert Extract.route_sites(~S|Map.get(map, :key)|, 1, 1) == []
     end
 
+    test "reads no route from a remote call on a module that is not a test module" do
+      assert Extract.route_sites(~S|Map.get(params, "/")|, 1, 1) == []
+      assert Extract.route_sites(~S|Map.put(acc, "/", 1)|, 1, 1) == []
+      assert Extract.route_sites(~S|Client.get(client, "/users")|, 1, 1) == []
+
+      assert [%{verb: "GET", path: ["x"]}] =
+               Extract.route_sites(~S|SampleWeb.ConnTest.get(conn, "/x")|, 1, 1)
+
+      assert [%{verb: "GET", path: ["hello"]}] =
+               Extract.route_sites(~S|Phoenix.LiveViewTest.live(conn, "/hello")|, 1, 1)
+    end
+
+    test "reads a heredoc path without the newline before its closing delimiter" do
+      text = ~s|get(conn, """\n/heredoc\n""")|
+      assert [%{path: ["heredoc"]}] = Extract.route_sites(text, 1, 1)
+    end
+
     @conn_test ~S'''
     defmodule SampleWeb.PageControllerTest do
       use SampleWeb.ConnCase

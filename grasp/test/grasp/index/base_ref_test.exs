@@ -80,6 +80,16 @@ defmodule Grasp.Index.BaseRefTest do
   end
   """
 
+  @deleted_test ~S"""
+  defmodule CTest do
+    use ExUnit.Case
+
+    test "is deleted" do
+      assert true
+    end
+  end
+  """
+
   @added_test ~S"""
   defmodule BTest do
     use ExUnit.Case
@@ -95,6 +105,9 @@ defmodule Grasp.Index.BaseRefTest do
     write!(root, "lib/a.ex", "defmodule A do\n  def f, do: :f\nend\n")
     write!(root, "test/a_test.exs", @base_test)
     write!(root, "test/test_helper.exs", "ExUnit.start()\n")
+    write!(root, "test/c_test.exs", @deleted_test)
+    write!(root, "test/support/case.ex", "defmodule Case do\n  def c, do: :c\nend\n")
+    write!(root, "test/fixtures/x.ex", "defmodule X do\n  def x, do: :x\nend\n")
     git!(root, ["add", "."])
     git!(root, ["commit", "-q", "-m", "base"])
 
@@ -102,22 +115,39 @@ defmodule Grasp.Index.BaseRefTest do
     write!(root, "test/b_test.exs", @added_test)
     write!(root, "test/test_helper.exs", "ExUnit.start(exclude: :slow)\n")
     write!(root, "test/fixtures/data.exs", "%{}\n")
+    write!(root, "test/fixtures/x.ex", "defmodule X do\n  def y, do: :y\nend\n")
+    write!(root, "test/support/case.ex", "defmodule Case do\n  def d, do: :d\nend\n")
+    File.rm!(Path.join(root, "test/c_test.exs"))
 
     assert {:ok, lib_only} = BaseRef.resolve(root, "HEAD")
     assert lib_only.files == []
 
     assert {:ok, base} = BaseRef.resolve(root, "HEAD", test_paths: ["test"])
-    assert base.files == ["test/a_test.exs", "test/b_test.exs"]
+
+    assert base.files == [
+             "test/a_test.exs",
+             "test/b_test.exs",
+             "test/c_test.exs",
+             "test/fixtures/x.ex",
+             "test/support/case.ex"
+           ]
+
     assert base.base_sources["test/a_test.exs"] == @base_test
 
     records =
-      Enum.flat_map([{"test/a_test.exs", @head_test}, {"test/b_test.exs", @added_test}], fn
+      [
+        {"test/a_test.exs", @head_test},
+        {"test/b_test.exs", @added_test},
+        {"test/support/case.ex", "defmodule Case do\n  def d, do: :d\nend\n"}
+      ]
+      |> Enum.flat_map(fn
         {file, source} ->
           {:ok, %{definitions: definitions}} = Extract.extract(source, file)
           Join.join(definitions, [])
       end)
 
-    by_id = records |> Builder.classify(base, ["lib", "test"]) |> Map.new(&{&1.id, &1})
+    traced = %{paths: ["test"], files: ["test/support/case.ex"]}
+    by_id = records |> Builder.classify(base, ["lib"], traced) |> Map.new(&{&1.id, &1})
 
     assert %{change: "modified", base_source: modified_base} =
              by_id[~S|ATest."test f/0 answers f"/1|]
@@ -131,6 +161,15 @@ defmodule Grasp.Index.BaseRefTest do
 
     assert removed_base =~ "test \"is gone\""
     assert test == %{describe: "f/0", name: "is gone", tags: ["slow"]}
+
+    assert %{change: "removed", test: %{describe: nil, name: "is deleted"}} =
+             by_id[~S|CTest."test is deleted"/1|]
+
+    assert %{change: "added"} = by_id["Case.d/0"]
+    assert %{change: "removed"} = by_id["Case.c/0"]
+
+    refute Map.has_key?(by_id, "X.x/0")
+    refute Enum.any?(by_id, fn {_id, record} -> record.file == "test/fixtures/x.ex" end)
   end
 
   test "lists both paths of a renamed file so the old one keeps its base source", context do

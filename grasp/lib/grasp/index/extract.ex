@@ -53,8 +53,10 @@ defmodule Grasp.Index.Extract do
   one that knows the verb.
 
   A request a test makes is a route site too: a call named `get`, `post`, `put`, `patch`,
-  `delete`, `head`, `options`, `live` or `visit`, local, imported or remote, whose second
-  argument (the first written, when the call is piped into) is a string or a `~p` sigil.
+  `delete`, `head`, `options`, `live` or `visit` — local, imported, or called on a module
+  whose alias ends in `Test`, such as `Phoenix.ConnTest` — whose second argument (the first
+  written, when the call is piped into) is a string or a `~p` sigil. A remote call on any
+  other module (`Map.get(params, "/")`, an HTTP client's `get`) is no request.
   Its verb is the one the name gives, GET for `live` and `visit`, and it replaces the GET
   the `~p` it holds would read as, so one request is one route. A path held in a variable
   names nothing the source can read and makes no site.
@@ -799,7 +801,10 @@ defmodule Grasp.Index.Extract do
   end
 
   # A request is `get(conn, path)` and its kin: the verb its name gives and the path its
-  # second argument writes, whether the function is local, imported or called on a module.
+  # second argument writes, whether the function is local, imported or called on a test
+  # module — one whose alias ends in `Test`, as `Phoenix.ConnTest` and
+  # `Phoenix.LiveViewTest` do. `Map.get(params, "/")` and an HTTP client's `get` share the
+  # shape and name no route of this application.
   # Piped, the path is the first argument written, and the piped call is marked so the walk
   # reaching it next does not read its written arguments a second time.
   defp request(requests, piped, node) do
@@ -817,14 +822,24 @@ defmodule Grasp.Index.Extract do
     end
   end
 
-  defp request_call({{:., _, [_receiver, name]}, _meta, args})
-       when is_atom(name) and is_list(args),
-       do: request_verb(name, args)
+  defp request_call({{:., _, [{:__aliases__, _, segments}, name]}, _meta, args})
+       when is_atom(name) and is_list(args) do
+    if test_module?(segments), do: request_verb(name, args)
+  end
+
+  defp request_call({{:., _, _}, _meta, _args}), do: nil
 
   defp request_call({name, _meta, args}) when is_atom(name) and is_list(args),
     do: request_verb(name, args)
 
   defp request_call(_node), do: nil
+
+  defp test_module?(segments) do
+    case List.last(segments) do
+      last when is_atom(last) -> last |> Atom.to_string() |> String.ends_with?("Test")
+      _other -> false
+    end
+  end
 
   defp request_verb(name, args) do
     case Map.fetch(@request_verbs, name) do
@@ -844,11 +859,27 @@ defmodule Grasp.Index.Extract do
   end
 
   # A literal string, one with interpolations, or a `~p` sigil: the forms whose text says
-  # the path. A variable or a helper call names a path only the running test knows.
-  defp path_parts({:__block__, _meta, [text]}) when is_binary(text), do: {:ok, [text]}
-  defp path_parts({:<<>>, _meta, parts}), do: {:ok, parts}
-  defp path_parts({:sigil_p, _meta, [{:<<>>, _str_meta, parts}, _modifiers]}), do: {:ok, parts}
+  # the path. A variable or a helper call names a path only the running test knows. A
+  # heredoc's text ends in the newline before its closing delimiter, which is no part of
+  # the path it writes.
+  defp path_parts({:__block__, meta, [text]}) when is_binary(text),
+    do: {:ok, heredoc_trimmed(meta, [text])}
+
+  defp path_parts({:<<>>, meta, parts}), do: {:ok, heredoc_trimmed(meta, parts)}
+
+  defp path_parts({:sigil_p, meta, [{:<<>>, _str_meta, parts}, _modifiers]}),
+    do: {:ok, heredoc_trimmed(meta, parts)}
+
   defp path_parts(_expression), do: :error
+
+  defp heredoc_trimmed(meta, parts) do
+    with delimiter when delimiter in ~w(""" ''') <- meta[:delimiter],
+         last when is_binary(last) <- List.last(parts) do
+      List.replace_at(parts, -1, String.trim_trailing(last, "\n"))
+    else
+      _ -> parts
+    end
+  end
 
   # A `~p` names a path and nothing else: the router decides what it reaches, and a GET is
   # what a path written on its own means until an attribute says otherwise.

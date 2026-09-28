@@ -27,7 +27,7 @@ defmodule Grasp.Index.Builder do
   are what `Grasp.Index.Routes` resolves a template's links and `~p` sigils against.
 
   `run/1` is the full build, and every stage it walks — `source_files/2`, `extract/2`,
-  `Grasp.Index.Join.join/3`, `entry_points/2`, `classify/3`,
+  `Grasp.Index.Join.join/3`, `entry_points/2`, `classify/4`,
   `Grasp.Index.Resolve.resolve/2`, `document/5` — is a function of its own, because
   `Grasp.Index.Incremental` runs the same stages over the handful of files a save touched
   and has to produce records of exactly the same shape.
@@ -103,7 +103,9 @@ defmodule Grasp.Index.Builder do
     root = File.cwd!()
     paths = Keyword.get(config, :elixirc_paths, ["lib"])
 
-    tests? = Keyword.get(opts, :tests, true) and File.dir?(Path.join(root, "test"))
+    tests? =
+      Keyword.get(opts, :tests, true) and Enum.any?(@test_paths, &File.dir?(Path.join(root, &1)))
+
     base = resolve_base(root, paths, if(tests?, do: @test_paths, else: []), opts[:base])
     events = trace_compile(root, paths)
     extracted = extract(root, source_files(root, paths))
@@ -119,11 +121,11 @@ defmodule Grasp.Index.Builder do
     entries = Enum.map(detected.entry_points, &entry_point_json/1)
 
     tests = trace_tests(root, paths, functions, tests?)
-    classified_paths = paths ++ Map.get(tests.project, "test_paths", [])
+    traced = %{paths: Map.get(tests.project, "test_paths", []), files: tests.files}
 
     records =
       (functions ++ tests.records)
-      |> classify(base, classified_paths)
+      |> classify(base, paths, traced)
       |> Resolve.resolve(entries)
 
     project =
@@ -224,14 +226,37 @@ defmodule Grasp.Index.Builder do
   nothing about a branch, which is what an index built with no `--base` is. `paths` are
   the project's compile paths, so a base source outside them cannot invent removed
   functions.
-  """
-  @spec classify([Join.function_record()], BaseRef.resolved() | nil, [String.t()]) :: [
-          Changes.classified_record()
-        ]
-  def classify(records, nil, _paths), do: records
 
-  def classify(records, base, paths),
-    do: Changes.classify(records, compared_sources(base), paths)
+  `tests` names the test paths whose tests were indexed and the files the test trace read
+  under them. Under those paths only a `*_test.exs` file and a file the trace read are
+  compared: any other source there — a fixture project's `.ex`, a file the test build never
+  compiles — has no record to answer to, and its base functions would all read as removed.
+  A test file the branch deleted is still a `*_test.exs`, so its tests read as removed.
+  """
+  @spec classify(
+          [Join.function_record()],
+          BaseRef.resolved() | nil,
+          [String.t()],
+          %{paths: [String.t()], files: [String.t()]}
+        ) :: [Changes.classified_record()]
+  def classify(records, base, paths, tests \\ %{paths: [], files: []})
+
+  def classify(records, nil, _paths, _tests), do: records
+
+  def classify(records, base, paths, tests) do
+    prefixes = Enum.map(tests.paths, &(String.trim_trailing(&1, "/") <> "/"))
+    traced = MapSet.new(tests.files)
+
+    compared =
+      base
+      |> compared_sources()
+      |> Map.filter(fn {file, _source} ->
+        not String.starts_with?(file, prefixes) or String.ends_with?(file, "_test.exs") or
+          MapSet.member?(traced, file)
+      end)
+
+    Changes.classify(records, compared, paths ++ tests.paths)
+  end
 
   @doc """
   Assembles the JSON document, with the string keys `Grasp.Index.load/1` reads.
@@ -399,7 +424,7 @@ defmodule Grasp.Index.Builder do
     end
   end
 
-  @no_tests %{records: [], modules: [], project: %{}}
+  @no_tests %{records: [], modules: [], files: [], project: %{}}
 
   # The application's ids are handed to the join, because a test's calls reach out of the
   # files being joined: a hidden call into an application function is kept only when the
@@ -416,6 +441,7 @@ defmodule Grasp.Index.Builder do
           records:
             Join.join(extracted.definitions, trace.events, known_ids: indexed_ids(functions)),
           modules: extracted.modules,
+          files: trace.files,
           project: %{"test_paths" => @test_paths}
         }
 
