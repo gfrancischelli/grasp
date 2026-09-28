@@ -150,6 +150,53 @@ defmodule Grasp.MCP.Tools do
     end
   end
 
+  @doc """
+  A run of `Grasp.Runs` as a tool answers it: its `id`, `kind`, `description`, `argv`,
+  `root`, `started_at` and `line_count`, and for a finished run `finished_at`,
+  `exit_status` (`null` for a cancelled run) and `cancelled`. Its output is left out, so a
+  tool answering the lines chooses how many.
+  """
+  @spec run(Grasp.Runs.run() | Grasp.Runs.finished_run()) :: %{String.t() => term()}
+  def run(%{id: _} = run) do
+    base = %{
+      "id" => run.id,
+      "kind" => Atom.to_string(run.kind),
+      "description" => run.description,
+      "argv" => run.argv,
+      "root" => run.root,
+      "started_at" => DateTime.to_iso8601(run.started_at),
+      "line_count" => run.line_count
+    }
+
+    case run do
+      %{finished_at: finished_at} ->
+        Map.merge(base, %{
+          "finished_at" => DateTime.to_iso8601(finished_at),
+          "exit_status" => run.exit_status,
+          "cancelled" => run.cancelled?
+        })
+
+      _running ->
+        base
+    end
+  end
+
+  @doc """
+  The reply to a start of `Grasp.Runs`: `{"started": run}` for a run started,
+  `{"running": run}` for a start refused because another run is under way, and an error
+  for a command not found or a project root that is not a directory.
+  """
+  @spec started(term(), {:ok, Grasp.Runs.run()} | {:error, term()}) ::
+          {:reply, Response.t(), term()}
+  def started(frame, {:ok, run}), do: reply(frame, %{"started" => run(run)})
+  def started(frame, {:error, {:running, run}}), do: reply(frame, %{"running" => run(run)})
+
+  def started(frame, {:error, :no_command}),
+    do: error(frame, "could not start the run: #{hd(Grasp.Runs.command())} not found")
+
+  def started(frame, {:error, {:no_root, root}}),
+    do: error(frame, "could not start the run: #{root} is not a directory")
+
   @doc "A filter term folded to lower case, passing `nil` — an absent term — through."
   @spec downcase(String.t() | nil) :: String.t() | nil
   def downcase(nil), do: nil
