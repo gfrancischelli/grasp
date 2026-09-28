@@ -22,8 +22,8 @@ holds for test records unless this document says otherwise.
   subprocess, `MIX_ENV=test mix run --no-start`, which compiles the project before Grasp's
   own compiled beams — the `ebin` of the `grasp` the indexing session runs — are prepended to
   its code path, then has the tracer installed and the test files required without running a
-  test. The host changes nothing. Measured on a 258-file suite: 15 s, 115 000 events from 6 600 test-side
-  functions.
+  test. The host changes nothing when its test files compile without `test_helper.exs`.
+  Measured on a 258-file suite: 15 s, 115 000 events from 6 600 test-side functions.
 - **Coverage and runs use the host's own `mix test`.** Grasp never runs a test itself: it
   runs the host's test command, with Grasp's beams on the path the same way, so the suite
   runs with the host's configuration, database and environment. Results and coverage are
@@ -38,18 +38,21 @@ holds for test records unless this document says otherwise.
 ### The trace
 
 `mix grasp.index` traces the tests after it has traced the application, whenever the
-project has a `test/` directory; `--no-tests` skips it. The dev indexer starts the test
+project has test paths — its `:test_paths`, or `["test"]` when it has a `test` directory,
+as `mix test` defaults them; `--no-tests` skips it. The dev indexer starts the test
 trace as a subprocess:
 
 ```
 MIX_ENV=test MIX_BUILD_PATH=_build/grasp_test \
-  mix run --no-start priv/test_trace.exs EVENTS_FILE GRASP_EBIN DEV_PATHS
+  mix run --no-start priv/test_trace.exs EVENTS_FILE GRASP_EBIN DEV_PATHS CANDIDATES
 ```
 
 `EVENTS_FILE` is where the script writes what it traced, `GRASP_EBIN` the `ebin` directory
-of the `grasp` the indexing session runs, and `DEV_PATHS` the dev environment's
-`elixirc_paths`, joined by commas. The project's test paths are `["test"]`, written to the
-document as `project.test_paths`.
+of the `grasp` the indexing session runs, `DEV_PATHS` the dev environment's
+`elixirc_paths`, joined by commas, and `CANDIDATES` a file holding the paths under the test
+paths that the base commit has and the tree does not (see §Base ref). The test
+environment's test paths, as the script reads them, are written to the document as
+`project.test_paths`.
 
 - `_build/grasp_test` is seeded from `_build/test` the first time it is missing, as
   `_build/grasp` is seeded from `_build/dev`, so a dev server and a `mix test` run are never
@@ -62,17 +65,37 @@ document as `project.test_paths`.
   `Grasp.Index.Tracer`, sets `ignore_module_conflict: true`, starts ExUnit with
   `autorun: false`, and requires, with `Kernel.ParallelCompiler.require/2`, the test-only
   support files — the `.ex` files under the test environment's `elixirc_paths` that lie
-  under none of `DEV_PATHS` (`test/support`) — and then every `test/**/*_test.exs`.
+  under none of `DEV_PATHS` (`test/support`) — and then the test files `mix test` loads.
   Nothing is run: requiring a test file defines its module and registers its tests with an
   ExUnit that never starts a run. `test_helper.exs` is not required, since it starts
   repositories and sandboxes the trace does not need.
-- The script writes the events whose file is one of those it required, and the list of
-  those files, as `:erlang.term_to_binary/1`, to `EVENTS_FILE`, and exits. The parent reads
+- The test files are selected as `mix test` selects them, from the test environment's
+  project config by `Grasp.Index.TestTrace.test_files/2`, which runs in the script because a
+  load filter may be a function only that session can call. `:test_paths` defaults to
+  `["test"]` when the project has a `test` directory; every file matching `:test_pattern`
+  (default `"*.{ex,exs}"`) under a test path, and a test path that names a file, is a
+  candidate; a candidate is loaded when one of `:test_load_filters` (default a path ending
+  in `_test.exs`) matches it — a path it equals, a regex it matches or a one-arity function
+  answering true. `:test_ignore_filters` take no part: `mix test` loads a file a load
+  filter matches whether or not an ignore filter matches it too, and consults the ignore
+  filters only to decide which of the files left over it warns about. A project keeping
+  fixture projects under `test/` therefore keeps them out of the trace with the load filter
+  that keeps them out of `mix test`.
+- The script writes the events whose file is one of those it required, the list of those
+  files, the test paths and the `CANDIDATES` that `mix test` would load were they on disk,
+  as `:erlang.term_to_binary/1`, to `EVENTS_FILE`, and exits. The parent reads
   them and joins the events with what Sourceror extracts from the same files, as the
-  application's are joined. A test trace that fails — a test file that does not compile, or
-  a `grasp` loaded from no `ebin` the test session could read — is reported with the
-  subprocess's output and leaves the application's records written: the index is the
-  application's with no tests, never no index.
+  application's are joined. A test trace that fails leaves the application's records
+  written: the index is the application's with no tests, never no index. A test file that
+  does not compile is reported with the last 40 lines of the subprocess's output, after
+  `grasp: tests not indexed:`, which end with the compiler's error. A `grasp` loaded from no
+  `ebin` the test session could read is caught by the parent before any subprocess starts,
+  and reported as `grasp: tests not indexed: no compiled grasp to load into the test
+  environment (looked for Elixir.Grasp.Index.Tracer.beam in the ebin of …)`.
+- In PR mode the worktree's `_build/grasp_test` is seeded by `Grasp.PullRequest` from the
+  host's `_build/grasp_test`, or its `_build/test` when it has none, as its `_build/grasp`
+  is from `_build/dev`, so the first trace of a pull request compiles the project rather
+  than every test dependency.
 
 ### Extraction
 
@@ -131,10 +154,17 @@ test, route, controller action, context.
 
 In PR mode the base side of every changed test file is extracted like any changed source
 file, so test records are added, modified, unchanged or removed against the base, and a
-modified test has a diff. Under the test paths only a `*_test.exs` file and a file the test
-trace read are compared, so a fixture project's `.ex` or a file the test build never
-compiles has no base functions to read as removed; a test file the branch deleted is still a
-`*_test.exs`, so its tests read as removed. A trace that fails leaves every file under the
+modified test has a diff. The base is read under the test paths the dev environment's
+project config names (default `["test"]`), for every changed `.exs`, `.ex`, `.heex` and
+`.eex` file there. Under the test environment's test paths only two kinds of file are then
+compared: a file the test trace read — a test file `mix test` loads, or a test-only support
+file — and a file the base has and the tree does not that `mix test` would load were it on
+disk. The script answers the second for the paths the parent sends it as `CANDIDATES`: it
+lays each out, empty, in a scratch directory and selects there with the same function, so
+the pattern is matched as `Path.wildcard/1` matches it and a function filter is called
+where it is defined. So a fixture project's files, a test file a load filter leaves out and
+a file the test build never compiles have no base functions to read as removed, and a test
+file the branch deleted reads as removed. A trace that fails leaves every file under the
 test paths uncompared.
 
 ### Viewer
@@ -160,6 +190,15 @@ test paths uncompared.
 
 ### Known gaps
 
+- **A test file that needs `test_helper.exs` to compile fails the trace.** `test_helper.exs`
+  is never loaded, so a test file that `use`s, `import`s or otherwise needs at compile time
+  something `test_helper.exs` defines or `Code.require_file`s cannot compile in the trace,
+  and one failing file leaves every test out of the index.
+- **The base is read under the dev environment's test paths.** They are needed before the
+  trace names the test environment's, so a project whose `:test_paths` differ between the
+  two environments leaves the files under a path only the test environment names
+  uncompared.
+
 - **Test records refresh on a full build only.** The reindexer follows the code reloader,
   which never compiles a test file, so a test edited while the viewer runs keeps its record
   until the next `mix grasp.index`.
@@ -168,8 +207,8 @@ test paths uncompared.
   no definition to join to unless the macro expands to a `test`, and their calls land as
   hidden calls of nothing.
 - **A support file the branch deletes outright does not read as removed.** The base side of
-  the test paths is narrowed to `*_test.exs` files and the files the test trace required, and
-  a deleted support file is neither, so its functions vanish from the index without a
+  the test paths is narrowed to the files the test trace required and the deleted files
+  `mix test` would load, and a deleted support file is neither, so its functions vanish from the index without a
   `removed` record.
 - **A cold first test trace prints only its start line until it ends.** The subprocess's
   output is captured so that a failure can be reported with it, so compiling the test

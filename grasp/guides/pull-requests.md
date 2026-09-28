@@ -32,7 +32,8 @@ Run it from the project you started Grasp in. The task:
 - works in the worktree's copy of your project — the worktree itself, or the same directory
   inside it when your project is one directory of a larger repository, such as `apps/web`;
 - symlinks the project's `deps/` into that copy and seeds its build path from a copy of
-  `_build/dev`;
+  `_build/dev`, and its test trace's build, `_build/grasp_test`, from a copy of your
+  `_build/grasp_test`, or of `_build/test` when you have none;
 - builds the index there against the pull request's base, writing it to the file the viewer
   watches — `.grasp/index.json`, or whatever `:grasp, :index_path` names.
 

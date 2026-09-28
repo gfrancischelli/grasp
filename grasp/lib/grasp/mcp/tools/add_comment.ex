@@ -29,7 +29,8 @@ defmodule Grasp.MCP.Tools.AddComment do
   schema do
     field(:function_id, :string,
       required: true,
-      description: "The function to comment on, `Module.fun/arity`"
+      description:
+        "The function to comment on, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
     )
 
     field(:line, :integer,

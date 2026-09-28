@@ -45,11 +45,6 @@ defmodule Grasp.Index.Builder do
     Tracer
   }
 
-  # Where a project's tests live. The base side is read under them whenever tests are to be
-  # traced, and a changed test file is classified only once its tests were indexed, so a
-  # trace that fails leaves the classification the application's alone.
-  @test_paths ["test"]
-
   @type summary :: %{
           path: String.t(),
           functions: non_neg_integer(),
@@ -87,14 +82,17 @@ defmodule Grasp.Index.Builder do
   `Grasp.Index.Changes` and the functions the ref holds that the project no longer
   defines are written as removed records. An unresolvable ref aborts the run.
 
-  When the project has a `test/` directory its tests are traced too, by
+  When the project has test paths — its `:test_paths`, or `test/` when it has that
+  directory, as `mix test` reads them — its tests are traced too, by
   `Grasp.Index.TestTrace`, unless `:tests` is `false`. The test files and test-only support
   files are extracted and joined as the application's files are, and their records go
   through classification and route resolution with the application's: with `:base`, a
   test file the branch changed is read at the base too, so its tests are added, modified,
   unchanged or removed as functions are, and a request a test makes reaches the route it
-  names. The project block then names `"test_paths"`, so a reader knows which records are
-  tests. A trace that fails is reported and leaves the index the application's alone.
+  names. The project block then names `"test_paths"`, the test environment's, so a reader
+  knows which records are tests. A trace that fails is reported with the last lines of its
+  output and leaves the index the application's alone, its classification included: a
+  changed test file is classified only once its tests were indexed.
   """
   @spec run(out: String.t(), base: String.t(), tests: boolean()) :: {:ok, summary()}
   def run(opts) do
@@ -103,10 +101,15 @@ defmodule Grasp.Index.Builder do
     root = File.cwd!()
     paths = Keyword.get(config, :elixirc_paths, ["lib"])
 
-    tests? =
-      Keyword.get(opts, :tests, true) and Enum.any?(@test_paths, &File.dir?(Path.join(root, &1)))
+    # The test paths the base is read under, before the trace names the test environment's.
+    test_paths =
+      config[:test_paths] || if(File.dir?(Path.join(root, "test")), do: ["test"], else: [])
 
-    base = resolve_base(root, paths, if(tests?, do: @test_paths, else: []), opts[:base])
+    tests? =
+      Keyword.get(opts, :tests, true) and
+        Enum.any?(test_paths, &File.exists?(Path.expand(&1, root)))
+
+    base = resolve_base(root, paths, if(tests?, do: test_paths, else: []), opts[:base])
     events = trace_compile(root, paths)
     extracted = extract(root, source_files(root, paths))
     report_failures(extracted.failures)
@@ -120,8 +123,8 @@ defmodule Grasp.Index.Builder do
     report_skipped(detected.skipped)
     entries = Enum.map(detected.entry_points, &entry_point_json/1)
 
-    tests = trace_tests(root, paths, functions, tests?)
-    traced = %{paths: Map.get(tests.project, "test_paths", []), files: tests.files}
+    tests = trace_tests(root, paths, functions, base_only(root, base, test_paths), tests?)
+    traced = %{paths: Map.get(tests.project, "test_paths", []), files: tests.compared}
 
     records =
       (functions ++ tests.records)
@@ -227,11 +230,13 @@ defmodule Grasp.Index.Builder do
   the project's compile paths, so a base source outside them cannot invent removed
   functions.
 
-  `tests` names the test paths whose tests were indexed and the files the test trace read
-  under them. Under those paths only a `*_test.exs` file and a file the trace read are
-  compared: any other source there — a fixture project's `.ex`, a file the test build never
-  compiles — has no record to answer to, and its base functions would all read as removed.
-  A test file the branch deleted is still a `*_test.exs`, so its tests read as removed.
+  `tests` names the test paths whose tests were indexed and the files under them to compare:
+  the files the test trace read, and the files the base holds alone that `mix test` would
+  load, as `Grasp.Index.TestTrace` judged them in the test environment. Only those are
+  compared under the test paths: any other source there — a fixture project's `.ex`, a
+  test file a load filter leaves out — has no record to answer to, and its base functions
+  would all read as removed. A test file the branch deleted is one `mix test` would load,
+  so its tests read as removed.
   """
   @spec classify(
           [Join.function_record()],
@@ -251,8 +256,7 @@ defmodule Grasp.Index.Builder do
       base
       |> compared_sources()
       |> Map.filter(fn {file, _source} ->
-        not String.starts_with?(file, prefixes) or String.ends_with?(file, "_test.exs") or
-          MapSet.member?(traced, file)
+        not String.starts_with?(file, prefixes) or MapSet.member?(traced, file)
       end)
 
     Changes.classify(records, compared, paths ++ tests.paths)
@@ -424,15 +428,31 @@ defmodule Grasp.Index.Builder do
     end
   end
 
-  @no_tests %{records: [], modules: [], files: [], project: %{}}
+  @no_tests %{records: [], modules: [], compared: [], project: %{}}
+
+  # How many lines of a failed trace's output are printed: enough for the compiler's error,
+  # which comes last, without the compile log of every dependency a cold build prints first.
+  @failure_lines 40
+
+  # The files under the test paths the base holds and the tree does not: whether `mix test`
+  # would load one is for the test environment to judge.
+  defp base_only(_root, nil, _test_paths), do: []
+
+  defp base_only(root, base, test_paths) do
+    prefixes = Enum.map(test_paths, &(String.trim_trailing(&1, "/") <> "/"))
+
+    Enum.filter(base.files, fn file ->
+      String.starts_with?(file, prefixes) and not File.exists?(Path.join(root, file))
+    end)
+  end
 
   # The application's ids are handed to the join, because a test's calls reach out of the
   # files being joined: a hidden call into an application function is kept only when the
   # join knows the index holds that function.
-  defp trace_tests(root, paths, functions, true) do
+  defp trace_tests(root, paths, functions, candidates, true) do
     Mix.shell().info("grasp: tracing tests (MIX_ENV=test)")
 
-    case TestTrace.run(root, paths) do
+    case TestTrace.run(root, paths, candidates: candidates) do
       {:ok, trace} ->
         extracted = extract(root, trace.files)
         report_failures(extracted.failures)
@@ -441,17 +461,20 @@ defmodule Grasp.Index.Builder do
           records:
             Join.join(extracted.definitions, trace.events, known_ids: indexed_ids(functions)),
           modules: extracted.modules,
-          files: trace.files,
-          project: %{"test_paths" => @test_paths}
+          compared: trace.files ++ trace.selected,
+          project: %{"test_paths" => trace.test_paths}
         }
 
       {:error, output} ->
-        Mix.shell().error("grasp: tests not indexed: #{output}")
+        tail =
+          output |> String.trim_trailing() |> String.split("\n") |> Enum.take(-@failure_lines)
+
+        Mix.shell().error("grasp: tests not indexed: #{Enum.join(tail, "\n")}")
         @no_tests
     end
   end
 
-  defp trace_tests(_root, _paths, _functions, false), do: @no_tests
+  defp trace_tests(_root, _paths, _functions, _candidates, false), do: @no_tests
 
   defp extract_file(file, relative) do
     case File.read(file) do

@@ -115,12 +115,14 @@ that cannot be read or parsed is reported and skipped; only its definitions are 
 
 ## Tests
 
-A project with a `test/` directory has its tests indexed too. Every `test` block with a body,
-every `setup` and `setup_all` block, and every function a test module or a support module
-under `test/` defines is a record, with the calls its body makes as edges. A test's id is its
+A project with test paths — its `:test_paths`, or `test/` when it has that directory — has
+its tests indexed too. Every `test` block with a body, every `setup` and `setup_all` block,
+every function a test module defines, and every function of a support module the test build
+compiles — an `.ex` file under the test environment's `elixirc_paths` and outside the dev
+environment's, such as `test/support` — is a record, with the calls its body makes as edges. A test's id is its
 module and ExUnit's compiled name, quoted: `SampleAppWeb.GreetControllerTest."test greet/2
 says hello"/1`; its record carries a `test` field with its `describe`, its name as written and
-its `@tag` names, and the document's `project.test_paths` names where the tests live.
+its `@tag` names, and the document's `project.test_paths` names the test environment's test paths.
 
 A request a test makes is a route edge: `get(conn, ~p"/greet")`, `post(conn, "/bonuses",
 params)` or `live(conn, "/greet/live")` — a `get`, `post`, `put`, `patch`, `delete`, `head`,
@@ -134,17 +136,26 @@ are added, modified, unchanged or removed.
 Test files compile only in the test environment, so the tests are traced by a subprocess:
 `MIX_ENV=test mix run --no-start` over a script Grasp ships, which compiles the project's
 test build, puts Grasp's compiled beams on the path, and requires the test-only support files
-and every `test/**/*_test.exs` with the tracer installed. No test runs, and
-`test_helper.exs` is not loaded. The host adds nothing: Grasp stays a dev-only dependency.
+and the test files `mix test` loads with the tracer installed. Those are chosen as `mix test`
+chooses them, from the test environment's `:test_paths`, `:test_pattern` and
+`:test_load_filters`, so a fixture project a load filter keeps out of `mix test` is kept out
+of the trace too. No test runs, and `test_helper.exs` is not loaded. The host adds nothing
+when its test files compile without `test_helper.exs`: Grasp stays a dev-only dependency.
 
 - **`_build/grasp_test`** is the trace's build directory, so a `mix test` in another
   terminal is never compiled under. The first time it is missing it is seeded by copying
-  `_build/test`, when there is one; delete it to take a fresh seed.
+  `_build/test`, when there is one; delete it to take a fresh seed. A pull request's
+  worktree seeds its own from your `_build/grasp_test`, or your `_build/test`.
 - **The first run compiles the test dependencies** when there is no `_build/test` to seed
   from, and prints only `grasp: tracing tests (MIX_ENV=test)` until it finishes, since its
   output is kept back to report a failure with.
-- **A trace that fails** — a test file that does not compile — prints the subprocess's output
-  and leaves the application indexed: the index is written without tests, never not at all.
+- **A trace that fails** — a test file that does not compile — prints the last 40 lines of
+  the subprocess's output after `grasp: tests not indexed:` and leaves the application
+  indexed: the index is written without tests, never not at all.
+- **A test file that needs `test_helper.exs` to compile fails the trace.** A test file that
+  `use`s, `import`s or otherwise needs at compile time something `test_helper.exs` defines or
+  `Code.require_file`s cannot compile without it, and one file failing leaves every test out
+  of the index.
 - **`--no-tests`** leaves the tests out.
 - **Tests refresh on a full build only.** The code reloader never compiles a test file, so a
   test edited while the viewer runs keeps its record until the next `mix grasp.index`.

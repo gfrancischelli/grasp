@@ -15,10 +15,11 @@ defmodule Grasp.Index.BaseRef do
   files git reports as untracked, narrowed to the sources the index reads under the
   project's compile paths: `.ex` files and the `.heex` and `.eex` templates they embed.
   Under the test paths the same three kinds are kept, for the support files a test build
-  compiles, and so is every test file, `*_test.exs`, since the index reads every test as a
-  record; which of those files the test trace read is known only once it has run, so
-  narrowing them to it is `Grasp.Index.Builder.classify/4`'s business. A deleted file stays
-  in the list: its functions still have to be reported as removed. Rename detection is off, so a file git would have reported as renamed appears under both
+  compiles, and so is every `.exs` file, since a project's test pattern and load filters
+  decide which of them are tests; which files `mix test` loads is known only once the test
+  trace has run, so narrowing them to those is `Grasp.Index.Builder.classify/4`'s business.
+  A deleted file stays in the list: its functions still have to be reported as removed.
+  Rename detection is off, so a file git would have reported as renamed appears under both
   its old and its new path and keeps the base source it had under the old one. Paths are
   asked for, and resolved, relative to the working directory rather than the repository
   root, so a Mix project sitting in a subdirectory of a larger repository sees the
@@ -49,7 +50,7 @@ defmodule Grasp.Index.BaseRef do
   Resolves `ref` against the repository holding `root`.
 
   `:paths` lists the directories whose sources are of interest, defaulting to `["lib"]`;
-  `:test_paths`, defaulting to none, lists the directories whose test files are too, with
+  `:test_paths`, defaulting to none, lists the directories whose `.exs` files are too, with
   the sources under them. A file outside both is left out of `:files` and `:base_sources`.
   """
   @spec resolve(String.t(), String.t(), paths: [String.t()], test_paths: [String.t()]) ::
@@ -144,13 +145,13 @@ defmodule Grasp.Index.BaseRef do
     test_prefixes = prefixes(test_paths)
 
     files
-    # The extensions the index is built from, and no others: a changed `.exs` other than a
-    # test would carry base definitions no current record could ever answer to, and every
-    # one of them would read as a deletion.
+    # The extensions the index is built from, and no others: a changed `.exs` outside the
+    # test paths would carry base definitions no current record could ever answer to, and
+    # every one of them would read as a deletion.
     |> Enum.filter(fn file ->
       (Path.extname(file) in @source_extensions and
          String.starts_with?(file, prefixes ++ test_prefixes)) or
-        (String.ends_with?(file, "_test.exs") and String.starts_with?(file, test_prefixes))
+        (Path.extname(file) == ".exs" and String.starts_with?(file, test_prefixes))
     end)
     |> Enum.uniq()
     |> Enum.sort()

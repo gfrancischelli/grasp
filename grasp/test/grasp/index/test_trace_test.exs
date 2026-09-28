@@ -23,17 +23,27 @@ defmodule Grasp.Index.TestTraceTest do
 
   test "runs the script in the test environment, in a build directory of its own", %{root: root} do
     parent = self()
-    trace = %{events: [@event], files: ["test/sample_test.exs"]}
+
+    trace = %{
+      events: [@event],
+      files: ["test/sample_test.exs"],
+      test_paths: ["test"],
+      selected: ["test/gone_test.exs"]
+    }
 
     runner = fn command, args, opts ->
-      send(parent, {:ran, command, args, opts})
+      candidates = args |> Enum.at(6) |> File.read!() |> :erlang.binary_to_term()
+      send(parent, {:ran, command, args, opts, candidates})
       File.write!(Enum.at(args, 3), :erlang.term_to_binary(trace))
       {"", 0}
     end
 
-    assert TestTrace.run(root, ["lib", "web"], runner: runner) == {:ok, trace}
+    candidates = ["test/gone_test.exs", "test/gone_helper.exs"]
 
-    assert_received {:ran, "mix", args, opts}
+    assert TestTrace.run(root, ["lib", "web"], runner: runner, candidates: candidates) ==
+             {:ok, trace}
+
+    assert_received {:ran, "mix", args, opts, ^candidates}
     build = Path.join(root, "_build/grasp_test")
 
     assert [
@@ -42,7 +52,8 @@ defmodule Grasp.Index.TestTraceTest do
              script,
              events_file,
              grasp_ebin,
-             "lib,web"
+             "lib,web",
+             candidates_file
            ] = args
 
     refute "--no-compile" in args
@@ -57,6 +68,8 @@ defmodule Grasp.Index.TestTraceTest do
     assert opts[:stderr_to_stdout] == true
 
     refute File.exists?(events_file)
+    assert Path.dirname(candidates_file) == build
+    refute File.exists?(candidates_file)
   end
 
   test "seeds its build directory from the project's test build once", %{root: root} do
@@ -104,6 +117,151 @@ defmodule Grasp.Index.TestTraceTest do
   test "a trace that exits cleanly without writing its events is an error", %{root: root} do
     runner = fn _command, _args, _opts -> {"nothing written", 0} end
     assert TestTrace.run(root, ["lib"], runner: runner) == {:error, "nothing written"}
+  end
+
+  describe "test_files/2" do
+    test "selects the files mix test loads from this project's own configuration" do
+      root = File.cwd!()
+      selection = TestTrace.test_files(Mix.Project.config(), root)
+
+      assert selection.test_paths == ["test"]
+      assert "test/grasp/index/test_trace_test.exs" in selection.files
+      refute Enum.any?(selection.files, &String.starts_with?(&1, "test/fixtures/"))
+      refute "test/test_helper.exs" in selection.files
+      refute Enum.any?(selection.files, &String.starts_with?(&1, "test/support/"))
+    end
+
+    test "reads the test paths, the pattern and every kind of load filter", %{root: root} do
+      for file <- [
+            "spec/a_spec.exs",
+            "spec/b_spec.ex",
+            "spec/deep/c_spec.exs",
+            "spec/named.exs",
+            "spec/skipped.exs",
+            "checks/one_check.exs",
+            "test/ignored_test.exs"
+          ] do
+        write!(root, file, "")
+      end
+
+      config = [
+        test_paths: ["spec", "checks/one_check.exs"],
+        test_pattern: "*.exs",
+        test_load_filters: [~r/_spec\.exs$/, "spec/named.exs", &(&1 == "checks/one_check.exs")]
+      ]
+
+      assert TestTrace.test_files(config, root) == %{
+               test_paths: ["spec", "checks/one_check.exs"],
+               files: [
+                 "checks/one_check.exs",
+                 "spec/a_spec.exs",
+                 "spec/deep/c_spec.exs",
+                 "spec/named.exs"
+               ]
+             }
+    end
+
+    test "loads a file a load filter matches although an ignore filter matches it too",
+         %{root: root} do
+      write!(root, "test/a_test.exs", "")
+      write!(root, "test/b_test.exs", "")
+
+      config = [test_ignore_filters: [&String.starts_with?(&1, "test/a")]]
+
+      assert TestTrace.test_files(config, root).files == ["test/a_test.exs", "test/b_test.exs"]
+    end
+
+    test "has no test paths when the project has no test directory", %{root: root} do
+      assert TestTrace.test_files([], root) == %{test_paths: [], files: []}
+    end
+  end
+
+  describe "would_load/3" do
+    test "judges paths that are not on disk as mix test would judge them there" do
+      config = [test_load_filters: [&(String.ends_with?(&1, "_test.exs") and not fixture?(&1))]]
+
+      paths = [
+        "test/gone_test.exs",
+        "test/deep/gone_test.exs",
+        "test/gone_helper.exs",
+        "test/fixtures/app/test/gone_test.exs",
+        "other/gone_test.exs"
+      ]
+
+      assert TestTrace.would_load(config, ["test"], paths) == [
+               "test/gone_test.exs",
+               "test/deep/gone_test.exs"
+             ]
+    end
+
+    test "leaves out every path under grasp's own fixture app" do
+      assert TestTrace.would_load(Mix.Project.config(), ["test"], [
+               "test/fixtures/sample_app/test/sample_app/gone_test.exs",
+               "test/grasp/gone_test.exs"
+             ]) == ["test/grasp/gone_test.exs"]
+    end
+  end
+
+  @tag :integration
+  @tag timeout: 120_000
+  test "traces the tests of a project whose filters leave a non-compiling file out",
+       %{root: root} do
+    write!(root, "mix.exs", """
+    defmodule Acme.MixProject do
+      use Mix.Project
+
+      def project do
+        [
+          app: :acme,
+          version: "0.1.0",
+          test_load_filters: [&(String.ends_with?(&1, "_test.exs") and not fixture?(&1))],
+          test_ignore_filters: [&fixture?/1]
+        ]
+      end
+
+      defp fixture?(path), do: String.starts_with?(path, "test/fixtures/")
+    end
+    """)
+
+    write!(root, "lib/acme.ex", "defmodule Acme do\n  def answer, do: 42\nend\n")
+
+    write!(root, "test/acme_test.exs", """
+    defmodule AcmeTest do
+      use ExUnit.Case
+
+      test "answers" do
+        assert Acme.answer() == 42
+      end
+    end
+    """)
+
+    write!(root, "test/fixtures/other/test/broken_test.exs", """
+    defmodule Acme.BrokenTest do
+      use Acme.MissingCase
+    end
+    """)
+
+    assert {:ok, trace} =
+             TestTrace.run(root, ["lib"],
+               candidates: ["test/gone_test.exs", "test/fixtures/other/test/gone_test.exs"]
+             )
+
+    assert trace.files == ["test/acme_test.exs"]
+    assert trace.test_paths == ["test"]
+    assert trace.selected == ["test/gone_test.exs"]
+
+    assert Enum.any?(
+             trace.events,
+             &(&1.module == AcmeTest and &1.target == {Acme, :answer, 0})
+           )
+  end
+
+  defp fixture?(path), do: String.starts_with?(path, "test/fixtures/")
+
+  defp write!(root, file, contents) do
+    path = Path.join(root, file)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, contents)
   end
 
   defp writing_runner do

@@ -293,6 +293,12 @@ defmodule Grasp.IndexTest do
       assert ids(factory.helpers) == ["MyApp.Factory.build/1"]
     end
 
+    test "is computed once, when the index is built", %{fixture: index} do
+      assert index.tests != []
+      assert Index.tests(index) == index.tests
+      assert Index.tests(%{index | tests: []}) == []
+    end
+
     test "is empty for an index built without tests", %{index: index} do
       assert Index.tests(index) == []
     end

@@ -12,7 +12,11 @@ defmodule Grasp.MCP.Tools.GetFunction do
   alias Grasp.MCP.Tools
 
   schema do
-    field(:id, :string, required: true, description: "A function id, `Module.fun/arity`")
+    field(:id, :string,
+      required: true,
+      description:
+        "A function id, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
+    )
   end
 
   @impl true

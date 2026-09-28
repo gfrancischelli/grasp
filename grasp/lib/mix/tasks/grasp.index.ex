@@ -29,9 +29,9 @@ defmodule Mix.Tasks.Grasp.Index do
     * `--base` - a git ref to compare against. Each function is marked added, modified,
       unchanged or removed against the merge base of `REF` and `HEAD`, and the functions
       that commit defines and this one no longer does are written as removed records.
-    * `--no-tests` - leaves the project's tests out. Without it, a project with a `test/`
-      directory has its tests traced in the test environment, in a build directory of
-      their own, `_build/grasp_test` (see `Grasp.Index.TestTrace`), and written as records
+    * `--no-tests` - leaves the project's tests out. Without it, a project with test
+      paths has the test files `mix test` loads traced in the test environment, in a build
+      directory of their own, `_build/grasp_test` (see `Grasp.Index.TestTrace`), and written as records
       beside the application's.
     * `--build-path` - the build directory to compile in. Defaults to `_build/grasp`.
       Naming the project's own build directory runs the build in this session instead of

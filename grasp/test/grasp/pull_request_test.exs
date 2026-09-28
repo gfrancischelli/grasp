@@ -78,6 +78,45 @@ defmodule Grasp.PullRequestTest do
     assert File.read!(Path.join(worktree, "_build/grasp/lib/app/ebin/marker")) =~ "a beam"
   end
 
+  test "open/2 seeds the worktree's test build from the host's test trace build", context do
+    %{root: root, worktree: worktree} = context
+    write(root, "_build/grasp_test/lib/app/ebin/marker", "a traced beam")
+    write(root, "_build/test/lib/app/ebin/marker", "a test beam")
+
+    assert {:ok, _pull_request} = PullRequest.open(7, opts(root))
+
+    assert File.read!(Path.join(worktree, "_build/grasp_test/lib/app/ebin/marker")) ==
+             "a traced beam"
+
+    assert_received {:step,
+                     "Seeding .grasp/worktrees/pr-7/_build/grasp_test from _build/grasp_test"}
+  end
+
+  test "open/2 seeds the worktree's test build from the host's test build when it has no trace",
+       context do
+    %{root: root, worktree: worktree} = context
+    write(root, "_build/test/lib/app/ebin/marker", "a test beam")
+
+    assert {:ok, _pull_request} = PullRequest.open(7, opts(root))
+
+    assert File.read!(Path.join(worktree, "_build/grasp_test/lib/app/ebin/marker")) ==
+             "a test beam"
+
+    File.write!(Path.join(root, "_build/test/lib/app/ebin/marker"), "a rebuilt beam")
+    assert {:ok, _pull_request} = PullRequest.open(7, opts(root))
+
+    assert File.read!(Path.join(worktree, "_build/grasp_test/lib/app/ebin/marker")) ==
+             "a test beam"
+  end
+
+  test "open/2 leaves the worktree without a test build when the host has none", context do
+    %{root: root, worktree: worktree} = context
+
+    assert {:ok, _pull_request} = PullRequest.open(7, opts(root))
+
+    refute File.exists?(Path.join(worktree, "_build/grasp_test"))
+  end
+
   test "open/2 builds the index inside the worktree, into the reader's index file", context do
     %{root: root, worktree: worktree} = context
 

@@ -168,7 +168,10 @@ mix grasp.index [--base main] [--out .grasp/index.json]
    Changed files are `git diff --name-only BASE_SHA` (working tree included) unioned with
    `git ls-files --others --exclude-standard`, filtered to `.ex` sources under the compile
    paths — the same extension the index itself is extracted with, so a changed file can
-   never carry base definitions no current record could answer to. Each base version is
+   never carry base definitions no current record could answer to — and, when tests are
+   indexed, the `.exs` and source files under the test paths, narrowed to the files
+   `mix test` loads and the support files the test trace read (see the tests design's
+   §Base ref). Each base version is
    read with `git show BASE_SHA:./path` and run through step 2 only; a file the base did
    not have is compared against an empty source, so its functions read as added.
    Definitions are matched by MFA across the two sides — under any arity a head declares,
@@ -179,7 +182,7 @@ mix grasp.index [--base main] [--out .grasp/index.json]
    unchanged.
 6. **Write JSON** to `--out`.
 
-After the application's traced compile, a project with a `test/` directory has its tests
+After the application's traced compile, a project with test paths has its tests
 traced by one subprocess in the test environment, `MIX_ENV=test mix run --no-start` over a
 script Grasp ships, and joined as steps 2 and 3 join the application's, so every `test`,
 `setup` and test-module function is a record; `--no-tests` skips it (see

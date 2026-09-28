@@ -31,6 +31,26 @@ defmodule Grasp.HighlightCacheTest do
     assert second == first
   end
 
+  test "a test's assertions are found once and read from the table after" do
+    record = %{
+      "id" => ~S|Cached.CheckTest."test counts"/1|,
+      "kind" => "test",
+      "file" => "test/check_test.exs",
+      "span" => %{"start_line" => 3, "end_line" => 5},
+      "source" => "test \"counts\" do\n  assert count() == 1\nend",
+      "calls" => []
+    }
+
+    assert [{4..4//1, _html}] = first = Highlight.assertions(record)
+
+    assert :ets.lookup(:grasp_highlight_cache, {:assertions, record["id"]}) == [
+             {{:assertions, record["id"]}, first}
+           ]
+
+    rewritten = %{record | "source" => "test \"counts\" do\n  :ok\nend"}
+    assert Highlight.assertions(rewritten) == first
+  end
+
   test "clear_cache/0 empties the table" do
     record("Cleared.f/1") |> Highlight.render(opts())
     assert :ets.info(:grasp_highlight_cache, :size) > 0

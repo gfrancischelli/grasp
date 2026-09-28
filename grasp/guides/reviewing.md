@@ -142,8 +142,8 @@ function card prints its module; a setup card wears `setup` and is titled `setup
 opens the code it exercises the way a function opens its callees.
 
 In signature mode a test card reads what it promises: under its title, its assertions — every
-`assert`, `refute`, `assert_*` and `refute_*` written as a local or imported call or at the
-end of a `|>` — each whole across the lines it spans, a piped one from the line its pipeline
+`assert`, `refute`, `assert_*` and `refute_*` written as a local or imported call or as any
+stage of a `|>` pipeline — each whole across the lines it spans, a piped one from the line its pipeline
 starts on, in source order and highlighted as code. A test that asserts nothing, an assertion
 made through another module's helper (`Helpers.assert_ok(x)`), and a setup show the title
 alone.

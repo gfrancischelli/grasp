@@ -24,7 +24,8 @@ defmodule Grasp.MCP.Tools.ListComments do
 
   schema do
     field(:function_id, :string,
-      description: "Keep only the threads on this function, `Module.fun/arity`"
+      description:
+        "Keep only the threads on this function, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
     )
 
     field(:include_resolved, :boolean,

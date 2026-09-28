@@ -25,7 +25,8 @@ defmodule Grasp.Index do
             functions: %{},
             aliases: %{},
             callers: %{},
-            entry_points_by_target: %{}
+            entry_points_by_target: %{},
+            tests: []
 
   @type function_record :: %{required(String.t()) => term()}
   @type t :: %__MODULE__{
@@ -38,7 +39,8 @@ defmodule Grasp.Index do
           functions: %{String.t() => function_record()},
           aliases: %{String.t() => String.t()},
           callers: %{String.t() => [String.t()]},
-          entry_points_by_target: %{String.t() => [map()]}
+          entry_points_by_target: %{String.t() => [map()]},
+          tests: [test_module()]
         }
 
   @doc "Reads and decodes an index document from `path`."
@@ -104,7 +106,7 @@ defmodule Grasp.Index do
     entry_points_by_target =
       Enum.group_by(entry_points, &Map.get(aliases, &1["target"], &1["target"]))
 
-    %__MODULE__{
+    index = %__MODULE__{
       version: 1,
       generated_at: document["generated_at"],
       project: document["project"] || %{},
@@ -116,6 +118,8 @@ defmodule Grasp.Index do
       callers: callers,
       entry_points_by_target: entry_points_by_target
     }
+
+    %{index | tests: test_modules(index)}
   end
 
   defp arities(record) do
@@ -233,10 +237,13 @@ defmodule Grasp.Index do
   A module belongs to the suite when it holds a test or a setup record — a record of kind
   `"test"` or `"setup"` — or when the file it is written in lies under the project's
   `test_paths`, which is where a case template or a factory module lives. Whatever else such
-  a module defines is one of its helpers. An index built without tests returns `[]`.
+  a module defines is one of its helpers. An index built without tests returns `[]`. The
+  list is computed once, when the index is built from its document.
   """
   @spec tests(t()) :: [test_module()]
-  def tests(%__MODULE__{} = index) do
+  def tests(%__MODULE__{} = index), do: index.tests
+
+  defp test_modules(index) do
     records =
       index.functions
       |> Map.values()

@@ -108,6 +108,13 @@ defmodule Grasp.Index.BaseRefTest do
     write!(root, "test/c_test.exs", @deleted_test)
     write!(root, "test/support/case.ex", "defmodule Case do\n  def c, do: :c\nend\n")
     write!(root, "test/fixtures/x.ex", "defmodule X do\n  def x, do: :x\nend\n")
+
+    write!(
+      root,
+      "test/fixtures/app/test/app_test.exs",
+      "defmodule AppTest do\n  use ExUnit.Case\n  test \"x\", do: :ok\nend\n"
+    )
+
     git!(root, ["add", "."])
     git!(root, ["commit", "-q", "-m", "base"])
 
@@ -118,6 +125,7 @@ defmodule Grasp.Index.BaseRefTest do
     write!(root, "test/fixtures/x.ex", "defmodule X do\n  def y, do: :y\nend\n")
     write!(root, "test/support/case.ex", "defmodule Case do\n  def d, do: :d\nend\n")
     File.rm!(Path.join(root, "test/c_test.exs"))
+    File.rm!(Path.join(root, "test/fixtures/app/test/app_test.exs"))
 
     assert {:ok, lib_only} = BaseRef.resolve(root, "HEAD")
     assert lib_only.files == []
@@ -128,8 +136,11 @@ defmodule Grasp.Index.BaseRefTest do
              "test/a_test.exs",
              "test/b_test.exs",
              "test/c_test.exs",
+             "test/fixtures/app/test/app_test.exs",
+             "test/fixtures/data.exs",
              "test/fixtures/x.ex",
-             "test/support/case.ex"
+             "test/support/case.ex",
+             "test/test_helper.exs"
            ]
 
     assert base.base_sources["test/a_test.exs"] == @base_test
@@ -146,7 +157,11 @@ defmodule Grasp.Index.BaseRefTest do
           Join.join(definitions, [])
       end)
 
-    traced = %{paths: ["test"], files: ["test/support/case.ex"]}
+    traced = %{
+      paths: ["test"],
+      files: ["test/a_test.exs", "test/b_test.exs", "test/support/case.ex", "test/c_test.exs"]
+    }
+
     by_id = records |> Builder.classify(base, ["lib"], traced) |> Map.new(&{&1.id, &1})
 
     assert %{change: "modified", base_source: modified_base} =
@@ -168,6 +183,7 @@ defmodule Grasp.Index.BaseRefTest do
     assert %{change: "added"} = by_id["Case.d/0"]
     assert %{change: "removed"} = by_id["Case.c/0"]
 
+    refute Map.has_key?(by_id, ~S|AppTest."test x"/1|)
     refute Map.has_key?(by_id, "X.x/0")
     refute Enum.any?(by_id, fn {_id, record} -> record.file == "test/fixtures/x.ex" end)
   end

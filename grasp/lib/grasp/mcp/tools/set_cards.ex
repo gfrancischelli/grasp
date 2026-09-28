@@ -37,7 +37,8 @@ defmodule Grasp.MCP.Tools.SetCards do
 
       field(:function_id, :string,
         required: true,
-        description: "The function the card shows, `Module.fun/arity`"
+        description:
+          "The function the card shows, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
       )
 
       field(:parent_key, :string,

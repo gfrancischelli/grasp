@@ -47,7 +47,10 @@ defmodule Grasp.Highlight do
   `signature/1` renders a single line — the function's head, which is all a far-out card
   shows — from the same cached pieces, without the gutter and without the call spans.
   `assertions/1` renders a test's assertions the same way, each over the lines it spans,
-  which is what a far-out test card shows in place of a head.
+  which is what a far-out test card shows in place of a head. Finding them is a Sourceror
+  parse of the test's source, so the result is memoised in the same table under
+  `{:assertions, id}` — the id suffixed `@base` for a removed test read from its base
+  source.
 
   `render_diff/2` renders the same lines against the record's `base_source`, interleaving
   the lines the branch deleted. The base side is a second parse memoised under the function
@@ -337,7 +340,10 @@ defmodule Grasp.Highlight do
   @spec assertions(map()) :: [{Range.t(), Phoenix.HTML.safe()}]
   def assertions(record) do
     {source, first_line, id} = signature_source(record)
+    memoised({:assertions, id}, fn -> render_assertions(record, source, first_line, id) end)
+  end
 
+  defp render_assertions(record, source, first_line, id) do
     case assertion_ranges(source, first_line) do
       [] ->
         []
@@ -501,18 +507,21 @@ defmodule Grasp.Highlight do
 
   # Each Lumis text run becomes a piece %{line, col, text, css}; col is the 1-based start
   # column, css the class of the run's innermost span (nil for unhighlighted text).
-  defp pieces(source, first_line, id, language) do
+  defp pieces(source, first_line, id, language),
+    do: memoised(id, fn -> parse(source, first_line, id, language) end)
+
+  defp memoised(key, compute) do
     if :ets.whereis(@cache) == :undefined do
-      parse(source, first_line, id, language)
+      compute.()
     else
-      case :ets.lookup(@cache, id) do
-        [{^id, pieces}] ->
-          pieces
+      case :ets.lookup(@cache, key) do
+        [{^key, value}] ->
+          value
 
         [] ->
-          pieces = parse(source, first_line, id, language)
-          :ets.insert(@cache, {id, pieces})
-          pieces
+          value = compute.()
+          :ets.insert(@cache, {key, value})
+          value
       end
     end
   end

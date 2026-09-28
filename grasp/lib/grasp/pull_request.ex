@@ -20,8 +20,10 @@ defmodule Grasp.PullRequest do
   rebuilt: `deps/` is symlinked to the host's, and the build directory the index compiles
   in starts as a copy of the host's `_build/dev`. That is what makes the second pull
   request of an afternoon a compile of the project rather than of every dependency it
-  carries. The lending is also the limit — a pull request that changes `mix.lock` is
-  indexed against the host's dependencies. Mix refuses a build whose lock pins versions its
+  carries. The test trace's build, `_build/grasp_test`, starts the same way, as a copy of
+  the host's `_build/grasp_test`, or of its `_build/test` when there is none. The lending
+  is also the limit — a pull request that changes `mix.lock` is indexed against the host's
+  dependencies. Mix refuses a build whose lock pins versions its
   `deps/` does not hold, so the build runs with the host's `mix.lock` in place of the pull
   request's, and the pull request's is put back as it was once the build ends, whether it
   succeeded or not: the worktree is left holding the pull request's own files, and a later
@@ -352,20 +354,34 @@ defmodule Grasp.PullRequest do
     end
   end
 
-  # The build directory is seeded here rather than left to `mix grasp.index`, which seeds
-  # from the build of the project it runs in: a fresh worktree has none to seed from.
+  # The build directories are seeded here rather than left to `mix grasp.index`, which seeds
+  # from the builds of the project it runs in: a fresh worktree has none to seed from.
   defp lend_build(root, project, log) do
     build = Path.join([project, "_build", "grasp"])
-    source = Path.join([root, "_build", "dev"])
 
-    if File.dir?(build) or not File.dir?(source) do
+    with :ok <- seed(root, build, [Path.join([root, "_build", "dev"])], log),
+         :ok <-
+           seed(
+             root,
+             Path.join([project, "_build", "grasp_test"]),
+             [Path.join([root, "_build", "grasp_test"]), Path.join([root, "_build", "test"])],
+             log
+           ) do
       {:ok, build}
+    end
+  end
+
+  defp seed(root, build, sources, log) do
+    source = Enum.find(sources, &File.dir?/1)
+
+    if File.dir?(build) or is_nil(source) do
+      :ok
     else
       log.("Seeding #{Path.relative_to(build, root)} from #{Path.relative_to(source, root)}")
       File.mkdir_p!(Path.dirname(build))
 
       case File.cp_r(source, build) do
-        {:ok, _copied} -> {:ok, build}
+        {:ok, _copied} -> :ok
         {:error, reason, path} -> {:error, "could not copy #{source} to #{path}: #{reason}"}
       end
     end
