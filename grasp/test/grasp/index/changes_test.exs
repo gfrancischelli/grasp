@@ -1,7 +1,7 @@
 defmodule Grasp.Index.ChangesTest do
   use ExUnit.Case, async: true
 
-  alias Grasp.Index.{Changes, Extract, Join}
+  alias Grasp.Index.{Builder, Changes, Extract, Join}
 
   @base_a ~S"""
   defmodule A do
@@ -93,6 +93,26 @@ defmodule Grasp.Index.ChangesTest do
     assert removed.arity == 0
     assert removed.arities == [0]
     assert removed.kind == :def
+  end
+
+  test "a removed record keeps the clauses and arms of its base definition" do
+    base = ~S"""
+    defmodule A do
+      def f, do: :f
+
+      def gone(x) do
+        case x do
+          1 -> :one
+          _ -> :other
+        end
+      end
+    end
+    """
+
+    classified = Changes.classify(records(@moved, "lib/a.ex"), %{"lib/a.ex" => base}, ["lib"])
+    json = Builder.function_json(by_id(classified)["A.gone/1"])
+
+    assert {json["clauses"], json["arms"]} == {[[4, 9]], [[6, 6], [7, 7]]}
   end
 
   test "a record in a file the diff did not touch is unchanged" do

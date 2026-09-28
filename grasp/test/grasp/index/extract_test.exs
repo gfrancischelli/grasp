@@ -910,6 +910,41 @@ defmodule Grasp.Index.ExtractTest do
       assert arms.(:nested) == [{64, 68}, {66, 66}, {67, 67}, {70, 71}]
     end
 
+    test "reads clauses written in keyword form as arms" do
+      source = ~S"""
+      defmodule SampleApp.Terse do
+        def load(x), do: with({:ok, y} <- x, do: y, else: (_ -> :err))
+
+        def pick(x) do
+          case(x, do: (1 -> :a; _ -> :b))
+        end
+      end
+      """
+
+      {:ok, %{definitions: defs}} = Extract.extract(source, "lib/terse.ex")
+
+      assert find(defs, "SampleApp.Terse", :load).arms == [{2, 2}]
+      assert find(defs, "SampleApp.Terse", :pick).arms == [{5, 5}, {5, 5}]
+    end
+
+    test "counts no clause for a head written without a body" do
+      source = ~S"""
+      defmodule SampleApp.Defaults do
+        def pad(text, width \\ 8)
+
+        def pad(text, width) when is_binary(text), do: String.pad_leading(text, width)
+
+        def pad(text, width) do
+          pad(to_string(text), width)
+        end
+      end
+      """
+
+      {:ok, %{definitions: defs}} = Extract.extract(source, "lib/defaults.ex")
+
+      assert find(defs, "SampleApp.Defaults", :pad).clauses == [{4, 4}, {6, 8}]
+    end
+
     test "reads a try's after and the rescue a def writes directly as arms" do
       source = ~S"""
       defmodule SampleApp.Guarded do

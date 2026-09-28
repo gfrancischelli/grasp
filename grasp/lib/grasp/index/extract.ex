@@ -85,14 +85,17 @@ defmodule Grasp.Index.Extract do
 
   A definition records where its branches are too, as `{start_line, end_line}` pairs.
   `clauses` holds one per clause in source order, from the line of its `def` — or its
-  `test` or `setup` — through its `end`; a test or a setup is one clause. `arms` holds every
+  `test` or `setup` — through its last line; a test or a setup is one clause, and a head
+  written without a body to declare default arguments is none. `arms` holds every
   arm, anywhere in those clauses, of a `case`, a `cond`, a `with`'s `else`, a `receive` and
   its `after`, a `try`'s `rescue`, `catch`, `else` and `after` — and of the same clauses
   written straight on a `def`, a test or a setup, which is a `try` the compiler writes — and
   of a `fn` with more than one clause. An arm runs from its pattern's line through its
   body's last line, an `after` that has no pattern from the `after` itself; a construct
-  nested inside an arm adds arms of its own. Arms are sorted by their start line, then their
-  end line.
+  nested inside an arm adds arms of its own, and clauses written in keyword form
+  (`else: (_ -> nil)`) are arms as much as those of a `do` block. A branch written inside a
+  `~H` sigil is template text, not Elixir the walk reads, and adds no arm. Arms are sorted by
+  their start line, then their end line.
   """
 
   alias Grasp.Index.Heex
@@ -411,7 +414,10 @@ defmodule Grasp.Index.Extract do
   defp add_block(acc, module, kind, name, node, block, pending, test) do
     first = List.first(pending) || node
     %{start: [line: start_line, column: _]} = Sourceror.get_range(first, include_comments: true)
-    %{end: [line: end_line, column: _]} = Sourceror.get_range(node)
+
+    %{start: [line: head_line, column: _], end: [line: end_line, column: _]} =
+      Sourceror.get_range(node)
+
     sites = collect_sites(block)
 
     definition = %{
@@ -428,7 +434,7 @@ defmodule Grasp.Index.Extract do
       route_sites: sites.route_sites,
       head_positions: [],
       head_ranges: [],
-      clauses: [clause_lines(node)],
+      clauses: [{head_line, end_line}],
       arms: arms(node, block),
       test: test
     }
@@ -475,7 +481,9 @@ defmodule Grasp.Index.Extract do
         %{start: [line: start_line, column: _]} =
           Sourceror.get_range(first, include_comments: true)
 
-        %{end: [line: end_line, column: _]} = Sourceror.get_range(node)
+        %{start: [line: head_line, column: _], end: [line: end_line, column: _]} =
+          Sourceror.get_range(node)
+
         sites = clause_sites(node)
         {head_positions, head_ranges} = head_location(head, name)
 
@@ -493,7 +501,7 @@ defmodule Grasp.Index.Extract do
           route_sites: sites.route_sites,
           head_positions: head_positions,
           head_ranges: head_ranges,
-          clauses: [clause_lines(node)],
+          clauses: if(bodiless?(node), do: [], else: [{head_line, end_line}]),
           arms: arms(node, List.last(elem(node, 2)))
         }
 
@@ -535,12 +543,10 @@ defmodule Grasp.Index.Extract do
     %{definition | source: source}
   end
 
-  defp clause_lines(node) do
-    %{start: [line: start_line, column: _], end: [line: end_line, column: _]} =
-      Sourceror.get_range(node)
-
-    {start_line, end_line}
-  end
+  # A head written without a body — the one that declares default arguments ahead of the
+  # clauses — has nothing to enter.
+  defp bodiless?({_kind, _meta, [_head]}), do: true
+  defp bodiless?(_node), do: false
 
   # `block` is the definition's own keyword list — its `do` and whatever `rescue`, `catch`,
   # `else` or `after` it writes, which the compiler turns into a `try` around the body.
@@ -582,7 +588,7 @@ defmodule Grasp.Index.Extract do
       {{:__block__, meta, [key]}, value} when is_atom(key) ->
         cond do
           key not in keys -> []
-          arrows?(value) -> Enum.flat_map(value, &arrow_lines/1)
+          arrows?(unwrap(value)) -> Enum.flat_map(unwrap(value), &arrow_lines/1)
           key == :after -> body_lines(meta, value)
           true -> []
         end
@@ -593,6 +599,11 @@ defmodule Grasp.Index.Extract do
   end
 
   defp keyword_arms(_other, _keys), do: []
+
+  # Clauses written in parentheses, as a keyword's value (`else: (_ -> :error)`), come
+  # wrapped in a block holding their list.
+  defp unwrap({:__block__, _meta, [list]}) when is_list(list), do: list
+  defp unwrap(value), do: value
 
   defp arrows?(value), do: is_list(value) and Enum.all?(value, &match?({:->, _, _}, &1))
 
