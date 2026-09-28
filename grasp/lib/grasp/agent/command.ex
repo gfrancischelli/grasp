@@ -195,7 +195,7 @@ defmodule Grasp.Agent.Command do
     2. Call reload_index, so what you read next is the index the task wrote rather than the one it replaced.
     3. Call list_changes, trace each changed function back to its entry points with find_paths, then call set_cards with the roots at the entry points and one group per flow, each group titled after what that flow does. Reply in two sentences that name the pull request's title.
     The pull request's code is in the worktree, which is what the index now names as its project root: read, edit and format files there, and rebuild from there with `mix grasp.index --base origin/<base> --out #{index}`, which is the file the viewer watches.
-    Comments stay in `#{Path.join(home, ".grasp/comments.json")}`, whatever tree is being reviewed, so list_comments can answer with this session's threads left on another branch.
+    Comments stay with the checkout Grasp was started in, whatever tree is being reviewed, so list_comments can answer with this session's threads left on another branch. Reach comments through the comment tools only.
     """
     |> String.trim_trailing()
   end

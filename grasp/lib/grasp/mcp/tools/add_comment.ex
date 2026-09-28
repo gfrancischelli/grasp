@@ -24,6 +24,7 @@ defmodule Grasp.MCP.Tools.AddComment do
   alias Grasp.Comments
   alias Grasp.MCP.Comments, as: Shape
   alias Grasp.MCP.Tools
+  alias Grasp.Session
 
   @sides ~w(new old)
 
@@ -67,7 +68,6 @@ defmodule Grasp.MCP.Tools.AddComment do
     end_line = Map.get(params, :end_line)
 
     with {:ok, session} <- Tools.check_session(Map.get(params, :session)),
-         {:ok, session} <- Tools.ensure_session(session),
          {:ok, index} <- Tools.index(),
          {:ok, side} <- side(Map.get(params, :side, "new")),
          {:ok, record} <- Tools.fetch_function(index, function_id),
@@ -95,7 +95,9 @@ defmodule Grasp.MCP.Tools.AddComment do
 
   # The snippet is read off the record now, since it is the text the comment is about and
   # the line it sits on may be edited before anyone reads the thread. A range records its
-  # first line, which is the line the thread is anchored by.
+  # first line, which is the line the thread is anchored by. The session is started once the
+  # thread is written, so a session written into is one the session menu lists and deletes,
+  # and a refused call leaves the viewer's sessions as they were.
   defp add(session, record, side, line, end_line, body) do
     attrs = %{
       session: session,
@@ -109,8 +111,12 @@ defmodule Grasp.MCP.Tools.AddComment do
     }
 
     case Comments.add(attrs) do
-      {:ok, thread} -> {:ok, thread}
-      {:error, :invalid} -> {:error, "body must not be blank"}
+      {:ok, thread} ->
+        :ok = Session.ensure(session)
+        {:ok, thread}
+
+      {:error, :invalid} ->
+        {:error, "body must not be blank"}
     end
   end
 end

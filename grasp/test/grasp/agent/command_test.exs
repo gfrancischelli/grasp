@@ -153,7 +153,8 @@ defmodule Grasp.Agent.CommandTest do
     assert prompt =~
              "mix grasp.index --base origin/<base> --out #{IndexStore.path()}"
 
-    assert prompt =~ Path.join(home, ".grasp/comments.json")
+    assert prompt =~ "Reach comments through the comment tools only."
+    refute prompt =~ "comments.json"
     refute prompt =~ "gh pr checkout"
     refute prompt =~ "git switch"
   end

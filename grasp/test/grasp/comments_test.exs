@@ -328,6 +328,21 @@ defmodule Grasp.CommentsTest do
     assert thread.session == "default"
   end
 
+  test "a thread whose session no session could be named belongs to the default one" do
+    for name <- ["", "no/such session", String.duplicate("a", 41)] do
+      comment =
+        String.replace(
+          one_comment(),
+          ~s("id": 7,),
+          ~s("id": 7, "session": #{Jason.encode!(name)},)
+        )
+
+      assert {:ok, {[thread], _next_id, 0}} = Comments.decode(document([comment]))
+      assert thread.id == 7
+      assert thread.session == "default"
+    end
+  end
+
   test "a thread whose session is not a string is dropped" do
     comment = String.replace(one_comment(), ~s("id": 7,), ~s("id": 7, "session": 7,))
 

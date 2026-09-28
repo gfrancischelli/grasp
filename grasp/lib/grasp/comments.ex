@@ -15,7 +15,9 @@ defmodule Grasp.Comments do
   id names one thread whichever session asks. An id is therefore no proof of ownership, and
   a caller acting for a session reads a thread through `fetch/2`, which answers `:error` for
   another session's. A thread in a document that records no session belongs to `"default"`,
-  the session a viewer opens with.
+  the session a viewer opens with, and so does one whose session is a name no session can
+  carry — `Grasp.Session.Disk.valid_name?/1` refuses it — since no viewer or tool could ask
+  for it by that name. A session that is not a string at all makes the entry malformed.
 
   A thread records the line number it was written on *and* the text of that line, the
   snippet. Code moves under a comment, so the number alone is not an anchor;
@@ -741,11 +743,11 @@ defmodule Grasp.Comments do
        when is_integer(id) and id > 0 and is_binary(function_id) and is_binary(body) and
               is_binary(created_at) and is_integer(line) and line > 0 and side in @sides and
               author in @authors do
-    session = Map.get(comment, "session", @unsessioned)
+    session = Map.get(comment, "session")
     snippet = Map.get(comment, "snippet")
     edited_at = Map.get(comment, "edited_at")
 
-    with true <- is_binary(session),
+    with {:ok, session} <- decode_session(session),
          true <- is_nil(snippet) or is_binary(snippet),
          true <- is_nil(edited_at) or is_binary(edited_at),
          {:ok, end_line} <- end_line_value(Map.get(comment, "end_line"), line),
@@ -775,6 +777,15 @@ defmodule Grasp.Comments do
   end
 
   defp decode_thread(_comment), do: :error
+
+  # A name no session can carry is one no viewer or tool could ever ask for, so the thread
+  # joins the session a document without names reads into rather than sitting unreachable.
+  defp decode_session(nil), do: {:ok, @unsessioned}
+
+  defp decode_session(session) when is_binary(session),
+    do: if(Disk.valid_name?(session), do: {:ok, session}, else: {:ok, @unsessioned})
+
+  defp decode_session(_malformed), do: :error
 
   defp decode_github(nil), do: {:ok, nil}
 

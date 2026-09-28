@@ -858,7 +858,8 @@ redraw the flow" is one prompt in the chat panel.
   store. A thread is `%{id, session, function_id, side, line, snippet, body, author,
   created_at, resolved, replies}`: `session` is the name of the session it was written in,
   a name a session can carry, and a thread with no `session` in the file belongs to
-  `default`; `side` is `"new"` for a line of the current source, numbered as the
+  `default`, as does one whose `session` is a string no session can carry (a hand edit, since
+  the store writes only valid names) — no viewer or tool could ask for it under that name; `side` is `"new"` for a line of the current source, numbered as the
   file is, or `"old"` for a line the diff deleted, numbered from 1 within `base_source` as
   the diff view numbers them; `snippet` is the trimmed text of the line when the comment
   was made; `author` is `"human"` or `"agent"`; `created_at` is ISO 8601 UTC; `edited_at`
@@ -1095,6 +1096,11 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
 - **One store per project root.** Comments are keyed by session and function id, not by
   branch, so a checkout that switches branches under a running viewer shows one branch's
   threads over the other's code until they are resolved or deleted.
+- **The per-session rule binds the tools, not the file.** `.grasp/comments.json` holds every
+  session's threads, and an agent in edit mode can read any file of the checkout, so reading
+  the file directly shows it other reviews' threads. The comment tools answer for one session
+  and the system prompt sends the agent to them rather than naming the file; nothing stops a
+  file read.
 - **Frames overlap when cards are dragged across.** A frame follows its cards wherever they
   go, so two frames can cover the same ground; nothing pushes them apart, and a drop inside
   both joins the later section. Reset layout untangles them.
@@ -1423,8 +1429,9 @@ conversation.
   `origin/<base>` (the `--out` the viewer watches when that is not the default); call
   `reload_index` so the viewer reads the new file at once rather than on its next poll;
   then `list_changes` and `set_cards` with one group per flow, roots at the entry points,
-  so the whole change is on the canvas in frames. Comments from an earlier review of another
-  branch stay in `.grasp/comments.json` until resolved or deleted; the prompt says so. In
+  so the whole change is on the canvas in frames. A session's comments from an earlier review
+  of another branch stay with it until resolved or deleted; the prompt says so, and sends the
+  agent to the comment tools rather than to the file. In
   `read` mode the same request is answered with a note to switch the chat to edit mode.
 - "Publish the comments to the PR" is one prompt in either mode: the system prompt names
   `publish_comments`, says to pass the number when the request has one, and asks the agent

@@ -254,6 +254,24 @@ defmodule Grasp.MCP.CommentToolsTest do
       assert {:ok, %{session: ^elsewhere}} = Grasp.Comments.fetch(thread["id"])
     end
 
+    test "add_comment starts the session it writes into, and a refused call starts none" do
+      refused = other_session()
+
+      for params <- [
+            %{function_id: "SampleApp.Nope.nope/0", line: 1, body: unique_body()},
+            %{function_id: @greet, line: 99, body: unique_body()},
+            %{function_id: @greet, line: 9, body: "   "}
+          ] do
+        assert run(Tools.AddComment, Map.put(params, :session, refused)).isError
+      end
+
+      refute refused in Grasp.Session.list()
+
+      written = other_session()
+      add(%{session: written, function_id: @greet, line: 9, body: unique_body()})
+      assert written in Grasp.Session.list()
+    end
+
     test "reply_comment and resolve_comment do not know another session's thread" do
       thread = add(%{function_id: @greet, line: 9, body: unique_body()})
       id = thread["id"]
