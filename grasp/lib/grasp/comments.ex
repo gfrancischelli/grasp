@@ -2,12 +2,20 @@ defmodule Grasp.Comments do
   @moduledoc """
   Review comments written on lines of the functions the cards show.
 
-  Comments belong to the project rather than to a session. A session is a working
-  arrangement of cards that lives only while the viewer runs, whereas a remark about a
-  line is worth keeping: the reviewer closes the card, reopens the project tomorrow, and
-  expects the thread to still hang off that line. One store therefore holds every thread
-  for the indexed project, and each thread names the function it belongs to, so any
-  session that happens to draw that function shows it.
+  A thread belongs to the session it was written in, and names the function it hangs off.
+  Two sessions on one checkout are two reviews — a pull request read beside another, or the
+  same branch read twice for different reasons — and each is its own conversation: a remark
+  made in one is not a question the other was asked. So a reader acting for a session asks
+  for that session's threads, and a session shows only its own. The threads still
+  outlive the cards: closing a card, or restarting the viewer, leaves every thread of the
+  session hanging off its line, and only deleting the session takes them with it
+  (`delete_session/1`).
+
+  One store holds the threads of every session, in one document with one id counter, so an
+  id names one thread whichever session asks. An id is therefore no proof of ownership, and
+  a caller acting for a session reads a thread through `fetch/2`, which answers `:error` for
+  another session's. A thread in a document that records no session belongs to `"default"`,
+  the session a viewer opens with.
 
   A thread records the line number it was written on *and* the text of that line, the
   snippet. Code moves under a comment, so the number alone is not an anchor;
@@ -53,7 +61,9 @@ defmodule Grasp.Comments do
   text first written. A thread published to a pull request keeps its stamp through an edit:
   GitHub holds the text it was sent, and the edit is the checkout's alone.
 
-  Every successful mutation broadcasts `:comments_changed` on the `"comments"` topic.
+  Every successful mutation broadcasts `{:comments_changed, session}` on the `"comments"`
+  topic, `session` being the one whose threads changed, so a subscriber reading one session
+  can pass over the others' changes.
   """
 
   use GenServer
@@ -61,6 +71,7 @@ defmodule Grasp.Comments do
   require Logger
 
   alias Grasp.Comments.Anchor
+  alias Grasp.Session.Disk
 
   @type author :: String.t()
   @type side :: String.t()
@@ -75,6 +86,7 @@ defmodule Grasp.Comments do
   @type github :: %{id: pos_integer(), url: String.t(), published_at: String.t()}
   @type thread :: %{
           id: pos_integer(),
+          session: String.t(),
           function_id: String.t(),
           side: side(),
           line: pos_integer(),
@@ -92,6 +104,7 @@ defmodule Grasp.Comments do
   @topic "comments"
   @authors ~w(human agent)
   @sides ~w(new old)
+  @unsessioned "default"
 
   @doc """
   Starts the store.
@@ -107,16 +120,17 @@ defmodule Grasp.Comments do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @doc "Subscribes the caller to `:comments_changed` messages."
+  @doc "Subscribes the caller to `{:comments_changed, session}` messages."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Grasp.PubSub, @topic)
 
   @doc """
   Threads sorted by id.
 
-  `:function_id` keeps only the threads on that function, and `:include_resolved` (false
-  by default) keeps the resolved ones as well. `store` reads a store other than the
-  application's.
+  `:session` keeps only the threads of that session, and without it every session's threads
+  are listed, which is what a caller answering for the whole store asks for. `:function_id`
+  keeps only the threads on that function, and `:include_resolved` (false by default) keeps
+  the resolved ones as well. `store` reads a store other than the application's.
   """
   @spec list() :: [thread()]
   @spec list(keyword()) :: [thread()]
@@ -124,24 +138,44 @@ defmodule Grasp.Comments do
   def list(opts \\ [], store \\ __MODULE__) when is_list(opts),
     do: GenServer.call(store, {:list, opts})
 
-  @doc "Every thread, resolved ones included, grouped by function id and sorted by id."
-  @spec by_function() :: %{String.t() => [thread()]}
-  def by_function, do: GenServer.call(__MODULE__, :by_function)
+  @doc """
+  Every thread of the session `session`, resolved ones included, grouped by function id and
+  sorted by id.
+  """
+  @spec by_function(String.t()) :: %{String.t() => [thread()]}
+  def by_function(session) when is_binary(session),
+    do: GenServer.call(__MODULE__, {:by_function, session})
 
-  @doc "Fetches the thread `id`."
+  @doc "Fetches the thread `id`, whichever session it belongs to."
   @spec fetch(pos_integer()) :: {:ok, thread()} | :error
   def fetch(id) when is_integer(id), do: GenServer.call(__MODULE__, {:fetch, id})
 
   @doc """
-  Opens a thread from `%{function_id, side, line, body, author, snippet, end_line}`.
+  Fetches the thread `id` of the session `session`.
 
-  `side` is `"new"` or `"old"`, `author` is `"human"` or `"agent"`, `body` is stored
-  trimmed and may not be blank, and `snippet` (optional) is the text of the line as it
-  reads when the comment is written. `end_line` (optional) makes the thread cover a range
-  of the same side, and has to be a line after `line`; anything else is
-  `{:error, :invalid_end_line}`. Whether the range fits the function is a question about
-  the record the comment is written against, and is answered by the caller holding it.
-  `store` writes to a store other than the application's.
+  A thread of another session is `:error`, as an id the store does not hold is: an id
+  arriving from a page or a tool is the caller's claim, and a session acting on it may only
+  reach its own threads.
+  """
+  @spec fetch(pos_integer(), String.t()) :: {:ok, thread()} | :error
+  def fetch(id, session) when is_integer(id) and is_binary(session) do
+    case fetch(id) do
+      {:ok, %{session: ^session} = thread} -> {:ok, thread}
+      _elsewhere -> :error
+    end
+  end
+
+  @doc """
+  Opens a thread from `%{session, function_id, side, line, body, author, snippet, end_line}`.
+
+  `session` is the name of the session the thread is written in, and has to be a name
+  `Grasp.Session.Disk.valid_name?/1` accepts. `side` is `"new"` or `"old"`, `author` is
+  `"human"` or `"agent"`, `body` is stored trimmed and may not be blank, and `snippet`
+  (optional) is the text of the line as it reads when the comment is written. `end_line`
+  (optional) makes the thread cover a range of the same side, and has to be a line after
+  `line`; anything else is `{:error, :invalid_end_line}`. Whether the range fits the function
+  is a question about the record the comment is written against, and is answered by the
+  caller holding it. `store` writes to a store other than the application's.
   """
   @spec add(map()) :: {:ok, thread()} | {:error, :invalid | :invalid_end_line}
   @spec add(map(), store()) :: {:ok, thread()} | {:error, :invalid | :invalid_end_line}
@@ -192,6 +226,15 @@ defmodule Grasp.Comments do
   @spec delete_reply(pos_integer(), pos_integer()) :: :ok
   def delete_reply(thread_id, reply_id) when is_integer(thread_id) and is_integer(reply_id),
     do: GenServer.call(__MODULE__, {:delete_reply, thread_id, reply_id})
+
+  @doc """
+  Deletes every thread of the session `session`, with their replies.
+
+  The threads go in one write and one broadcast; a session with no threads changes nothing.
+  """
+  @spec delete_session(String.t()) :: :ok
+  def delete_session(session) when is_binary(session),
+    do: GenServer.call(__MODULE__, {:delete_session, session})
 
   @doc """
   The file the threads are written to, or `nil` when they are held in memory only.
@@ -268,6 +311,7 @@ defmodule Grasp.Comments do
 
   @impl true
   def handle_call({:list, opts}, _from, state) do
+    session = Keyword.get(opts, :session)
     function_id = Keyword.get(opts, :function_id)
     include_resolved = Keyword.get(opts, :include_resolved, false)
 
@@ -275,15 +319,23 @@ defmodule Grasp.Comments do
       state.threads
       |> sorted()
       |> Enum.filter(fn thread ->
-        (is_nil(function_id) or thread.function_id == function_id) and
+        (is_nil(session) or thread.session == session) and
+          (is_nil(function_id) or thread.function_id == function_id) and
           (include_resolved or not thread.resolved)
       end)
 
     {:reply, threads, state}
   end
 
-  def handle_call(:by_function, _from, state),
-    do: {:reply, state.threads |> sorted() |> Enum.group_by(& &1.function_id), state}
+  def handle_call({:by_function, session}, _from, state) do
+    grouped =
+      state.threads
+      |> sorted()
+      |> Enum.filter(&(&1.session == session))
+      |> Enum.group_by(& &1.function_id)
+
+    {:reply, grouped, state}
+  end
 
   def handle_call({:fetch, id}, _from, state), do: {:reply, Map.fetch(state.threads, id), state}
 
@@ -298,7 +350,7 @@ defmodule Grasp.Comments do
             next_id: state.next_id + 1
         }
 
-        {:reply, {:ok, thread}, commit(state)}
+        {:reply, {:ok, thread}, commit(state, thread.session)}
 
       :error ->
         {:reply, {:error, :invalid}, state}
@@ -319,7 +371,7 @@ defmodule Grasp.Comments do
           next_id: state.next_id + 1
       }
 
-      {:reply, {:ok, thread}, commit(state)}
+      {:reply, {:ok, thread}, commit(state, thread.session)}
     else
       :error -> {:reply, {:error, thread_error(state, id)}, state}
     end
@@ -329,7 +381,7 @@ defmodule Grasp.Comments do
     with {:ok, thread} <- Map.fetch(state.threads, id),
          {:ok, thread} <- rewrite(thread, reply_id, body) do
       state = %{state | threads: Map.put(state.threads, id, thread)}
-      {:reply, {:ok, thread}, commit(state)}
+      {:reply, {:ok, thread}, commit(state, thread.session)}
     else
       :error -> {:reply, {:error, :unknown}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
@@ -344,7 +396,7 @@ defmodule Grasp.Comments do
       {:ok, thread} ->
         thread = %{thread | resolved: resolved}
         state = %{state | threads: Map.put(state.threads, id, thread)}
-        {:reply, {:ok, thread}, commit(state)}
+        {:reply, {:ok, thread}, commit(state, thread.session)}
 
       :error ->
         {:reply, {:error, :unknown}, state}
@@ -356,7 +408,7 @@ defmodule Grasp.Comments do
          {:ok, github} <- build_github(comment) do
       thread = %{thread | github: github}
       state = %{state | threads: Map.put(state.threads, id, thread)}
-      {:reply, {:ok, thread}, commit(state)}
+      {:reply, {:ok, thread}, commit(state, thread.session)}
     else
       :error -> {:reply, {:error, thread_error(state, id)}, state}
     end
@@ -365,7 +417,7 @@ defmodule Grasp.Comments do
   def handle_call({:delete, id}, _from, state) do
     case Map.pop(state.threads, id) do
       {nil, _threads} -> {:reply, :ok, state}
-      {_thread, threads} -> {:reply, :ok, commit(%{state | threads: threads})}
+      {thread, threads} -> {:reply, :ok, commit(%{state | threads: threads}, thread.session)}
     end
   end
 
@@ -379,7 +431,7 @@ defmodule Grasp.Comments do
         else
           thread = %{thread | replies: replies}
           state = %{state | threads: Map.put(state.threads, thread_id, thread)}
-          {:reply, :ok, commit(state)}
+          {:reply, :ok, commit(state, thread.session)}
         end
 
       :error ->
@@ -387,12 +439,21 @@ defmodule Grasp.Comments do
     end
   end
 
+  def handle_call({:delete_session, session}, _from, state) do
+    {gone, kept} =
+      Map.split_with(state.threads, fn {_id, thread} -> thread.session == session end)
+
+    if map_size(gone) == 0,
+      do: {:reply, :ok, state},
+      else: {:reply, :ok, commit(%{state | threads: kept}, session)}
+  end
+
   @impl true
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp commit(state) do
+  defp commit(state, session) do
     state = persist(state)
-    Phoenix.PubSub.broadcast(Grasp.PubSub, @topic, :comments_changed)
+    Phoenix.PubSub.broadcast(Grasp.PubSub, @topic, {:comments_changed, session})
     state
   end
 
@@ -494,7 +555,8 @@ defmodule Grasp.Comments do
     do: if(Map.has_key?(state.threads, id), do: :invalid, else: :unknown)
 
   defp build_thread(attrs, id) do
-    with {:ok, function_id} <- binary_field(attrs, :function_id),
+    with {:ok, session} <- session_field(attrs),
+         {:ok, function_id} <- binary_field(attrs, :function_id),
          {:ok, side} <- member_field(attrs, :side, @sides),
          {:ok, line} <- line_field(attrs),
          {:ok, end_line} <- end_line_value(Map.get(attrs, :end_line), line),
@@ -503,6 +565,7 @@ defmodule Grasp.Comments do
       {:ok,
        %{
          id: id,
+         session: session,
          function_id: function_id,
          side: side,
          line: line,
@@ -550,6 +613,11 @@ defmodule Grasp.Comments do
          {:ok, body} <- body_field(attrs) do
       {:ok, %{id: id, author: author, body: body, created_at: now(), edited_at: nil}}
     end
+  end
+
+  defp session_field(attrs) do
+    session = Map.get(attrs, :session)
+    if Disk.valid_name?(session), do: {:ok, session}, else: :error
   end
 
   defp binary_field(attrs, key) do
@@ -604,6 +672,7 @@ defmodule Grasp.Comments do
   defp encode_thread(thread) do
     encoded = %{
       "id" => thread.id,
+      "session" => thread.session,
       "function_id" => thread.function_id,
       "side" => thread.side,
       "line" => thread.line,
@@ -672,10 +741,12 @@ defmodule Grasp.Comments do
        when is_integer(id) and id > 0 and is_binary(function_id) and is_binary(body) and
               is_binary(created_at) and is_integer(line) and line > 0 and side in @sides and
               author in @authors do
+    session = Map.get(comment, "session", @unsessioned)
     snippet = Map.get(comment, "snippet")
     edited_at = Map.get(comment, "edited_at")
 
-    with true <- is_nil(snippet) or is_binary(snippet),
+    with true <- is_binary(session),
+         true <- is_nil(snippet) or is_binary(snippet),
          true <- is_nil(edited_at) or is_binary(edited_at),
          {:ok, end_line} <- end_line_value(Map.get(comment, "end_line"), line),
          {:ok, github} <- decode_github(Map.get(comment, "github")) do
@@ -684,6 +755,7 @@ defmodule Grasp.Comments do
       {:ok,
        %{
          id: id,
+         session: session,
          function_id: function_id,
          side: side,
          line: line,

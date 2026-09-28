@@ -85,9 +85,11 @@ defmodule Grasp.MCP.Tools.AddComment do
 
   # The snippet is read off the record now, since it is the text the comment is about and
   # the line it sits on may be edited before anyone reads the thread. A range records its
-  # first line, which is the line the thread is anchored by.
+  # first line, which is the line the thread is anchored by. The tool names no session, so
+  # the thread is written into the default one, the session a viewer opens with.
   defp add(record, side, line, end_line, body) do
     attrs = %{
+      session: "default",
       function_id: record["id"],
       side: side,
       line: line,

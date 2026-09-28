@@ -48,7 +48,7 @@ defmodule GraspWeb.CardComponents do
   attr :editor, :string, default: nil
   attr :callers_open, :integer, default: nil
   attr :selected, :boolean, default: false
-  attr :comments, :map, doc: "every thread of the project, keyed by function id", default: %{}
+  attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
   attr :composing, :map, doc: "the anchor a comment is being written at", default: nil
   attr :expanded_threads, :any, doc: "ids of the resolved threads shown in full", default: nil
   attr :expanded_folds, :any, doc: "`{card id, first line}` of every fold opened", default: nil
@@ -107,7 +107,7 @@ defmodule GraspWeb.CardComponents do
   attr :editor, :string, default: nil
   attr :callers_open, :integer, default: nil
   attr :selected, :boolean, default: false
-  attr :comments, :map, doc: "every thread of the project, keyed by function id", default: %{}
+  attr :comments, :map, doc: "every thread of the session, keyed by function id", default: %{}
   attr :composing, :map, doc: "the anchor a comment is being written at", default: nil
   attr :expanded_threads, :any, doc: "ids of the resolved threads shown in full", default: nil
   attr :expanded_folds, :any, doc: "`{card id, first line}` of every fold opened", default: nil

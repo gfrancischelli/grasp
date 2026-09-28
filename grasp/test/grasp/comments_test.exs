@@ -15,6 +15,7 @@ defmodule Grasp.CommentsTest do
 
     assert {:ok, thread} =
              Comments.add(%{
+               session: "default",
                function_id: function_id,
                side: "new",
                line: 12,
@@ -23,9 +24,10 @@ defmodule Grasp.CommentsTest do
                snippet: "def run do"
              })
 
-    assert_receive :comments_changed
+    assert_receive {:comments_changed, "default"}
 
     assert %{
+             session: "default",
              function_id: ^function_id,
              side: "new",
              line: 12,
@@ -87,12 +89,68 @@ defmodule Grasp.CommentsTest do
     refute other in Comments.list(function_id: function_id)
   end
 
-  test "by_function/0 groups every thread, resolved included", %{function_id: function_id} do
+  test "by_function/1 groups every thread of the session, resolved included", %{
+    function_id: function_id
+  } do
     {:ok, first} = add(function_id, %{line: 1})
     {:ok, second} = add(function_id, %{line: 2})
     {:ok, second} = Comments.set_resolved(second.id, true)
 
-    assert Comments.by_function()[function_id] == [first, second]
+    assert Comments.by_function("default")[function_id] == [first, second]
+  end
+
+  test "a thread belongs to the session it was written in", %{function_id: function_id} do
+    a = session_name()
+    b = session_name()
+    {:ok, thread} = add(function_id, %{session: a})
+
+    assert thread.session == a
+    assert Comments.list(session: a, function_id: function_id) == [thread]
+    assert Comments.list(session: b, function_id: function_id) == []
+    assert thread in Comments.list(function_id: function_id)
+
+    assert Comments.by_function(a)[function_id] == [thread]
+    refute Map.has_key?(Comments.by_function(b), function_id)
+
+    assert Comments.fetch(thread.id, a) == {:ok, thread}
+    assert Comments.fetch(thread.id, b) == :error
+    assert Comments.fetch(thread.id + 1_000_000, a) == :error
+    assert Comments.fetch(thread.id) == {:ok, thread}
+  end
+
+  test "add/1 refuses a thread with no session, or one no session could be named", %{
+    function_id: function_id
+  } do
+    assert add(function_id, %{session: nil}) == {:error, :invalid}
+    assert add(function_id, %{session: "no/such session"}) == {:error, :invalid}
+    assert add(function_id, %{session: :default}) == {:error, :invalid}
+    assert add(function_id, %{session: ""}) == {:error, :invalid}
+    assert Comments.list(function_id: function_id, include_resolved: true) == []
+  end
+
+  test "delete_session/1 deletes that session's threads alone, with one broadcast", %{
+    function_id: function_id
+  } do
+    gone = session_name()
+    kept = session_name()
+    {:ok, first} = add(function_id, %{session: gone, line: 1})
+    {:ok, _second} = add(function_id, %{session: gone, line: 2})
+    {:ok, other} = add(function_id, %{session: kept})
+    :ok = Comments.subscribe()
+
+    assert Comments.delete_session(gone) == :ok
+
+    assert_receive {:comments_changed, ^gone}
+    refute_receive {:comments_changed, ^gone}, 50
+    assert Comments.list(session: gone, include_resolved: true) == []
+    assert Comments.fetch(first.id) == :error
+    assert Comments.list(session: kept, include_resolved: true) == [other]
+
+    assert {:ok, {threads, _next_id, 0}} = Comments.path() |> File.read!() |> Comments.decode()
+    refute Enum.any?(threads, &(&1.session == gone))
+
+    assert Comments.delete_session(gone) == :ok
+    refute_receive {:comments_changed, ^gone}, 50
   end
 
   test "reply/2 appends replies with ids of their own", %{function_id: function_id} do
@@ -135,7 +193,7 @@ defmodule Grasp.CommentsTest do
     assert edited.created_at == thread.created_at
     assert [%{body: reply_body, edited_at: nil}] = edited.replies
     assert reply_body == reply.body
-    assert_receive :comments_changed
+    assert_receive {:comments_changed, "default"}
 
     answer = unique("yes, but only when loud")
 
@@ -180,6 +238,7 @@ defmodule Grasp.CommentsTest do
 
   test "add/1 rejects anything but a well-formed comment", %{function_id: function_id} do
     valid = %{
+      session: "default",
       function_id: function_id,
       side: "new",
       line: 1,
@@ -214,6 +273,7 @@ defmodule Grasp.CommentsTest do
     threads = [
       %{
         id: 1,
+        session: "default",
         function_id: "SampleApp.Greeter.greet/2",
         side: "new",
         line: 8,
@@ -241,6 +301,7 @@ defmodule Grasp.CommentsTest do
       },
       %{
         id: 3,
+        session: "review-2",
         function_id: "SampleApp.Formatter.shout/1",
         side: "old",
         line: 1,
@@ -260,6 +321,17 @@ defmodule Grasp.CommentsTest do
 
     assert document =~ "\n"
     assert Comments.decode(document) == {:ok, {threads, 4, 0}}
+  end
+
+  test "a thread in a document that records no session belongs to the default one" do
+    assert {:ok, {[thread], _next_id, 0}} = Comments.decode(document([one_comment()]))
+    assert thread.session == "default"
+  end
+
+  test "a thread whose session is not a string is dropped" do
+    comment = String.replace(one_comment(), ~s("id": 7,), ~s("id": 7, "session": 7,))
+
+    assert {:ok, {[], _next_id, 1}} = Comments.decode(document([comment]))
   end
 
   test "decode/1 corrects a counter that lags behind the ids it hands out" do
@@ -331,7 +403,7 @@ defmodule Grasp.CommentsTest do
     url = "https://github.com/acme/sample_app/pull/42#discussion_r55123"
     assert {:ok, published} = Comments.mark_published(thread.id, %{id: 55_123, url: url})
 
-    assert_receive :comments_changed
+    assert_receive {:comments_changed, "default"}
     assert %{id: 55_123, url: ^url, published_at: published_at} = published.github
     assert {:ok, _datetime, _offset} = DateTime.from_iso8601(published_at)
     assert {:ok, ^published} = Comments.fetch(thread.id)
@@ -443,10 +515,22 @@ defmodule Grasp.CommentsTest do
   end
 
   defp isolated_attrs do
-    %{function_id: "Test.Isolated.run/0", side: "new", line: 1, body: "later", author: "human"}
+    %{
+      session: "default",
+      function_id: "Test.Isolated.run/0",
+      side: "new",
+      line: 1,
+      body: "later",
+      author: "human"
+    }
   end
 
   defp comments_json, do: "[" <> one_comment() <> "]"
+
+  defp document(comments),
+    do: ~s({"version": 1, "next_id": 9, "comments": [#{Enum.join(comments, ", ")}]})
+
+  defp session_name, do: "s-#{System.unique_integer([:positive])}"
 
   defp one_comment do
     ~s({"id": 7, "function_id": "Test.Fn.run/0", "side": "new", "line": 1, "snippet": null,) <>
@@ -457,6 +541,7 @@ defmodule Grasp.CommentsTest do
 
   defp add(function_id, attrs) do
     %{
+      session: "default",
       function_id: function_id,
       side: "new",
       line: 1,

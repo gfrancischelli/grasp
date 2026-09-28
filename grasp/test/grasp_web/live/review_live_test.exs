@@ -164,10 +164,12 @@ defmodule GraspWeb.ReviewLiveTest do
   end
 
   test "a comment in the sidebar opens its card and lights up the line it was written on", %{
-    view: view
+    view: view,
+    name: name
   } do
     {:ok, thread} =
       Comments.add(%{
+        session: name,
         function_id: @greet,
         side: "new",
         line: 9,
@@ -184,9 +186,10 @@ defmodule GraspWeb.ReviewLiveTest do
     assert has_element?(view, ~s(#card-1 .line[data-highlight="true"][data-line="9"]))
   end
 
-  test "a comment on a function the index has lost opens nothing", %{view: view} do
+  test "a comment on a function the index has lost opens nothing", %{view: view, name: name} do
     {:ok, thread} =
       Comments.add(%{
+        session: name,
         function_id: "SampleApp.Gone.vanished/1",
         side: "new",
         line: 1,

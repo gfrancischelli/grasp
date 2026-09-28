@@ -30,8 +30,8 @@ defmodule GraspWeb.Sidebar do
   on arrival whenever there is one, and is absent from a review with nothing to show — no
   base ref, or a branch that changed nothing.
 
-  Above even that is the Comments group, the unresolved review threads of the whole project
-  under the modules they were written on. A thread is a question waiting on someone, so it
+  Above even that is the Comments group, the unresolved review threads of the session being
+  read under the modules they were written on. A thread is a question waiting on someone, so it
   leads; the row carries the function, the line and the opening words of the body, and
   clicking it draws the card and lights the line up. A thread on a function the index no
   longer holds has nothing to draw, so it is listed muted and clicking it does nothing.
@@ -450,7 +450,7 @@ defmodule GraspWeb.Sidebar do
     end
   end
 
-  # Every thread the project holds, of every function, least recent first: the sidebar lists
+  # Every thread the session holds, of every function, least recent first: the sidebar lists
   # what is still open across the review rather than what one card happens to show.
   defp open_threads(comments) do
     comments

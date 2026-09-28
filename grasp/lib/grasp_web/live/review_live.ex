@@ -10,11 +10,13 @@ defmodule GraspWeb.ReviewLive do
   are selected is this tab's alone (`selected`): a selection is a gesture half-finished, and
   broadcasting it would move the cards another reader is picking out.
 
-  Review threads arrive the same way and belong to the project rather than to the session, so
-  a comment written here shows on every card drawing that function everywhere. What is this
-  tab's own is where a comment is being written (`composing`), which resolved threads have
-  been opened back up (`expanded_threads`) and which folds of a changes-only diff have been
-  opened (`expanded_folds`) — each is one reader mid-gesture.
+  Review threads arrive the same way and belong to the session they were written in, so a
+  comment written here shows on every card of this session drawing that function, in every
+  tab reading it, and in no other session; an id the page sends is acted on only when it
+  names one of this session's threads. What is this tab's own is where a comment is being
+  written (`composing`), which resolved threads have been opened back up
+  (`expanded_threads`) and which folds of a changes-only diff have been opened
+  (`expanded_folds`) — each is one reader mid-gesture.
 
   The page is mounted by `Grasp.Router.grasp/2` and depends on the two session keys that
   macro's live session provides: `"grasp_path"`, the prefix the host mounted Grasp at, from
@@ -81,10 +83,10 @@ defmodule GraspWeb.ReviewLive do
       new_session_name: "",
       expanded_module: nil,
       expanded_test_module: nil,
-      expanded_groups: default_expanded(index, length(Grasp.Comments.list())),
+      expanded_groups: default_expanded(index, open_threads(name)),
       callers_open: nil,
       renaming_group: nil,
-      comments: Grasp.Comments.by_function(),
+      comments: Grasp.Comments.by_function(name),
       composing: nil,
       expanded_threads: MapSet.new(),
       expanded_folds: MapSet.new(),
@@ -122,7 +124,7 @@ defmodule GraspWeb.ReviewLive do
     {:noreply,
      assign(socket,
        index: index,
-       expanded_groups: default_expanded(index, length(Grasp.Comments.list())),
+       expanded_groups: default_expanded(index, open_threads(socket.assigns.name)),
        selected: MapSet.new(),
        expanded_folds: MapSet.new(),
        index_error: IndexStore.last_error(),
@@ -130,9 +132,10 @@ defmodule GraspWeb.ReviewLive do
      )}
   end
 
-  # Comments belong to the project rather than to this session, so a thread written in
-  # another tab — or by the agent — lands on every card drawing that function.
-  def handle_info(:comments_changed, socket), do: {:noreply, refresh_comments(socket)}
+  # A thread belongs to the session it was written in, so a change made in another tab on
+  # this session — or by the agent working in it — lands here, and another session's does not.
+  def handle_info({:comments_changed, name}, %{assigns: %{name: name}} = socket),
+    do: {:noreply, refresh_comments(socket)}
 
   # The session this tab is reading has been forgotten, here or in another tab. Its cards are
   # gone with it, so the tab lands on the default canvas rather than on a name with no
@@ -589,7 +592,7 @@ defmodule GraspWeb.ReviewLive do
   def handle_event("comment_reply", %{"card" => card, "id" => id}, socket) do
     with card_id when is_integer(card_id) <- int(card),
          thread_id when is_integer(thread_id) <- int(id),
-         {:ok, thread} <- Grasp.Comments.fetch(thread_id) do
+         {:ok, thread} <- Grasp.Comments.fetch(thread_id, socket.assigns.name) do
       composing = %{
         card: card_id,
         side: thread.side,
@@ -613,7 +616,7 @@ defmodule GraspWeb.ReviewLive do
   def handle_event("comment_edit", %{"card" => card, "id" => id} = params, socket) do
     with card_id when is_integer(card_id) <- int(card),
          thread_id when is_integer(thread_id) <- int(id),
-         {:ok, thread} <- Grasp.Comments.fetch(thread_id) do
+         {:ok, thread} <- Grasp.Comments.fetch(thread_id, socket.assigns.name) do
       composing = %{
         card: card_id,
         side: thread.side,
@@ -636,7 +639,7 @@ defmodule GraspWeb.ReviewLive do
   # the index has no card at all, so both stop at what they can do.
   def handle_event("open_comment", %{"id" => id}, socket) do
     with thread_id when is_integer(thread_id) <- int(id),
-         {:ok, thread} <- Grasp.Comments.fetch(thread_id),
+         {:ok, thread} <- Grasp.Comments.fetch(thread_id, socket.assigns.name),
          %Index{} = index <- socket.assigns.index,
          {:ok, record} <- Index.fetch_function(index, thread.function_id) do
       socket = clear_selection(socket)
@@ -674,7 +677,7 @@ defmodule GraspWeb.ReviewLive do
 
   def handle_event("comment_resolve", %{"id" => id, "resolved" => resolved}, socket)
       when resolved in ~w(true false) do
-    case int(id) do
+    case own_thread_id(socket, id) do
       nil ->
         {:noreply, socket}
 
@@ -689,7 +692,7 @@ defmodule GraspWeb.ReviewLive do
   end
 
   def handle_event("comment_delete", %{"id" => id} = params, socket) do
-    case {int(id), int(params["reply"])} do
+    case {own_thread_id(socket, id), int(params["reply"])} do
       {nil, _reply} ->
         {:noreply, socket}
 
@@ -804,7 +807,21 @@ defmodule GraspWeb.ReviewLive do
   # The store broadcasts every change to this process as well, so re-reading here only makes
   # the write visible before the broadcast arrives — which is what a disconnected view, and a
   # test asserting on the very next render, depend on.
-  defp refresh_comments(socket), do: assign(socket, comments: Grasp.Comments.by_function())
+  defp refresh_comments(socket),
+    do: assign(socket, comments: Grasp.Comments.by_function(socket.assigns.name))
+
+  defp open_threads(name), do: length(Grasp.Comments.list(session: name))
+
+  # A thread id arrives from the page, and the store's ids run across every session, so an
+  # id is acted on only once it is known to name a thread of this tab's session.
+  defp own_thread_id(socket, id) do
+    with thread_id when is_integer(thread_id) <- int(id),
+         {:ok, _thread} <- Grasp.Comments.fetch(thread_id, socket.assigns.name) do
+      thread_id
+    else
+      _elsewhere -> nil
+    end
+  end
 
   # The composer a Shift click stretches: one open on the same card and side for a new
   # thread. What it stretches from is the line the box was opened at, which is the one end of
@@ -874,13 +891,14 @@ defmodule GraspWeb.ReviewLive do
   defp write_comment(socket, body) do
     case socket.assigns.composing do
       %{edit: %{thread: thread_id, reply: reply_id}} ->
-        Grasp.Comments.edit(thread_id, reply_id, body)
+        if own_thread_id(socket, thread_id), do: Grasp.Comments.edit(thread_id, reply_id, body)
 
       %{reply_to: nil} = composing ->
         open_thread(socket, body, composing)
 
       %{reply_to: reply_to} ->
-        Grasp.Comments.reply(reply_to, %{body: body, author: "human"})
+        if own_thread_id(socket, reply_to),
+          do: Grasp.Comments.reply(reply_to, %{body: body, author: "human"})
 
       _closed ->
         :ok
@@ -892,6 +910,7 @@ defmodule GraspWeb.ReviewLive do
          %Index{} = index <- socket.assigns.index,
          {:ok, record} <- Index.fetch_function(index, function_id) do
       Grasp.Comments.add(%{
+        session: socket.assigns.name,
         function_id: function_id,
         side: composing.side,
         line: composing.line,

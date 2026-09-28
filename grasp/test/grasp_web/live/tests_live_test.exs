@@ -11,7 +11,7 @@ defmodule GraspWeb.TestsLiveTest do
   setup %{conn: conn} do
     name = "t-#{System.unique_integer([:positive])}"
     {:ok, view, _html} = live(conn, "/s/#{name}")
-    %{view: view}
+    %{view: view, name: name}
   end
 
   describe "a test card" do
@@ -216,11 +216,15 @@ defmodule GraspWeb.TestsLiveTest do
       assert has_element?(view, "#card-1 .stub__text", "No longer in the index")
     end
 
-    test "a thread on a test sits under its module, named as the test is", %{view: view} do
+    test "a thread on a test sits under its module, named as the test is", %{
+      view: view,
+      name: name
+    } do
       body = "is 42 the right answer #{System.unique_integer([:positive])}"
 
       {:ok, thread} =
         Comments.add(%{
+          session: name,
           function_id: @reply,
           side: "new",
           line: 13,

@@ -247,6 +247,8 @@ defmodule Grasp.Session do
   The conversation the agent held under that name goes with the cards: a session opened
   under the name afterwards is a new one, and rejoining the transcript of the session it
   replaced would put words in its mouth.
+  The review threads written in the session go with it for the same reason
+  (`Grasp.Comments.delete_session/1`): they were remarks in that review's conversation.
   The default session may be deleted like any other — deleting it clears the canvas rather
   than taking it away, since the next visit to `/` starts it again, empty.
 
@@ -259,6 +261,7 @@ defmodule Grasp.Session do
     Phoenix.PubSub.broadcast(Grasp.PubSub, topic(name), {:session_deleted, name})
     stop(name)
     Grasp.Agent.forget(name)
+    :ok = Grasp.Comments.delete_session(name)
     Disk.delete(name)
   end
 

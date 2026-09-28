@@ -281,6 +281,7 @@ defmodule GraspWeb.CommentsLiveTest do
 
     {:ok, thread} =
       Comments.add(%{
+        session: name,
         function_id: @greet,
         side: "new",
         line: 7,
@@ -301,6 +302,7 @@ defmodule GraspWeb.CommentsLiveTest do
 
     {:ok, on_a_base} =
       Comments.add(%{
+        session: name,
         function_id: @greet,
         side: "old",
         line: 3,
@@ -312,7 +314,7 @@ defmodule GraspWeb.CommentsLiveTest do
     assert has_element?(view, "#thread-#{on_a_base.id} .thread__snippet", "Outdated · L3")
   end
 
-  test "comments belong to the project, so another session shows them", %{
+  test "a comment belongs to the session it was written in, so another session hides it", %{
     conn: conn,
     view: view,
     name: name
@@ -320,15 +322,74 @@ defmodule GraspWeb.CommentsLiveTest do
     Session.open_root(name, @greet)
     body = unique("the wrap call is the interesting one")
 
-    view |> element("#card-1 .line[data-line='9'] .ln") |> render_click()
-    view |> form("#card-1 form.composer", %{"body" => body}) |> render_submit()
-
-    other_name = "c-#{System.unique_integer([:positive])}"
-    {:ok, other, _html} = live(conn, "/s/#{other_name}")
+    {other, other_name} = other_session(conn)
     Session.open_root(other_name, @greet)
 
-    assert has_element?(other, "#card-1 .thread .comment__body", body)
-    refute has_element?(other, "#card-1 form.composer")
+    view |> element("#card-1 .line[data-line='9'] .ln") |> render_click()
+    view |> form("#card-1 form.composer", %{"body" => body}) |> render_submit()
+    id = thread_id(body)
+
+    assert has_element?(view, "#card-1 #thread-#{id} .comment__body", body)
+    assert has_element?(view, "#entries .entry--comment[phx-value-id='#{id}']")
+
+    assert has_element?(other, "#card-1[data-function-id='#{@greet}']")
+    refute has_element?(other, "#thread-#{id}")
+    refute has_element?(other, "#entries .entry--comment[phx-value-id='#{id}']")
+    refute render(other) =~ body
+  end
+
+  test "another session's thread ids name nothing to act on", %{
+    conn: conn,
+    view: view,
+    name: name
+  } do
+    Session.open_root(name, @greet)
+    body = unique("only this session may touch this")
+    reply = unique("and this answer")
+
+    view |> element("#card-1 .line[data-line='9'] .ln") |> render_click()
+    view |> form("#card-1 form.composer", %{"body" => body}) |> render_submit()
+    id = thread_id(body)
+    view |> element("#thread-#{id} .thread__actions button", "reply") |> render_click()
+    view |> form("#thread-#{id} form.composer", %{"body" => reply}) |> render_submit()
+    {:ok, before} = Comments.fetch(id)
+    [%{id: reply_id}] = before.replies
+
+    {other, other_name} = other_session(conn)
+    Session.open_root(other_name, @greet)
+
+    render_click(other, "comment_resolve", %{"id" => "#{id}", "resolved" => "true"})
+    render_click(other, "comment_delete", %{"id" => "#{id}", "reply" => "#{reply_id}"})
+    render_click(other, "comment_delete", %{"id" => "#{id}"})
+    render_click(other, "comment_reply", %{"card" => "1", "id" => "#{id}"})
+    assert composing(other) == nil
+    render_click(other, "comment_edit", %{"card" => "1", "id" => "#{id}"})
+    assert composing(other) == nil
+
+    render_click(other, "open_comment", %{"id" => "#{id}"})
+    assert has_element?(other, "#card-1")
+    refute has_element?(other, ~s(#card-1[data-highlight-key="lines:9-9"]))
+
+    assert Comments.fetch(id) == {:ok, before}
+    assert has_element?(view, "#thread-#{id} .comment__body", reply)
+  end
+
+  test "deleting a session deletes the threads written in it", %{
+    conn: conn,
+    view: view,
+    name: name
+  } do
+    Session.open_root(name, @greet)
+    body = unique("this review is over")
+
+    view |> element("#card-1 .line[data-line='9'] .ln") |> render_click()
+    view |> form("#card-1 form.composer", %{"body" => body}) |> render_submit()
+    id = thread_id(body)
+
+    {other, _other_name} = other_session(conn)
+    render_click(other, "delete_session", %{"name" => name})
+
+    assert Comments.fetch(id) == :error
   end
 
   test "a line the branch deleted takes a comment on the base side", %{view: view, name: name} do
@@ -372,6 +433,12 @@ defmodule GraspWeb.CommentsLiveTest do
 
   defp unique(text), do: "#{text} ##{System.unique_integer([:positive])}"
 
+  defp other_session(conn) do
+    name = "c-#{System.unique_integer([:positive])}"
+    {:ok, view, _html} = live(conn, "/s/#{name}")
+    {view, name}
+  end
+
   # The store holds the whole project's threads, other tests' included, so what a submission
   # did is asked of the anchor this test writes at rather than of the store as a whole.
   defp threads_at(function_id, line) do
@@ -390,7 +457,7 @@ defmodule GraspWeb.CommentsLiveTest do
     thread.id
   end
 
-  # The sidebar lists every open thread of the project, so where a thread falls relative to
+  # The sidebar lists every open thread of the session, so where a thread falls relative to
   # a line is a question about the card alone.
   defp card(view), do: view |> element("#card-1") |> render()
 

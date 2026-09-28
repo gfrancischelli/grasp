@@ -31,7 +31,12 @@ defmodule Grasp.Comments.PublisherTest do
 
   defp open(attrs) do
     {:ok, thread} =
-      Comments.add(Map.merge(%{side: "new", author: "human", body: unique_body()}, attrs))
+      Comments.add(
+        Map.merge(
+          %{session: "default", side: "new", author: "human", body: unique_body()},
+          attrs
+        )
+      )
 
     thread
   end
