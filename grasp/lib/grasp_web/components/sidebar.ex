@@ -100,9 +100,9 @@ defmodule GraspWeb.Sidebar do
 
   An open thread is someone waiting on an answer, so the comments open while any is left.
   What the branch changed is why a reviewer is here at all, so it opens whenever there is
-  any, and so do the changes no test reaches. The routes are the table of contents of a web app, so they open while they still
-  read as one; a project with no entry points at all is a library, where the module list is
-  the only way in.
+  any, and so do the changes no test reaches. The routes are the table of contents of a web
+  app, so they open while they still read as one; a project with no entry points at all is a
+  library, where the module list is the only way in.
   """
   @spec default_expanded(Index.t() | nil, non_neg_integer()) :: MapSet.t(String.t())
   def default_expanded(nil, _open_threads), do: MapSet.new()
@@ -289,18 +289,15 @@ defmodule GraspWeb.Sidebar do
             <h2 class="group__heading">{module}</h2>
             <%= for record <- records do %>
               <button
-                class={
-                  if MapSet.member?(@untested_ids, record["id"]),
-                    do: "entry entry--untested",
-                    else: "entry"
-                }
+                class="entry"
                 phx-click="open_root"
                 phx-value-id={record["id"]}
                 title={record["id"]}
               >
                 <.change_badge change={record["change"]} /><.test_badge kind={record["kind"]} />{title(
                   record
-                ).name}<span
+                ).name}
+                <span
                   :if={MapSet.member?(@untested_ids, record["id"])}
                   class="badge badge--untested"
                   data-untested
@@ -309,6 +306,7 @@ defmodule GraspWeb.Sidebar do
               <button
                 :for={test <- Index.changed_tests(@index, record["id"])}
                 class="entry entry--paired"
+                aria-label={"Tested by #{full_title(test)}, #{test["change"]}"}
                 phx-click="open_root"
                 phx-value-id={test["id"]}
                 title={test["id"]}

@@ -138,7 +138,7 @@ defmodule Grasp.Index do
 
     tests_by_module =
       records
-      |> Enum.filter(&(&1["kind"] == "test"))
+      |> Enum.filter(&(&1["kind"] == "test" and &1["removed"] != true))
       |> Enum.group_by(& &1["module"], & &1["id"])
 
     index = %{index | tests: test_modules(index), tests_by_module: tests_by_module}
@@ -269,7 +269,7 @@ defmodule Grasp.Index do
     do: Enum.map(index.untested, &Map.fetch!(index.functions, &1))
 
   @doc """
-  The tests the branch added, modified or removed that reach the changed application
+  The tests the branch added or modified that reach the changed application
   function `id` within `tests_for/3`'s default bound, nearest first and then by id.
 
   The functions answered for are `untested_changes/1`'s: added or modified, not a test or a
@@ -294,7 +294,7 @@ defmodule Grasp.Index do
   defp changed_test?(index, id),
     do:
       match?(
-        %{"kind" => "test", "change" => change} when change in ~w(added modified removed),
+        %{"kind" => "test", "change" => change} when change in ~w(added modified),
         index.functions[id]
       )
 
@@ -384,7 +384,8 @@ defmodule Grasp.Index do
   edges included — visiting each record once. A test calling `id` directly is one hop away.
   A test record met on the way is collected at the hop it is first met; a setup met on the
   way counts for every test of its module at the setup's hop, unless that test is nearer by
-  another path. An id the index does not define, or a function no test reaches, answers `[]`.
+  another path. A removed test or setup runs nothing, so it is never collected and credits
+  no test. An id the index does not define, or a function no test reaches, answers `[]`.
   """
   @spec tests_for(t(), String.t(), non_neg_integer()) :: [reach()]
   def tests_for(%__MODULE__{} = index, id, max_hops \\ @max_hops) do
@@ -422,6 +423,10 @@ defmodule Grasp.Index do
 
   defp meet(index, id, hop, found) do
     case index.functions[id] do
+      # A removed test runs nothing, whatever calls the base gave it.
+      %{"removed" => true} ->
+        found
+
       %{"kind" => "test"} ->
         Map.put_new(found, id, hop)
 

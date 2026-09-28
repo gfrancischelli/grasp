@@ -195,12 +195,12 @@ defmodule GraspWeb.SidebarTest do
     test "marks the changed function no test reaches as untested", %{index: index} do
       changes = index |> render_sidebar(MapSet.new(["changes"])) |> group_body("changes")
 
-      assert changes =~
-               ~r|<button class="entry entry--untested"[^>]*phx-value-id="SampleApp.Wallets.audit/1"|
+      [_before, audit] = String.split(changes, ~s|phx-value-id="SampleApp.Wallets.audit/1"|)
+      [audit, credit] = String.split(audit, ~s|phx-value-id="SampleApp.Wallets.credit/2"|)
 
-      assert changes =~ ~s|data-untested|
-      refute changes =~ ~r|entry--untested"[^>]*phx-value-id="SampleApp.Wallets.credit/2"|
-      refute changes =~ ~r|entry--untested"[^>]*phx-value-id="SampleApp.Wallets.debit/2"|
+      assert audit =~ ~s|data-untested|
+      assert audit =~ "untested</span>"
+      refute credit =~ "data-untested"
     end
 
     test "lists the untested changes in a group of their own, after Changes", %{index: index} do
@@ -223,8 +223,9 @@ defmodule GraspWeb.SidebarTest do
       [_before, credit] = String.split(changes, ~s|phx-value-id="SampleApp.Wallets.credit/2"|)
       [paired, debit] = String.split(credit, ~s|phx-value-id="SampleApp.Wallets.debit/2"|)
 
-      assert paired =~ ~s|class="entry entry--paired"|
-      assert paired =~ ~s|phx-value-id="#{html_escape(@credits)}"|
+      assert paired =~
+               ~r|class="entry entry--paired"[^>]*phx-click="open_root"[^>]*phx-value-id="#{Regex.escape(html_escape(@credits))}"|
+
       assert paired =~ "SampleApp.WalletsTest › credits a wallet"
 
       refute debit =~ "entry--paired"
@@ -234,6 +235,35 @@ defmodule GraspWeb.SidebarTest do
     test "opens the untested changes on arrival", %{index: index} do
       assert index |> Sidebar.default_expanded() |> MapSet.member?("untested")
       assert "untested" in Sidebar.group_kinds()
+    end
+
+    test "a removed test reaches nothing, even through a setup of its module" do
+      setup = %{
+        "id" => "SampleApp.WalletsTest.__ex_unit_setup_0/1",
+        "kind" => "setup",
+        "module" => "SampleApp.WalletsTest",
+        "name" => "__ex_unit_setup_0",
+        "arity" => 1,
+        "change" => "unchanged",
+        "calls" => [%{"target" => "SampleApp.Wallets.credit/2", "kind" => "remote"}]
+      }
+
+      removed =
+        "credits a wallet"
+        |> test_function([])
+        |> changed("removed")
+        |> Map.put("removed", true)
+
+      {:ok, index} =
+        Index.from_document(%{
+          "version" => 1,
+          "functions" => [changed(function("credit/2"), "modified"), setup, removed]
+        })
+
+      html = render_sidebar(index, MapSet.new(["changes", "untested"]))
+
+      assert group_body(html, "untested") =~ ~s|phx-value-id="SampleApp.Wallets.credit/2"|
+      refute group_body(html, "changes") =~ "entry--paired"
     end
 
     test "has no Untested changes group when every change is reached" do

@@ -332,6 +332,23 @@ defmodule Grasp.IndexTest do
   end
 
   describe "tests_for/3" do
+    test "never answers a removed test, met directly or through a setup" do
+      removed =
+        "MyApp.WalletsTest"
+        |> test_record("credits", ["MyApp.Wallets.credit/2"])
+        |> Map.put("removed", true)
+        |> changed("removed")
+
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          removed,
+          setup_record("MyApp.WalletsTest", ["MyApp.Wallets.credit/2"])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == []
+    end
+
     test "answers a test calling the function directly at one hop" do
       index =
         reach_index([
