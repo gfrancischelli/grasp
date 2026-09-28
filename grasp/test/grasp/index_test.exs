@@ -712,6 +712,27 @@ defmodule Grasp.IndexTest do
                []
     end
 
+    test "never ends at a removed setup" do
+      test = test_id("MyApp.WalletsTest", "a")
+
+      removed_setup =
+        "MyApp.WalletsTest"
+        |> setup_record(["MyApp.Wallets.credit/2"])
+        |> Map.put("removed", true)
+        |> changed("removed")
+
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.WalletsTest.seed/0", "MyApp.WalletsTest", ["MyApp.Wallets.credit/2"]),
+          removed_setup,
+          test_record("MyApp.WalletsTest", "a", ["MyApp.WalletsTest.seed/0"])
+        ])
+
+      assert Index.path_back(index, test, "MyApp.Wallets.credit/2") ==
+               ["MyApp.Wallets.credit/2", "MyApp.WalletsTest.seed/0", test]
+    end
+
     test "prefers the test to a setup met at the same hop" do
       test = test_id("MyApp.WalletsTest", "a")
 

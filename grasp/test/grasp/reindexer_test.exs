@@ -48,6 +48,9 @@ defmodule Grasp.ReindexerTest do
   end
 
   test "a compile lands in the index file and in the store", %{index_path: index_path, root: root} do
+    # The file is renamed into place before the store rebuilds from it, so the store is read
+    # only once it says it has reloaded.
+    Grasp.IndexStore.subscribe()
     module = compile(root, "lib/sample_app/probe.ex", "Enum.map(list, &Integer.to_string/1)")
     id = "#{inspect(module)}.run/1"
 
@@ -60,6 +63,7 @@ defmodule Grasp.ReindexerTest do
     # branch added — classified against a real repository, not against a git that failed.
     assert record["change"] == "added"
 
+    assert_receive :index_reloaded, 2_000
     assert {:ok, ^record} = Grasp.Index.fetch_function(Grasp.IndexStore.get(), id)
   end
 

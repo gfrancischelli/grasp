@@ -449,7 +449,8 @@ defmodule Grasp.Index do
   test reaches `id` is through a setup of its module, the path ends at that setup rather
   than at the test: ExUnit runs the setup before the test, and the test itself makes no
   call on the way, so the setup is the record whose call the path's last step is. A test
-  met at the same hop as such a setup is preferred to it.
+  met at the same hop as such a setup is preferred to it. A removed setup runs nothing, so
+  the path never ends at one.
   """
   @spec path_back(t(), String.t(), String.t(), non_neg_integer()) :: [String.t()]
   def path_back(%__MODULE__{} = index, test_id, id, max_hops \\ @max_hops) do
@@ -457,7 +458,11 @@ defmodule Grasp.Index do
 
     case index.functions[test_id] do
       %{"kind" => "test", "module" => module} when is_map_key(index.functions, start) ->
-        setup? = &match?(%{"kind" => "setup", "module" => ^module}, index.functions[&1])
+        setup? = fn id ->
+          match?(%{"kind" => "setup", "module" => ^module}, index.functions[id]) and
+            index.functions[id]["removed"] != true
+        end
+
         search_back(index, [start], %{start => nil}, {test_id, setup?}, 1, max_hops)
 
       _other ->

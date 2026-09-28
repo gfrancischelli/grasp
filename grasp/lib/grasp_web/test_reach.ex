@@ -2,7 +2,7 @@ defmodule GraspWeb.TestReach do
   @moduledoc """
   The tests reaching each function on the canvas, held between renders.
 
-  `Grasp.Index.tests_for/2` walks the callers graph backwards, so its answers are kept
+  `Grasp.Index.tests_for/3` walks the callers graph backwards, so its answers are kept
   together with the generation of the index and the set of function ids they were taken
   against, and taken again only when either of the two differs. A move, a focus, a comment
   or a render leaves both alone, and the held answers stand as they are.

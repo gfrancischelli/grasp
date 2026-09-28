@@ -115,7 +115,8 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
   bounds how far back it walks. A `setup` reaching the function counts for every test of its
   module.
 - `untested_changes` — the functions the branch added or modified that no test reaches
-  within four calls, each with its file and change. Empty without a base ref.
+  within four calls, each with its file and change. Tests, setups and functions in files
+  under the test paths are left out. Empty without a base ref.
 - `list_modules` — modules with their file and the behaviours they implement.
 - `reload_index` — reload the index file and report what it now holds: the path, how many
   functions, how many the branch changed, and the git refs. Call it as soon as

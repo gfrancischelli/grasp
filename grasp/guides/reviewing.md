@@ -166,7 +166,7 @@ callers, nearest first, each titled by its `describe` and name and marked `direc
 the number of calls between them. A direct test opens to the card's left as a caller does. A
 farther one opens the whole path back to it, each function on the way opened as a caller of
 the next, so every edge the canvas draws is a call; a folded card on the path unfolds. A
-test that reaches the function only through its module's `setup` opens the path to that
+test that reaches the function nearest through its module's `setup` opens the path to that
 setup.
 
 In a review against a base ref, every function the branch added or modified that no test
