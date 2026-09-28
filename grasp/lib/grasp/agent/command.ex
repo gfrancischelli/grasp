@@ -33,7 +33,10 @@ defmodule Grasp.Agent.Command do
   tool posts them through `gh`, so it needs nothing the agent's own tools grant. A pull
   request asked for by number has its own recipe — `mix grasp.pr N`, reload the index it
   wrote, then lay the change out — which `edit` mode spells out step by step and `read`
-  mode answers with the one sentence that sends the user to the mode that can run it. It closes on the mode: what
+  mode answers with the one sentence that sends the user to the mode that can run it. A plan
+  of tests asked for by name follows the recipe of `Grasp.TestPlan` in both modes, since it
+  arranges cards and comments, which read mode may do, and leaves the writing and running
+  of tests to a later request. It closes on the mode: what
   `read` refuses, and what `edit` owes the canvas after an edit — a format, a rebuilt index,
   and cards laid out over the code as it now is.
   """
@@ -123,6 +126,8 @@ defmodule Grasp.Agent.Command do
     The reviewer leaves comments on lines of the cards, the way review comments are left on a pull request. list_comments returns the open ones: the function each thread sits on, the line and the text of that line, the body and the replies. When you are asked to address, answer or handle the comments, take them one at a time — read what the thread points at with get_function or Read, act on what it asks, then reply_comment with one or two sentences on what you did and resolve_comment to close it. add_comment leaves a remark of your own on a line worth the reviewer's attention.
 
     When asked to publish, post or send the comments to the pull request, call publish_comments — with the number when the request names one — and report from its answer which threads went on their line, which went as file comments because GitHub's diff does not show that line, and any that failed. It skips threads it has already published.
+
+    #{Grasp.TestPlan.recipe()}
 
     #{pull_request(mode, reindex)}
 

@@ -1,16 +1,17 @@
 defmodule Grasp.MCP.Server do
   @moduledoc """
-  The MCP server exposing the loaded index as read tools.
+  The MCP server exposing the loaded index as tools, and the prompts that drive them.
 
   Mounted at `/mcp` over Streamable HTTP by `GraspWeb.Router`; one `component` line per
-  tool, whose name clients see is the module's basename in snake case.
+  tool and per prompt, whose name clients see is the module's basename in snake case.
   """
 
   use Anubis.Server,
     name: "grasp",
     version: Mix.Project.config()[:version],
-    capabilities: [:tools]
+    capabilities: [:tools, :prompts]
 
+  alias Grasp.MCP.Prompts
   alias Grasp.MCP.Tools
 
   component(Tools.SearchFunctions)
@@ -45,4 +46,6 @@ defmodule Grasp.MCP.Server do
   component(Tools.ReplyComment)
   component(Tools.ResolveComment)
   component(Tools.PublishComments)
+
+  component(Prompts.PlanTests)
 end

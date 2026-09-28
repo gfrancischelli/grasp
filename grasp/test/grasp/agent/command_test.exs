@@ -170,6 +170,15 @@ defmodule Grasp.Agent.CommandTest do
     end
   end
 
+  test "system_prompt/3 carries the test-planning recipe in both modes" do
+    for mode <- ~w(read edit) do
+      prompt = Command.system_prompt("s1", mode, "mix grasp.index")
+
+      assert prompt =~ Grasp.TestPlan.recipe()
+      assert prompt =~ "\n\nWhen the user asks you to plan tests"
+    end
+  end
+
   test "system_prompt/3 refuses edits in read mode and sends the user to edit mode" do
     prompt = Command.system_prompt("s1", "read", "mix grasp.index")
 

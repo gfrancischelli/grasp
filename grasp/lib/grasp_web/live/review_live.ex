@@ -43,7 +43,7 @@ defmodule GraspWeb.ReviewLive do
   import GraspWeb.RunsPanel
   import GraspWeb.Sidebar
 
-  alias Grasp.{CoverageStore, Index, IndexStore, Links, ResultsStore, Runs, Session}
+  alias Grasp.{CoverageStore, Index, IndexStore, Links, ResultsStore, Runs, Session, TestPlan}
   alias Grasp.Session.Disk
   alias Grasp.Session.Forest
   alias GraspWeb.CardCoverage
@@ -986,15 +986,18 @@ defmodule GraspWeb.ReviewLive do
   end
 
   # The prompts an empty transcript offers, in the order they are worth asking: what this
-  # branch changed, the card the reader is looking at, the threads waiting to be published,
-  # and the first route in the index. Each is a whole question, because clicking it sends
-  # exactly the words on the button.
+  # branch changed and a plan of tests for it, the card the reader is looking at and a plan
+  # of tests for it, the threads waiting to be published, and the first route in the index.
+  # Each is a whole question, because clicking it sends exactly the words on the button.
   defp chat_suggestions(%{entries: [], running?: false}, index, forest, comments) do
     Enum.concat([
-      if(pull_request?(index), do: ["Show me what changed"], else: []),
+      if(pull_request?(index),
+        do: ["Show me what changed", TestPlan.request(:changes)],
+        else: []
+      ),
       case focused_function(forest) do
         nil -> []
-        function_id -> ["Explain #{function_id}"]
+        function_id -> ["Explain #{function_id}", TestPlan.request(function_id)]
       end,
       if(comments == %{}, do: [], else: ["Publish the comments"]),
       case first_route(index) do

@@ -112,6 +112,60 @@ defmodule GraspWeb.MCPTest do
     assert Enum.find(cards, &(&1["id"] == 2))["highlight"] == nil
   end
 
+  test "plan_tests is listed with its arguments and answers the recipe for its target", %{
+    conn: conn
+  } do
+    {conn, session} = initialize(conn)
+
+    assert %{"prompts" => [prompt]} = rpc(conn, session, "prompts/list", %{})
+    assert prompt["name"] == "plan_tests"
+    assert prompt["description"] =~ "Plan tests"
+
+    assert prompt["arguments"] |> Enum.map(&{&1["name"], &1["required"]}) |> Enum.sort() ==
+             [{"session", true}, {"target", true}]
+
+    result =
+      rpc(conn, session, "prompts/get", %{
+        "name" => "plan_tests",
+        "arguments" => %{"target" => "SampleApp.Greeter.greet/1", "session" => "plan-1"}
+      })
+
+    assert [%{"role" => "user", "content" => %{"type" => "text", "text" => text}}] =
+             result["messages"]
+
+    assert text =~ "Plan tests for #{@greet}."
+    assert text =~ Grasp.TestPlan.recipe()
+    assert text =~ ~s(The Grasp viewer session to lay the plan out in is "plan-1".)
+
+    result =
+      rpc(conn, session, "prompts/get", %{
+        "name" => "plan_tests",
+        "arguments" => %{"target" => "changes", "session" => "plan-1"}
+      })
+
+    assert [%{"content" => %{"text" => text}}] = result["messages"]
+    assert text =~ "Plan tests for the changes."
+  end
+
+  @tag capture_log: true
+  test "plan_tests refuses a function the index does not hold", %{conn: conn} do
+    {conn, session} = initialize(conn)
+
+    conn =
+      post_json(conn, session, %{
+        "jsonrpc" => "2.0",
+        "id" => System.unique_integer([:positive]),
+        "method" => "prompts/get",
+        "params" => %{
+          "name" => "plan_tests",
+          "arguments" => %{"target" => "SampleApp.Gone.vanished/1", "session" => "plan-1"}
+        }
+      })
+
+    assert %{"error" => %{"message" => "unknown function: SampleApp.Gone.vanished/1"}} =
+             decode(conn)
+  end
+
   test "a request addressed to another host is refused", %{conn: conn} do
     conn =
       %{conn | host: "evil.example"}

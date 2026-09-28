@@ -254,6 +254,54 @@ defmodule GraspWeb.ChatTest do
     assert_receive {:agent, ^name, %{running?: false}}, 2_000
   end
 
+  test "an empty transcript offers a plan of tests for the changes and the focused card", %{
+    view: view,
+    name: name
+  } do
+    view |> element("#toggle-chat") |> render_click()
+    assert has_element?(view, ~s(#chat .chat__suggest button), "Plan tests for the changes")
+    refute has_element?(view, ~s(#chat .chat__suggest button), "Plan tests for #{@greeter}")
+
+    {:ok, _thread} =
+      Grasp.Comments.add(%{
+        session: name,
+        function_id: @greeter,
+        side: "new",
+        line: 9,
+        body: "worth a test ##{System.unique_integer([:positive])}",
+        author: "human"
+      })
+
+    view |> element("#chat") |> render_hook("open_root", %{"id" => @greeter})
+
+    assert suggestions(view) == [
+             "Show me what changed",
+             "Plan tests for the changes",
+             "Explain #{@greeter}",
+             "Plan tests for #{@greeter}",
+             "Publish the comments",
+             "Where does GET /again lead?"
+           ]
+
+    :ok = Grasp.Agent.subscribe(name)
+
+    view
+    |> element(~s(#chat .chat__suggest button), "Plan tests for #{@greeter}")
+    |> render_click()
+
+    assert has_element?(view, ~s(#chat .msg[data-type="user"]), "Plan tests for #{@greeter}")
+    assert_receive {:agent, ^name, %{running?: false}}, 2_000
+  end
+
+  defp suggestions(view) do
+    view
+    |> element("#chat .chat__suggest")
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("button")
+    |> Enum.map(&(&1 |> LazyHTML.text() |> String.trim()))
+  end
+
   # A broadcast the test received is not a broadcast the LiveView has handled: PubSub
   # dispatches by registry partition, so the subscriber that joined second can be notified
   # first, and a render asked for in that window shows the run as it was. Every assertion
