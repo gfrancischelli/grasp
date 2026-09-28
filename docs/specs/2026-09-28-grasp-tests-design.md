@@ -224,11 +224,14 @@ test paths uncompared.
 
 ## Tested by (milestone 10.2)
 
-- **Reach.** `Grasp.Index` computes, at load, for every application function the tests
-  that reach it: a breadth-first walk from every test record over resolved calls
-  (`call`, `route` and `enqueue` edges), up to `4` hops, keeping each test's shortest
-  distance. `Grasp.Index.tests_for(index, id)` answers `[%{test: id, hops: n}]`, nearest
-  first. A setup's reach counts for every test of its module.
+- **Reach.** `Grasp.Index.tests_for(index, id, max_hops \\ 4)` answers the tests that reach
+  a function: a breadth-first walk backwards from it over the callers the index already
+  holds — every resolved call, `route` and `enqueue` edges included — through any record,
+  for up to `max_hops` hops, collecting each test met at its shortest distance, as
+  `[%{test: id, hops: n}]`, nearest first and then by id. A setup met on the way counts for
+  every test of its module, at the setup's distance. Walking back from the few functions a
+  reader looks at is cheaper than walking forward from every test on every index load, and
+  answers the same question.
 - **Card.** A function card reached by any test wears a `n tests` badge in its header; the
   callers menu gains a Tests section listing them, nearest first with the hop count, each
   opening its test card as a caller does. A card no test reaches wears nothing.
