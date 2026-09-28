@@ -1625,6 +1625,24 @@
             ]
           },
           "target": "Phoenix.ConnTest.get/2"
+        },
+        {
+          "kind": "route",
+          "range": {
+            "end": [
+              6,
+              30
+            ],
+            "start": [
+              6,
+              22
+            ]
+          },
+          "route": {
+            "path": "/again",
+            "verb": "GET"
+          },
+          "target": "SampleAppWeb.GreetController.again/2"
         }
       ],
       "change": "unchanged",
@@ -1635,7 +1653,24 @@
       "module": "SampleAppWeb.RoutesTest",
       "name": "test a plain path reaches the controller",
       "removed": false,
-      "route_sites": [],
+      "route_sites": [
+        {
+          "path": [
+            "again"
+          ],
+          "range": {
+            "end": [
+              6,
+              30
+            ],
+            "start": [
+              6,
+              22
+            ]
+          },
+          "verb": "GET"
+        }
+      ],
       "source": "  test \"a plain path reaches the controller\", %{conn: conn} do\n    assert get(conn, \"/again\").status in 200..599\n  end",
       "span": {
         "end_line": 7,
@@ -1681,6 +1716,24 @@
             ]
           },
           "target": "Phoenix.ConnTest.post/3"
+        },
+        {
+          "kind": "route",
+          "range": {
+            "end": [
+              10,
+              33
+            ],
+            "start": [
+              10,
+              23
+            ]
+          },
+          "route": {
+            "path": "/greet",
+            "verb": "POST"
+          },
+          "target": "SampleAppWeb.GreetController.create/2"
         }
       ],
       "change": "unchanged",
@@ -1706,7 +1759,7 @@
               23
             ]
           },
-          "verb": "GET"
+          "verb": "POST"
         }
       ],
       "source": "  test \"a verified path reaches the controller\", %{conn: conn} do\n    assert post(conn, ~p\"/greet\", %{\"name\" => \"Ada\"}).status in 200..599\n  end",

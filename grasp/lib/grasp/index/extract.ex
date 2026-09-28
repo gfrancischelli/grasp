@@ -52,6 +52,13 @@ defmodule Grasp.Index.Extract do
   same route twice, and the attribute's site is the one that survives, because it is the
   one that knows the verb.
 
+  A request a test makes is a route site too: a call named `get`, `post`, `put`, `patch`,
+  `delete`, `head`, `options`, `live` or `visit`, local, imported or remote, whose second
+  argument (the first written, when the call is piped into) is a string or a `~p` sigil.
+  Its verb is the one the name gives, GET for `live` and `visit`, and it replaces the GET
+  the `~p` it holds would read as, so one request is one route. A path held in a variable
+  names nothing the source can read and makes no site.
+
   A test file is read the same way, and ExUnit's blocks inside a module are definitions too.
   A `test "name"` with a body is a definition of kind `:test`, arity 1, named as ExUnit
   compiles it — `:"test <describe> <name>"` inside a `describe`, `:"test <name>"` outside one,
@@ -182,6 +189,20 @@ defmodule Grasp.Index.Extract do
     :"::",
     :\\
   ]
+
+  # The request helpers a test drives the router with, and the verb each sends. A LiveView
+  # is mounted, and a page visited, by a GET.
+  @request_verbs %{
+    get: "GET",
+    post: "POST",
+    put: "PUT",
+    patch: "PATCH",
+    delete: "DELETE",
+    head: "HEAD",
+    options: "OPTIONS",
+    live: "GET",
+    visit: "GET"
+  }
 
   @doc """
   Parses `source`, read from the project-relative `file`, into definitions, modules and
@@ -546,7 +567,8 @@ defmodule Grasp.Index.Extract do
   end
 
   @doc """
-  Route sites for the Elixir written inside one interpolation body: its `~p` sigils.
+  Route sites for the Elixir written inside one interpolation body: its `~p` sigils and
+  the requests it makes.
 
   The arguments are `expression_sites/3`'s, and so is the parse: a body that only becomes
   an expression once an `end` is added is read that way, and one no parse can make sense
@@ -724,55 +746,122 @@ defmodule Grasp.Index.Extract do
   # One walk reads a clause body and an interpolation body alike, so a call written in a
   # template is the same kind of site as a call written in Elixir. Both kinds of site come
   # out of the one walk, because a `~H` sigil holds both and reading it twice would mean
-  # scanning the same template twice.
+  # scanning the same template twice. A request's route site covers the path argument it
+  # reads, which is the range the `~p` written there would have taken, so that sigil's own
+  # GET is dropped in favour of the request's verb.
   defp collect_sites(ast) do
-    {_, {calls, routes}} =
-      Macro.prewalk(ast, {[], []}, fn
-        {:&, _, [{:/, _, [target, arity]}]} = node, {calls, routes} ->
-          {node, {add_site(calls, target, written_arity(arity)), routes}}
+    {_, {calls, routes, requests, _piped}} =
+      Macro.prewalk(ast, {[], [], [], MapSet.new()}, fn
+        {:&, _, [{:/, _, [target, arity]}]} = node, {calls, routes, requests, piped} ->
+          {node, {add_site(calls, target, written_arity(arity)), routes, requests, piped}}
 
-        {:sigil_H, _meta, [{:<<>>, _str_meta, [content]}, _modifiers]} = node, {calls, routes}
+        {:sigil_H, _meta, [{:<<>>, _str_meta, [content]}, _modifiers]} = node,
+        {calls, routes, requests, piped}
         when is_binary(content) ->
           sites = sigil_sites(node)
 
           {node,
-           {Enum.reverse(sites.call_sites) ++ calls, Enum.reverse(sites.route_sites) ++ routes}}
+           {Enum.reverse(sites.call_sites) ++ calls, Enum.reverse(sites.route_sites) ++ routes,
+            requests, piped}}
 
-        {:sigil_p, _meta, [{:<<>>, _str_meta, parts}, _modifiers]} = node, {calls, routes} ->
-          {node, {calls, sigil_route_site(routes, node, parts)}}
+        {:sigil_p, _meta, [{:<<>>, _str_meta, parts}, _modifiers]} = node,
+        {calls, routes, requests, piped} ->
+          {node, {calls, sigil_route_site(routes, node, parts), requests, piped}}
 
-        {:|>, _meta, [_left, right]} = node, {calls, routes} ->
-          {node, {calls |> add_site(node) |> piped_site(right), routes}}
+        {:|>, _meta, [_left, right]} = node, {calls, routes, requests, piped} ->
+          {requests, piped} = piped_request(requests, piped, right)
+          {node, {calls |> add_site(node) |> piped_site(right), routes, requests, piped}}
 
-        {{:., _, _}, _, args} = node, {calls, routes} when is_list(args) ->
-          {node, {add_site(calls, node), routes}}
+        {{:., _, _}, _, args} = node, {calls, routes, requests, piped} when is_list(args) ->
+          {node, {add_site(calls, node), routes, request(requests, piped, node), piped}}
 
-        {name, _, args} = node, {calls, routes}
+        {name, _, args} = node, {calls, routes, requests, piped}
         when is_atom(name) and is_list(args) and name not in @not_calls ->
-          {node, {if(sigil?(name), do: calls, else: add_site(calls, node)), routes}}
+          calls = if(sigil?(name), do: calls, else: add_site(calls, node))
+          {node, {calls, routes, request(requests, piped, node), piped}}
 
         node, sites ->
           {node, sites}
       end)
 
+    covered = MapSet.new(requests, & &1.range)
+
+    route_sites =
+      routes
+      |> Enum.reject(&MapSet.member?(covered, &1.range))
+      |> Enum.concat(requests)
+      |> Enum.sort_by(& &1.range.start)
+
     %{
       call_sites: calls |> Enum.reverse() |> Enum.uniq_by(&{&1.line, &1.column}),
-      route_sites: Enum.reverse(routes)
+      route_sites: route_sites
     }
   end
+
+  # A request is `get(conn, path)` and its kin: the verb its name gives and the path its
+  # second argument writes, whether the function is local, imported or called on a module.
+  # Piped, the path is the first argument written, and the piped call is marked so the walk
+  # reaching it next does not read its written arguments a second time.
+  defp request(requests, piped, node) do
+    case {MapSet.member?(piped, node), request_call(node)} do
+      {false, {verb, [_conn, path | _rest]}} -> request_site(requests, verb, path)
+      _other -> requests
+    end
+  end
+
+  defp piped_request(requests, piped, right) do
+    case request_call(right) do
+      {verb, [path | _rest]} -> {request_site(requests, verb, path), MapSet.put(piped, right)}
+      {_verb, []} -> {requests, MapSet.put(piped, right)}
+      nil -> {requests, piped}
+    end
+  end
+
+  defp request_call({{:., _, [_receiver, name]}, _meta, args})
+       when is_atom(name) and is_list(args),
+       do: request_verb(name, args)
+
+  defp request_call({name, _meta, args}) when is_atom(name) and is_list(args),
+    do: request_verb(name, args)
+
+  defp request_call(_node), do: nil
+
+  defp request_verb(name, args) do
+    case Map.fetch(@request_verbs, name) do
+      {:ok, verb} -> {verb, args}
+      :error -> nil
+    end
+  end
+
+  defp request_site(requests, verb, path) do
+    with {:ok, parts} <- path_parts(path),
+         segments when is_list(segments) <- path_segments(parts),
+         range when is_map(range) <- node_range(path) do
+      [%{verb: verb, path: segments, range: range} | requests]
+    else
+      _ -> requests
+    end
+  end
+
+  # A literal string, one with interpolations, or a `~p` sigil: the forms whose text says
+  # the path. A variable or a helper call names a path only the running test knows.
+  defp path_parts({:__block__, _meta, [text]}) when is_binary(text), do: {:ok, [text]}
+  defp path_parts({:<<>>, _meta, parts}), do: {:ok, parts}
+  defp path_parts({:sigil_p, _meta, [{:<<>>, _str_meta, parts}, _modifiers]}), do: {:ok, parts}
+  defp path_parts(_expression), do: :error
 
   # A `~p` names a path and nothing else: the router decides what it reaches, and a GET is
   # what a path written on its own means until an attribute says otherwise.
   defp sigil_route_site(routes, node, parts) do
     with segments when is_list(segments) <- path_segments(parts),
-         range when is_map(range) <- sigil_range(node) do
+         range when is_map(range) <- node_range(node) do
       [%{verb: "GET", path: segments, range: range} | routes]
     else
       _ -> routes
     end
   end
 
-  defp sigil_range(node) do
+  defp node_range(node) do
     case Sourceror.get_range(node) do
       %{
         start: [line: start_line, column: start_column],

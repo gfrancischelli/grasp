@@ -524,6 +524,78 @@ defmodule Grasp.Index.ExtractTest do
     test "cuts a query string and a fragment off the path" do
       assert [%{path: ["x"]}] = Extract.template_route_sites(~S|<a href="/x?q=1#frag">|, {1, 0})
     end
+
+    test "reads a request with a literal path as a route with the verb its name gives" do
+      for {call, verb} <- [
+            {"get", "GET"},
+            {"post", "POST"},
+            {"put", "PUT"},
+            {"patch", "PATCH"},
+            {"delete", "DELETE"},
+            {"head", "HEAD"},
+            {"options", "OPTIONS"},
+            {"live", "GET"},
+            {"visit", "GET"}
+          ] do
+        text = ~s|#{call}(conn, "/greet/bob", %{})|
+        start = String.length(call) + 8
+
+        assert Extract.route_sites(text, 1, 1) == [
+                 %{
+                   verb: verb,
+                   path: ["greet", "bob"],
+                   range: %{start: {1, start}, end: {1, start + 12}}
+                 }
+               ]
+      end
+    end
+
+    test "reads a request whose path is a ~p sigil as one route with the request's verb" do
+      assert Extract.route_sites(~S|get(conn, ~p"/greet")|, 1, 1) == [
+               %{verb: "GET", path: ["greet"], range: %{start: {1, 11}, end: {1, 21}}}
+             ]
+
+      assert Extract.route_sites(~S|post(conn, ~p"/greet/#{name}")|, 1, 1) == [
+               %{verb: "POST", path: ["greet", :dynamic], range: %{start: {1, 12}, end: {1, 30}}}
+             ]
+    end
+
+    test "reads a remote request and a piped one" do
+      assert [%{verb: "GET", path: ["x"]}] =
+               Extract.route_sites(~S|Phoenix.ConnTest.get(conn, "/x")|, 1, 1)
+
+      assert [%{verb: "DELETE", path: ["x"]}] =
+               Extract.route_sites(~S{conn |> delete(~p"/x")}, 1, 1)
+
+      assert [%{verb: "POST", path: ["x"]}] =
+               Extract.route_sites(~S{conn |> post("/x", "/y")}, 1, 1)
+    end
+
+    test "reads no route from a request whose path is a variable or a relative text" do
+      assert Extract.route_sites(~S|get(conn, path)|, 1, 1) == []
+      assert Extract.route_sites(~S|get(conn, "greet")|, 1, 1) == []
+      assert Extract.route_sites(~S|get("/x")|, 1, 1) == []
+      assert Extract.route_sites(~S|Map.get(map, :key)|, 1, 1) == []
+    end
+
+    @conn_test ~S'''
+    defmodule SampleWeb.PageControllerTest do
+      use SampleWeb.ConnCase
+
+      test "shows the page", %{conn: conn} do
+        conn = get(conn, ~p"/greet")
+        assert html_response(conn, 200)
+      end
+    end
+    '''
+
+    test "carries the requests a test makes on its definition" do
+      {:ok, %{definitions: defs}} = Extract.extract(@conn_test, "test/sample_web/page_test.exs")
+
+      assert find(defs, "SampleWeb.PageControllerTest", :"test shows the page").route_sites == [
+               %{verb: "GET", path: ["greet"], range: %{start: {5, 22}, end: {5, 32}}}
+             ]
+    end
   end
 
   describe "ExUnit blocks" do

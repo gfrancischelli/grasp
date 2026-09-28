@@ -41,6 +41,7 @@ defmodule Grasp.Index.Changes do
   alias Grasp.Index.{Extract, Join}
 
   @type classified_record :: %{
+          optional(:test) => Extract.test_info() | nil,
           id: String.t(),
           module: String.t(),
           name: atom(),
@@ -62,8 +63,9 @@ defmodule Grasp.Index.Changes do
   differs from the base to the contents it had there — an empty string for a file the base
   did not have, which `Grasp.Index.BaseRef` leaves out of its own `base_sources` map.
 
-  `paths` are the project's compile paths: a base source outside them is ignored, so a
-  file the index never looked at cannot invent removed functions.
+  `paths` are the project's compile paths, and its test paths when its tests are indexed:
+  a base source outside them is ignored, so a file the index never looked at cannot invent
+  removed functions. A test is classified as any function is, by its id.
   """
   @spec classify([Join.function_record()], %{String.t() => String.t()}, [String.t()]) :: [
           classified_record()
@@ -76,9 +78,10 @@ defmodule Grasp.Index.Changes do
 
     base_definitions =
       Enum.flat_map(compared_sources, fn {file, source} ->
-        # Only Elixir sources hold definitions to match by name; a template is compared as
-        # a whole file, and running it through the parser would yield nothing anyway.
-        with ".ex" <- Path.extname(file),
+        # Only Elixir sources, test files among them, hold definitions to match by name; a
+        # template is compared as a whole file, and running it through the parser would
+        # yield nothing anyway.
+        with extension when extension in [".ex", ".exs"] <- Path.extname(file),
              {:ok, %{definitions: definitions}} <- Extract.extract(source, file) do
           definitions
         else
@@ -136,8 +139,9 @@ defmodule Grasp.Index.Changes do
   defp change(record, change, base_source),
     do: Map.merge(record, %{change: change, base_source: base_source, removed: false})
 
+  # A removed test keeps its describe, name and tags, which is what a reader titles it by.
   defp removed_record(definition) do
-    %{
+    Map.merge(Map.take(definition, [:test]), %{
       id: Join.function_id(definition.module, definition.name, definition.arity),
       module: definition.module,
       name: definition.name,
@@ -152,6 +156,6 @@ defmodule Grasp.Index.Changes do
       change: "removed",
       base_source: definition.source,
       removed: true
-    }
+    })
   end
 end

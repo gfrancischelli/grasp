@@ -114,6 +114,39 @@ defmodule Grasp.Index.BuilderTest do
       assert call(request, "Phoenix.ConnTest.get/2")
     end
 
+    test "reach the actions their requests name through the router", %{index: index} do
+      {:ok, plain} =
+        Grasp.Index.fetch_function(
+          index,
+          ~S(SampleAppWeb.RoutesTest."test a plain path reaches the controller"/1)
+        )
+
+      assert %{
+               "kind" => "route",
+               "range" => %{"start" => [6, 22], "end" => [6, 30]},
+               "route" => %{"verb" => "GET", "path" => "/again"}
+             } = call(plain, "SampleAppWeb.GreetController.again/2")
+
+      {:ok, verified} =
+        Grasp.Index.fetch_function(
+          index,
+          ~S(SampleAppWeb.RoutesTest."test a verified path reaches the controller"/1)
+        )
+
+      assert [
+               %{
+                 "kind" => "route",
+                 "range" => %{"start" => [10, 23], "end" => [10, 33]},
+                 "route" => %{"verb" => "POST", "path" => "/greet"}
+               }
+             ] = Enum.filter(verified["calls"], &(&1["kind"] == "route"))
+
+      assert "SampleAppWeb.GreetController.create/2" in Enum.map(
+               verified["calls"],
+               & &1["target"]
+             )
+    end
+
     test "never read the test helper", %{index: index} do
       refute Enum.any?(Grasp.Index.modules(index), &(&1["file"] == "test/test_helper.exs"))
     end

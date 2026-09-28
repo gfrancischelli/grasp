@@ -13,8 +13,10 @@ defmodule Grasp.Index.BaseRef do
 
   The file list is the union of the tracked paths that differ from the base commit and the
   files git reports as untracked, narrowed to the sources the index reads under the
-  project's compile paths: `.ex` files and the `.heex` and `.eex` templates they embed. A
-  deleted file stays in the list: its functions still have to be reported as removed.
+  project's compile paths: `.ex` files and the `.heex` and `.eex` templates they embed.
+  Under the test paths a test file, `*_test.exs`, is a source too, since the index reads
+  every test as a record. A deleted file stays in the list: its functions still have to be
+  reported as removed.
   Rename detection is off, so a file git would have reported as renamed appears under both
   its old and its new path and keeps the base source it had under the old one. Paths are
   asked for, and resolved, relative to the working directory rather than the repository
@@ -46,18 +48,21 @@ defmodule Grasp.Index.BaseRef do
   Resolves `ref` against the repository holding `root`.
 
   `:paths` lists the directories whose sources are of interest, defaulting to `["lib"]`;
-  a file outside them is left out of both `:files` and `:base_sources`.
+  `:test_paths`, defaulting to none, lists the directories whose test files are too, with
+  the sources under them. A file outside both is left out of `:files` and `:base_sources`.
   """
-  @spec resolve(String.t(), String.t(), paths: [String.t()]) ::
+  @spec resolve(String.t(), String.t(), paths: [String.t()], test_paths: [String.t()]) ::
           {:ok, resolved()} | {:error, String.t()}
   def resolve(root, ref, opts \\ []) do
     paths = Keyword.get(opts, :paths, ["lib"])
+    test_paths = Keyword.get(opts, :test_paths, [])
 
     with :ok <- repository(root),
          {:ok, base_sha} <- base_sha(root, ref),
          {:ok, changed} <- changed_files(root, base_sha),
          {:ok, untracked} <- untracked_files(root),
-         files = sources(Enum.map(changed, fn {_status, path} -> path end) ++ untracked, paths),
+         candidates = Enum.map(changed, fn {_status, path} -> path end) ++ untracked,
+         files = sources(candidates, paths, test_paths),
          kept = MapSet.new(files),
          in_base = for({status, path} <- changed, status != "A", path in kept, do: path),
          {:ok, base_sources} <- base_sources(root, base_sha, in_base) do
@@ -133,19 +138,24 @@ defmodule Grasp.Index.BaseRef do
     end)
   end
 
-  defp sources(paths, roots) do
-    prefixes = Enum.map(roots, &(String.trim_trailing(&1, "/") <> "/"))
+  defp sources(files, paths, test_paths) do
+    prefixes = prefixes(paths)
+    test_prefixes = prefixes(test_paths)
 
-    paths
-    # The extensions the index is built from, and no others: a changed `.exs` would carry
-    # base definitions no current record could ever answer to, and every one of them would
-    # read as a deletion.
-    |> Enum.filter(
-      &(Path.extname(&1) in @source_extensions and String.starts_with?(&1, prefixes))
-    )
+    files
+    # The extensions the index is built from, and no others: a changed `.exs` other than a
+    # test would carry base definitions no current record could ever answer to, and every
+    # one of them would read as a deletion.
+    |> Enum.filter(fn file ->
+      (Path.extname(file) in @source_extensions and
+         String.starts_with?(file, prefixes ++ test_prefixes)) or
+        (String.ends_with?(file, "_test.exs") and String.starts_with?(file, test_prefixes))
+    end)
     |> Enum.uniq()
     |> Enum.sort()
   end
+
+  defp prefixes(roots), do: Enum.map(roots, &(String.trim_trailing(&1, "/") <> "/"))
 
   defp fields(output), do: String.split(output, "\0", trim: true)
 

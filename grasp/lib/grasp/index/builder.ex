@@ -45,6 +45,11 @@ defmodule Grasp.Index.Builder do
     Tracer
   }
 
+  # Where a project's tests live. The base side is read under them whenever tests are to be
+  # traced, and a changed test file is classified only once its tests were indexed, so a
+  # trace that fails leaves the classification the application's alone.
+  @test_paths ["test"]
+
   @type summary :: %{
           path: String.t(),
           functions: non_neg_integer(),
@@ -85,9 +90,11 @@ defmodule Grasp.Index.Builder do
   When the project has a `test/` directory its tests are traced too, by
   `Grasp.Index.TestTrace`, unless `:tests` is `false`. The test files and test-only support
   files are extracted and joined as the application's files are, and their records go
-  through classification and route resolution with the application's. The project block
-  then names `"test_paths"`, so a reader knows which records are tests. A trace that fails
-  is reported and leaves the index the application's alone.
+  through classification and route resolution with the application's: with `:base`, a
+  test file the branch changed is read at the base too, so its tests are added, modified,
+  unchanged or removed as functions are, and a request a test makes reaches the route it
+  names. The project block then names `"test_paths"`, so a reader knows which records are
+  tests. A trace that fails is reported and leaves the index the application's alone.
   """
   @spec run(out: String.t(), base: String.t(), tests: boolean()) :: {:ok, summary()}
   def run(opts) do
@@ -96,7 +103,8 @@ defmodule Grasp.Index.Builder do
     root = File.cwd!()
     paths = Keyword.get(config, :elixirc_paths, ["lib"])
 
-    base = resolve_base(root, paths, Keyword.get(opts, :base))
+    tests? = Keyword.get(opts, :tests, true) and File.dir?(Path.join(root, "test"))
+    base = resolve_base(root, paths, if(tests?, do: @test_paths, else: []), opts[:base])
     events = trace_compile(root, paths)
     extracted = extract(root, source_files(root, paths))
     report_failures(extracted.failures)
@@ -110,9 +118,13 @@ defmodule Grasp.Index.Builder do
     report_skipped(detected.skipped)
     entries = Enum.map(detected.entry_points, &entry_point_json/1)
 
-    tests = trace_tests(root, paths, functions, Keyword.get(opts, :tests, true))
+    tests = trace_tests(root, paths, functions, tests?)
+    classified_paths = paths ++ Map.get(tests.project, "test_paths", [])
 
-    records = (functions ++ tests.records) |> classify(base, paths) |> Resolve.resolve(entries)
+    records =
+      (functions ++ tests.records)
+      |> classify(base, classified_paths)
+      |> Resolve.resolve(entries)
 
     project =
       Map.merge(
@@ -352,10 +364,10 @@ defmodule Grasp.Index.Builder do
   defp compared_sources(base),
     do: Map.new(base.files, &{&1, Map.get(base.base_sources, &1, "")})
 
-  defp resolve_base(_root, _paths, nil), do: nil
+  defp resolve_base(_root, _paths, _test_paths, nil), do: nil
 
-  defp resolve_base(root, paths, ref) do
-    case BaseRef.resolve(root, ref, paths: paths) do
+  defp resolve_base(root, paths, test_paths, ref) do
+    case BaseRef.resolve(root, ref, paths: paths, test_paths: test_paths) do
       {:ok, base} -> base
       {:error, message} -> Mix.raise("grasp.index: #{message}")
     end
@@ -393,27 +405,23 @@ defmodule Grasp.Index.Builder do
   # files being joined: a hidden call into an application function is kept only when the
   # join knows the index holds that function.
   defp trace_tests(root, paths, functions, true) do
-    if File.dir?(Path.join(root, "test")) do
-      Mix.shell().info("grasp: tracing tests (MIX_ENV=test)")
+    Mix.shell().info("grasp: tracing tests (MIX_ENV=test)")
 
-      case TestTrace.run(root, paths) do
-        {:ok, trace} ->
-          extracted = extract(root, trace.files)
-          report_failures(extracted.failures)
+    case TestTrace.run(root, paths) do
+      {:ok, trace} ->
+        extracted = extract(root, trace.files)
+        report_failures(extracted.failures)
 
-          %{
-            records:
-              Join.join(extracted.definitions, trace.events, known_ids: indexed_ids(functions)),
-            modules: extracted.modules,
-            project: %{"test_paths" => ["test"]}
-          }
+        %{
+          records:
+            Join.join(extracted.definitions, trace.events, known_ids: indexed_ids(functions)),
+          modules: extracted.modules,
+          project: %{"test_paths" => @test_paths}
+        }
 
-        {:error, output} ->
-          Mix.shell().error("grasp: tests not indexed: #{output}")
-          @no_tests
-      end
-    else
-      @no_tests
+      {:error, output} ->
+        Mix.shell().error("grasp: tests not indexed: #{output}")
+        @no_tests
     end
   end
 

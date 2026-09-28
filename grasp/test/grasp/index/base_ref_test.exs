@@ -1,7 +1,7 @@
 defmodule Grasp.Index.BaseRefTest do
   use ExUnit.Case, async: false
 
-  alias Grasp.Index.BaseRef
+  alias Grasp.Index.{BaseRef, Builder, Extract, Join}
 
   setup do
     root = repository!()
@@ -49,6 +49,88 @@ defmodule Grasp.Index.BaseRefTest do
              "lib/page_html/show.html.heex",
              "test/support/a.ex"
            ]
+  end
+
+  @base_test ~S"""
+  defmodule ATest do
+    use ExUnit.Case
+
+    describe "f/0" do
+      test "answers f" do
+        assert A.f() == :f
+      end
+
+      @tag :slow
+      test "is gone" do
+        assert true
+      end
+    end
+  end
+  """
+
+  @head_test ~S"""
+  defmodule ATest do
+    use ExUnit.Case
+
+    describe "f/0" do
+      test "answers f" do
+        assert A.f() == :changed
+      end
+    end
+  end
+  """
+
+  @added_test ~S"""
+  defmodule BTest do
+    use ExUnit.Case
+
+    test "answers g" do
+      assert B.g() == :g
+    end
+  end
+  """
+
+  test "reads the test files under the test paths at the base and classifies their tests" do
+    root = repository!()
+    write!(root, "lib/a.ex", "defmodule A do\n  def f, do: :f\nend\n")
+    write!(root, "test/a_test.exs", @base_test)
+    write!(root, "test/test_helper.exs", "ExUnit.start()\n")
+    git!(root, ["add", "."])
+    git!(root, ["commit", "-q", "-m", "base"])
+
+    write!(root, "test/a_test.exs", @head_test)
+    write!(root, "test/b_test.exs", @added_test)
+    write!(root, "test/test_helper.exs", "ExUnit.start(exclude: :slow)\n")
+    write!(root, "test/fixtures/data.exs", "%{}\n")
+
+    assert {:ok, lib_only} = BaseRef.resolve(root, "HEAD")
+    assert lib_only.files == []
+
+    assert {:ok, base} = BaseRef.resolve(root, "HEAD", test_paths: ["test"])
+    assert base.files == ["test/a_test.exs", "test/b_test.exs"]
+    assert base.base_sources["test/a_test.exs"] == @base_test
+
+    records =
+      Enum.flat_map([{"test/a_test.exs", @head_test}, {"test/b_test.exs", @added_test}], fn
+        {file, source} ->
+          {:ok, %{definitions: definitions}} = Extract.extract(source, file)
+          Join.join(definitions, [])
+      end)
+
+    by_id = records |> Builder.classify(base, ["lib", "test"]) |> Map.new(&{&1.id, &1})
+
+    assert %{change: "modified", base_source: modified_base} =
+             by_id[~S|ATest."test f/0 answers f"/1|]
+
+    assert modified_base =~ "assert A.f() == :f"
+
+    assert %{change: "added", base_source: nil} = by_id[~S|BTest."test answers g"/1|]
+
+    assert %{change: "removed", removed: true, base_source: removed_base, test: test} =
+             by_id[~S|ATest."test f/0 is gone"/1|]
+
+    assert removed_base =~ "test \"is gone\""
+    assert test == %{describe: "f/0", name: "is gone", tags: ["slow"]}
   end
 
   test "lists both paths of a renamed file so the old one keeps its base source", context do

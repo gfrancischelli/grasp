@@ -135,16 +135,15 @@ defmodule Grasp.Index.IncrementalTest do
       assert Enum.any?(tests, &(&1["kind"] == "test"))
       assert Enum.any?(tests, &(&1["kind"] == "setup"))
 
+      # The route call is taken off the record and its site left on, so only the update's
+      # own resolution can put it back.
       requesting =
         map_record(document, @plain_request, fn record ->
-          site = %{
-            "path" => ["again"],
-            "verb" => "GET",
-            "range" => %{"start" => [6, 22], "end" => [6, 30]}
-          }
-
-          Map.put(record, "route_sites", [site])
+          Map.update!(record, "calls", &Enum.reject(&1, fn call -> call["kind"] == "route" end))
         end)
+
+      assert [%{"path" => ["again"], "verb" => "GET"}] =
+               fetch(requesting, @plain_request)["route_sites"]
 
       {:ok, updated} = update(requesting, root, [@greeter], events)
 
@@ -157,10 +156,9 @@ defmodule Grasp.Index.IncrementalTest do
                |> by_id()
 
       request = fetch(updated, @plain_request)
-      kept = fetch(document, @plain_request)
+      kept = fetch(requesting, @plain_request)
 
-      assert Map.delete(request, "calls") ==
-               Map.delete(%{kept | "route_sites" => request["route_sites"]}, "calls")
+      assert Map.delete(request, "calls") == Map.delete(kept, "calls")
 
       assert Enum.filter(request["calls"], &(&1["kind"] != "route")) == kept["calls"]
 
