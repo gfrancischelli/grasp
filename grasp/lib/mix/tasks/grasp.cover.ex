@@ -9,19 +9,34 @@ defmodule Mix.Tasks.Grasp.Cover do
 
   The suite runs exactly as the project runs it: the command is `:grasp, :test_command`,
   `["mix", "test"]` unless configured, started in the project root with `MIX_ENV=test` over
-  the environment this task runs in and `--cover --export-coverage grasp` added,
-  its output streamed to the terminal. A run whose tests fail still exports what ran, so a
-  non-zero exit is reported and the coverage is written from the export; a run that leaves
-  no export aborts the task with the command's status. An export an earlier run left behind
-  is removed before the suite starts, so the document never describes a run other than this
-  one.
+  the environment this task runs in and `--cover` added, its output streamed to the
+  terminal. The export lands where the project's `:test_coverage` config puts it: in its
+  `:output` directory (`cover` unless set), named by its `:export` when it sets one, and
+  otherwise `grasp`, which the task asks for with `--export-coverage grasp`. A run whose
+  tests fail still exports what ran, so a non-zero exit is reported and the coverage is
+  written from the export; a run that leaves no export aborts the task with the command's
+  status. An export an earlier run left behind is removed before the suite starts, so the
+  document never describes a run other than this one. The export itself is left where Mix
+  wrote it.
 
-  The export, `cover/grasp.coverdata`, is imported into `:cover` in this task's own process:
-  analysing imported data needs no cover-compiled module, so Grasp is never needed in the
-  project's test environment. Each module's line counts are attributed to the file it is
-  compiled from — the `source` in its compile info when the module can be loaded here, and
-  otherwise the file the index names for it — relative to the project root. The export is
-  left where Mix wrote it.
+  An umbrella's apps each export their own coverage, so the task refuses to run at an
+  umbrella root: run it inside the app.
+
+  ## Attribution
+
+  The export is imported into `:cover` in this task's own process: analysing imported data
+  needs no cover-compiled module, so Grasp is never needed in the project's test
+  environment. `:cover` counts by module and line, and a module can hold code whose lines
+  are another file's — a template compiled into it, a macro's `quote location: :keep`. Each
+  count is therefore attributed to the one compiled function whose code carries that line,
+  read from the debug info of the beam the suite ran (the project's test build):
+
+    * code the compiler marks as another file's (`@file`, `location: :keep`, templates
+      embedded from their own files) is left out by `:cover` itself;
+    * a line that more than one function's code carries — a template compiled from a
+      string whose lines overlap the module's own — is attributed to none of them, so its
+      count is dropped rather than credited to the wrong function;
+    * a module whose test beam has no readable debug info contributes nothing.
 
   ## Options
 
@@ -38,7 +53,7 @@ defmodule Mix.Tasks.Grasp.Cover do
   @compile {:no_warn_undefined, :cover}
 
   @switches [out: :string, index: :string]
-  @export "cover/grasp.coverdata"
+  @export_name "grasp"
 
   @impl Mix.Task
   def run(args) do
@@ -46,6 +61,13 @@ defmodule Mix.Tasks.Grasp.Cover do
 
     if invalid != [] do
       Mix.raise("grasp.cover: unknown options #{inspect(Enum.map(invalid, &elem(&1, 0)))}")
+    end
+
+    if Mix.Project.umbrella?() do
+      Mix.raise(
+        "grasp.cover: an umbrella's apps each export their own coverage; " <>
+          "run mix grasp.cover inside the app"
+      )
     end
 
     root = File.cwd!()
@@ -64,14 +86,12 @@ defmodule Mix.Tasks.Grasp.Cover do
           )
       end
 
-    export = Path.join(root, @export)
+    {export, export_args} = export(root)
     File.rm(export)
-    run_suite(root, export)
-
-    lines_by_file = import_lines(export, index, root)
+    run_suite(root, export, export_args)
 
     document =
-      Grasp.Coverage.build(index, lines_by_file, %{
+      Grasp.Coverage.build(index, import_counts(export, test_ebin()), %{
         generated_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
         git_head: git_head(root)
       })
@@ -96,11 +116,26 @@ defmodule Mix.Tasks.Grasp.Cover do
 
   defp index_path(path, root), do: Path.expand(path, root)
 
-  defp run_suite(root, export) do
+  # `mix test` merges the project's `:test_coverage` over the command line's
+  # `--export-coverage`, so an `:export` the project sets is the name the file gets.
+  defp export(root) do
+    config = Mix.Project.config()[:test_coverage] || []
+    output = Path.expand(config[:output] || "cover", root)
+
+    case config[:export] do
+      nil ->
+        {Path.join(output, @export_name <> ".coverdata"), ["--export-coverage", @export_name]}
+
+      name ->
+        {Path.join(output, "#{name}.coverdata"), []}
+    end
+  end
+
+  defp run_suite(root, export, export_args) do
     [command | args] = Application.get_env(:grasp, :test_command, ["mix", "test"])
 
     {_output, status} =
-      System.cmd(command, args ++ ["--cover", "--export-coverage", "grasp"],
+      System.cmd(command, args ++ ["--cover" | export_args],
         cd: root,
         env: [{"MIX_ENV", "test"}],
         into: IO.stream()
@@ -109,7 +144,8 @@ defmodule Mix.Tasks.Grasp.Cover do
     cond do
       not File.regular?(export) ->
         Mix.raise(
-          "grasp.cover: the test run exited with status #{status} and exported no coverage"
+          "grasp.cover: the test run exited with status #{status} and exported no coverage " <>
+            "to #{Path.relative_to(export, root)}"
         )
 
       status != 0 ->
@@ -122,17 +158,32 @@ defmodule Mix.Tasks.Grasp.Cover do
     end
   end
 
-  # `:cover` is one named server per VM; it is stopped afterwards so the imported data
-  # does not linger in a session that goes on to do anything else. The server announces on
-  # every analysis that the data is imported, once per module, so its output goes to a sink
-  # rather than the terminal.
-  defp import_lines(export, index, root) do
+  # The directory the suite's beams are in: the project's compile path as the test
+  # environment resolves it, which is how the suite resolved it.
+  defp test_ebin do
+    previous = Mix.env()
+    Mix.env(:test)
+
+    try do
+      Mix.Project.compile_path()
+    after
+      Mix.env(previous)
+    end
+  end
+
+  # `:cover` is one named server per VM, and importing into one that already holds data
+  # would add this run's counts to it. The server announces on every analysis that the data
+  # is imported, once per module, so its output goes to a sink rather than the terminal.
+  defp import_counts(export, ebin) do
     Mix.ensure_application!(:tools)
 
     server =
       case :cover.start() do
-        {:ok, pid} -> pid
-        {:error, {:already_started, pid}} -> pid
+        {:ok, pid} ->
+          pid
+
+        {:error, {:already_started, _pid}} ->
+          Mix.raise("grasp.cover: :cover is already running in this VM")
       end
 
     {:ok, sink} = StringIO.open("")
@@ -144,57 +195,65 @@ defmodule Mix.Tasks.Grasp.Cover do
         {:error, reason} -> Mix.raise("grasp.cover: cannot import #{export}: #{inspect(reason)}")
       end
 
-      files = Map.new(index.modules, &{&1["name"], &1["file"]})
-
-      :cover.imported_modules()
-      |> Enum.flat_map(fn module ->
-        case file_of(module, files, root) do
-          nil -> []
-          file -> [{file, module_lines(module)}]
-        end
-      end)
-      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-      |> Map.new(fn {file, maps} ->
-        {file, Enum.reduce(maps, %{}, &Map.merge(&2, &1, fn _line, a, b -> a + b end))}
-      end)
+      for module <- :cover.imported_modules(),
+          owners <- [owners(module, ebin)],
+          owners != %{},
+          {:ok, counts} <- [:cover.analyse(module, :calls, :line)],
+          {{^module, line}, count} <- counts,
+          {name, arity} <- List.wrap(Map.get(owners, line)),
+          reduce: %{} do
+        acc ->
+          key = {inspect(module), Atom.to_string(name), arity}
+          Map.update(acc, key, %{line => count}, &Map.put(&1, line, count))
+      end
     after
       :cover.stop()
       StringIO.close(sink)
     end
   end
 
-  defp module_lines(module) do
-    case :cover.analyse(module, :calls, :line) do
-      {:ok, counts} ->
-        for {{^module, line}, count} <- counts, line > 0, into: %{}, do: {line, count}
+  # Line → the one function whose code in the module's own file carries it. The forms
+  # follow `-file` attributes: the first names the module's file, and a function after one
+  # naming another file is that file's code, which `:cover` does not count. A line two
+  # functions carry has no owner.
+  defp owners(module, ebin) do
+    beam = ebin |> Path.join(Atom.to_string(module) <> ".beam") |> String.to_charlist()
 
-      {:error, _reason} ->
-        %{}
-    end
-  end
+    with {:ok, {^module, [debug_info: {:debug_info_v1, backend, data}]}} <-
+           :beam_lib.chunks(beam, [:debug_info]),
+         {:ok, forms} <- backend.debug_info(:erlang_v1, module, data, []) do
+      {_file, carriers} =
+        Enum.reduce(forms, {nil, %{}}, fn
+          {:attribute, _anno, :file, {file, _line}}, {nil, carriers} ->
+            {{file, file}, carriers}
 
-  # A module in a path only the test environment compiles has no beam here, and the
-  # imported data carries no source; the index names the file every indexed module is in.
-  defp file_of(module, files, root) do
-    source =
-      with {:module, ^module} <- Code.ensure_loaded(module),
-           source when is_list(source) <- module.module_info(:compile)[:source] do
-        List.to_string(source)
-      else
-        _unloadable -> nil
-      end
+          {:attribute, _anno, :file, {file, _line}}, {{main, _current}, carriers} ->
+            {{main, file}, carriers}
 
-    cond do
-      is_binary(source) -> Path.relative_to(Path.expand(source), root)
-      name = Map.get(files, inspect(module)) -> name
-      true -> nil
+          {:function, _anno, name, arity, _clauses} = form, {{main, main}, carriers} ->
+            lines = :erl_parse.fold_anno(&[:erl_anno.line(&1) | &2], [], form)
+
+            carriers =
+              for line <- Enum.uniq(lines), line > 0, reduce: carriers do
+                carriers -> Map.update(carriers, line, [{name, arity}], &[{name, arity} | &1])
+              end
+
+            {{main, main}, carriers}
+
+          _form, state ->
+            state
+        end)
+
+      for {line, [owner]} <- carriers, into: %{}, do: {line, owner}
+    else
+      _no_debug_info -> %{}
     end
   end
 
   defp git_head(root) do
     case System.cmd("git", ["rev-parse", "--git-dir"], cd: root, stderr_to_stdout: true) do
       {_out, 0} ->
-        case System.cmd("git", ["rev-parse", "HEAD"], cd: root) do
+        case System.cmd("git", ["rev-parse", "HEAD"], cd: root, stderr_to_stdout: true) do
           {head, 0} -> String.trim(head)
           _no_head -> nil
         end

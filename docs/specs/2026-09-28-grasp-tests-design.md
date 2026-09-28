@@ -278,14 +278,28 @@ test paths uncompared.
   `["mix", "test"]`, in the project root with `MIX_ENV=test` and the environment the task
   itself was started with — adding `--cover --export-coverage grasp`, so the suite runs
   exactly as the host runs it and Mix's own cover tool counts the lines. A run whose tests
-  fail still exports what ran. The task then loads `:tools`, imports
-  `cover/grasp.coverdata` with `:cover` in its own process — analysis of imported data
-  needs no cover-compiled module — and writes `.grasp/coverage.json`.
+  fail still exports what ran. The export lands where the host's `:test_coverage` config
+  puts it — its `:output` directory, `cover` unless set, and its `:export` name when it sets
+  one, in which case no `--export-coverage` is added. The task then loads `:tools`, imports
+  the export with `:cover` in its own process — analysis of imported data needs no
+  cover-compiled module — and writes `.grasp/coverage.json`. At an umbrella root, whose
+  apps each export their own coverage, the task refuses and says to run it inside the app.
 - **The coverage document** holds, per indexed application function, the `:cover` counts on
-  the lines of its span (a line `:cover` does not count is absent) and a hash of the
-  record's `source` as the index held it when the coverage was written, beside the git head
-  and the index's `generated_at`. A function whose current source hashes differently reads
-  as stale: its counts describe code that is no longer there.
+  the lines of its span, keyed by offset from the span's first line (a line `:cover` does
+  not count is absent), and a hash of the record's `source` as the index held it when the
+  coverage is written, beside the git head and the index's `generated_at`. A function that
+  moves in its file with its source unchanged keeps its counts, read on the lines it
+  occupies; a function whose current source hashes differently reads as stale: its counts
+  describe a body other than the one the record holds. Macros and guards get no entry:
+  their bodies run when their callers compile, before `:cover` starts.
+- **Attribution.** `:cover` counts by module and line, and a module can hold code whose
+  lines are another file's. Each count goes to the one compiled function whose code carries
+  that line, read from the debug info of the test build's beam. Code the compiler marks as
+  another file's (`@file`, `quote location: :keep`, templates embedded from their files) is
+  never counted by `:cover`; a line carried by more than one function — a template compiled
+  from a string whose lines overlap the module's own — is credited to none of them; and a
+  module whose beam has no readable debug info contributes nothing. An uncounted line is
+  untinted, so an ambiguity costs a tint, never a wrong one.
 - **Loading.** The viewer watches `.grasp/coverage.json` as it watches the index, and
   reloads it when it changes.
 - **Tint.** While coverage is loaded and the `coverage` toggle is on (toolbar, key `v`), a

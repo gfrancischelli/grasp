@@ -49,6 +49,10 @@ defmodule Mix.Tasks.Grasp.CoverIntegrationTest do
     assert count > 0
     assert File.regular?(Path.join(@fixture, "cover/grasp.coverdata"))
 
-    refute Enum.any?(Map.keys(coverage["functions"]), &String.contains?(&1, "Test."))
+    for id <- Map.keys(coverage["functions"]) do
+      {:ok, record} = Grasp.Index.fetch_function(index, id)
+      assert record["kind"] in ~w(def defp), id
+      refute Grasp.Index.test_file?(index, record["file"]), id
+    end
   end
 end

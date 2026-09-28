@@ -24,12 +24,16 @@ defmodule Grasp.CoverageTest do
   end
 
   defp record(id, file, first, last, extra \\ %{}) do
+    [name, arity] = id |> String.split(".") |> List.last() |> String.split("/")
+    module = id |> String.split(".") |> Enum.drop(-1) |> Enum.join(".")
+
     Map.merge(
       %{
         "id" => id,
-        "module" => "Acme.Tally",
-        "name" => id |> String.split(".") |> List.last() |> String.split("/") |> hd(),
-        "arity" => 1,
+        "module" => module,
+        "name" => name,
+        "arity" => String.to_integer(arity),
+        "arities" => [String.to_integer(arity)],
         "kind" => "def",
         "file" => file,
         "span" => %{"start_line" => first, "end_line" => last},
@@ -41,14 +45,14 @@ defmodule Grasp.CoverageTest do
   end
 
   describe "build/3" do
-    test "keeps the counted lines of each application function's span" do
+    test "keeps each function's counted lines inside its span, as offsets from its start" do
       next = record("Acme.Tally.next/1", "lib/acme/tally.ex", 2, 4, %{"source" => @next_source})
       reset = record("Acme.Tally.reset/0", "lib/acme/tally.ex", 6, 8)
 
       document =
         Coverage.build(
           index([next, reset]),
-          %{"lib/acme/tally.ex" => %{1 => 9, 2 => 3, 3 => 3, 5 => 1}},
+          %{{"Acme.Tally", "next", 1} => %{1 => 9, 2 => 3, 3 => 3, 5 => 1}},
           @meta
         )
 
@@ -61,38 +65,51 @@ defmodule Grasp.CoverageTest do
                "Acme.Tally.next/1" => %{
                  "source_hash" =>
                    Base.encode16(:crypto.hash(:sha256, @next_source), case: :lower),
-                 "lines" => %{"2" => 3, "3" => 3}
+                 "lines" => %{"0" => 3, "1" => 3}
                }
              }
     end
 
-    test "leaves out tests, setups, test-path files and removed functions" do
-      lines = %{2 => 1, 3 => 0}
-
-      records = [
-        record("Acme.TallyTest.\"test next\"/1", "test/acme/tally_test.exs", 2, 3, %{
-          "kind" => "test"
-        }),
-        record("Acme.TallyTest.__ex_unit_setup_0/1", "lib/acme/setup.ex", 2, 3, %{
-          "kind" => "setup"
-        }),
-        record("Acme.Support.build/1", "test/support/build.ex", 2, 3),
-        record("Acme.Tally.gone/1", "lib/acme/tally.ex", 2, 3, %{"removed" => true})
-      ]
+    test "credits a record only with the counts of its own module, name and arities" do
+      greet =
+        record("Acme.Greeter.greet/2", "lib/acme/greeter.ex", 3, 6, %{"arities" => [1, 2]})
 
       document =
         Coverage.build(
-          index(records),
+          index([greet]),
           %{
-            "test/acme/tally_test.exs" => lines,
-            "lib/acme/setup.ex" => lines,
-            "test/support/build.ex" => lines,
-            "lib/acme/tally.ex" => lines
+            {"Acme.Greeter", "greet", 1} => %{3 => 1},
+            {"Acme.Greeter", "greet", 2} => %{3 => 2, 4 => 2},
+            {"Acme.Greeter", "wave", 1} => %{5 => 7},
+            {"Acme.Other", "greet", 2} => %{6 => 7}
           },
           @meta
         )
 
-      assert document["functions"] == %{}
+      assert document["functions"]["Acme.Greeter.greet/2"]["lines"] == %{"0" => 3, "1" => 2}
+    end
+
+    test "leaves out tests, setups, macros, guards, test-path files and removed functions" do
+      lines = %{2 => 1, 3 => 0}
+
+      records = [
+        record("Acme.TallyTest.next_test/1", "test/acme/tally_test.exs", 2, 3, %{
+          "kind" => "test"
+        }),
+        record("Acme.TallyTest.setup_0/1", "lib/acme/setup.ex", 2, 3, %{"kind" => "setup"}),
+        record("Acme.Macros.twice/1", "lib/acme/macros.ex", 2, 3, %{"kind" => "defmacro"}),
+        record("Acme.Macros.thrice/1", "lib/acme/macros.ex", 2, 3, %{"kind" => "defmacrop"}),
+        record("Acme.Macros.small/1", "lib/acme/macros.ex", 2, 3, %{"kind" => "defguard"}),
+        record("Acme.Support.build/1", "test/support/build.ex", 2, 3),
+        record("Acme.Tally.gone/1", "lib/acme/tally.ex", 2, 3, %{"removed" => true})
+      ]
+
+      counts =
+        Map.new(records, fn record ->
+          {{record["module"], record["name"], record["arity"]}, lines}
+        end)
+
+      assert Coverage.build(index(records), counts, @meta)["functions"] == %{}
     end
   end
 
@@ -101,7 +118,7 @@ defmodule Grasp.CoverageTest do
       document =
         Coverage.build(
           index([record("Acme.Tally.next/1", "lib/acme/tally.ex", 2, 4)]),
-          %{"lib/acme/tally.ex" => %{2 => 1}},
+          %{{"Acme.Tally", "next", 1} => %{2 => 1}},
           @meta
         )
 
@@ -135,7 +152,7 @@ defmodule Grasp.CoverageTest do
 
       {:ok, coverage} =
         index([record])
-        |> Coverage.build(%{"lib/acme/tally.ex" => %{2 => 4, 3 => 0}}, @meta)
+        |> Coverage.build(%{{"Acme.Tally", "next", 1} => %{2 => 4, 3 => 0}}, @meta)
         |> Coverage.encode()
         |> Coverage.decode()
 
@@ -147,14 +164,25 @@ defmodule Grasp.CoverageTest do
       assert Coverage.for_function(coverage, record) == {:fresh, %{lines: %{2 => 4, 3 => 0}}}
     end
 
+    test "stays fresh on the lines a function moved to with its source unchanged",
+         %{record: record, coverage: coverage} do
+      moved = %{record | "span" => %{"start_line" => 5, "end_line" => 7}}
+      assert Coverage.for_function(coverage, moved) == {:fresh, %{lines: %{5 => 4, 6 => 0}}}
+    end
+
     test "is stale once the source differs", %{record: record, coverage: coverage} do
-      assert {:stale, %{"lines" => %{"2" => 4}}} =
+      assert {:stale, %{"lines" => %{"0" => 4}}} =
                Coverage.for_function(coverage, %{record | "source" => "def next(c), do: c"})
     end
 
     test "is none for a function the coverage holds nothing for", %{coverage: coverage} do
       other = record("Acme.Tally.reset/0", "lib/acme/tally.ex", 6, 8)
       assert Coverage.for_function(coverage, other) == :none
+    end
+
+    test "is none for an entry it cannot read", %{record: record} do
+      coverage = %{"functions" => %{record["id"] => %{"lines" => %{"0" => 1}}}}
+      assert Coverage.for_function(coverage, record) == :none
     end
   end
 
@@ -171,6 +199,13 @@ defmodule Grasp.CoverageTest do
 
       assert Coverage.gaps(record, %{10 => 2, 11 => 2, 12 => 2, 13 => 0}) ==
                %{clauses: [], arms: [[13, 13]]}
+    end
+
+    test "names every arm never entered, an arm inside a clause never entered too" do
+      record = %{"clauses" => [[2, 4], [6, 12]], "arms" => [[8, 9], [10, 11]]}
+
+      assert Coverage.gaps(record, %{3 => 1, 7 => 0, 8 => 0, 10 => 0}) ==
+               %{clauses: [[6, 12]], arms: [[8, 9], [10, 11]]}
     end
 
     test "answers no gaps for a function that ran all the way through" do

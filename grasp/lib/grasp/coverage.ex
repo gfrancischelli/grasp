@@ -14,45 +14,58 @@ defmodule Grasp.Coverage do
         "functions" => %{
           "SampleApp.Counter.init/1" => %{
             "source_hash" => "9a1e…",
-            "lines" => %{"8" => 3}
+            "lines" => %{"1" => 3}
           }
         }
       }
 
-  A line `:cover` does not count is absent from `"lines"`, so an absent line is neither run
-  nor never run. A function whose current `source` hashes differently from the entry's
-  `source_hash` is stale: its counts describe a body other than the one the record holds.
+  A key of `"lines"` is an offset from the first line of the function's span, `"0"` being
+  `span.start_line`, so a function that moves in its file with its source unchanged keeps
+  its counts; `for_function/2` places them on the lines the record occupies. A line `:cover`
+  does not count is absent, so an absent line is neither run nor never run. A function
+  whose current `source` hashes differently from the entry's `source_hash` is stale: its
+  counts describe a body other than the one the record holds.
+
+  Counts are attributed per function, not per file: `build/3` takes them keyed by the
+  compiled function they were counted in, and a record receives only the counts of its own
+  module, name and arities, restricted to its span.
   """
 
   @type document :: %{required(String.t()) => term()}
   @type lines :: %{pos_integer() => non_neg_integer()}
+  @type function_key :: {module :: String.t(), name :: String.t(), arity :: non_neg_integer()}
   @type reading :: :none | {:stale, map()} | {:fresh, %{lines: lines()}}
   @type range :: [pos_integer()]
 
   @doc """
-  Builds the document from `index` and the counted lines of each file.
+  Builds the document from `index` and the counted lines of each compiled function.
 
-  `lines_by_file` maps a project-relative file to `%{line => count}`. Every record that is
-  not removed, not a test or a setup, and not in a file under the project's `test_paths`
-  gets an entry when its span holds at least one counted line; a counted line outside a
-  record's span is not attributed to it. `meta` carries `:generated_at` and `:git_head`; the
-  index's own `generated_at` is written beside them.
+  `counts` maps `{module, name, arity}` — the module as the index names it, `"Acme.Tally"` —
+  to `%{line => count}`. A record takes the counts of every arity it defines that lie inside
+  its span; a counted line outside the span, or counted in another function, is not
+  attributed to it. Records that are removed, tests or setups, macros or guards (their
+  bodies run when their callers compile, before `:cover` starts), or in a file under the
+  project's `test_paths` get no entry, and neither does a record with no counted line.
+  `meta` carries `:generated_at` and `:git_head`; the index's own `generated_at` is written
+  beside them.
   """
-  @spec build(Grasp.Index.t(), %{String.t() => lines()}, %{
+  @spec build(Grasp.Index.t(), %{function_key() => lines()}, %{
           generated_at: String.t(),
           git_head: String.t() | nil
         }) :: document()
-  def build(%Grasp.Index{} = index, lines_by_file, meta) when is_map(lines_by_file) do
+  def build(%Grasp.Index{} = index, counts, meta) when is_map(counts) do
     functions =
       for {id, record} <- index.functions,
           application?(index, record),
-          lines = span_lines(record, Map.get(lines_by_file, record["file"], %{})),
+          %{"span" => %{"start_line" => first, "end_line" => last}} <- [record],
+          lines = record_lines(record, counts, first, last),
           lines != %{},
           into: %{} do
         {id,
          %{
            "source_hash" => source_hash(record),
-           "lines" => Map.new(lines, fn {line, count} -> {Integer.to_string(line), count} end)
+           "lines" =>
+             Map.new(lines, fn {line, count} -> {Integer.to_string(line - first), count} end)
          }}
       end
 
@@ -116,25 +129,34 @@ defmodule Grasp.Coverage do
   @doc """
   How `record` reads in `coverage`.
 
-  `:none` when the document holds no entry for the record's id, `{:stale, entry}` when the
-  entry is written against a `source` other than the record's, and `{:fresh, %{lines:
-  lines}}` with the counts keyed by integer line otherwise.
+  `:none` when the document holds no entry for the record's id (or one it cannot read),
+  `{:stale, entry}` when the entry is written against a `source` other than the record's,
+  and `{:fresh, %{lines: lines}}` otherwise, the counts keyed by the file lines the record
+  occupies: each stored offset is added to the record's own `span.start_line`.
   """
   @spec for_function(document(), Grasp.Index.function_record()) :: reading()
-  def for_function(%{"functions" => functions}, %{"id" => id} = record) do
+  def for_function(
+        %{"functions" => functions},
+        %{"id" => id, "span" => %{"start_line" => first}} = record
+      ) do
     case Map.get(functions, id) do
-      nil ->
-        :none
-
-      %{"source_hash" => hash, "lines" => lines} = entry ->
+      %{"source_hash" => hash, "lines" => lines} = entry when is_map(lines) ->
         if hash == source_hash(record) do
           {:fresh,
-           %{lines: Map.new(lines, fn {line, count} -> {String.to_integer(line), count} end)}}
+           %{
+             lines:
+               Map.new(lines, fn {offset, count} -> {first + String.to_integer(offset), count} end)
+           }}
         else
           {:stale, entry}
         end
+
+      _no_entry ->
+        :none
     end
   end
+
+  def for_function(%{}, %{}), do: :none
 
   @doc """
   The clauses and arms of `record` that were never entered under `lines`.
@@ -158,17 +180,29 @@ defmodule Grasp.Coverage do
     end)
   end
 
+  @unattributed_kinds ~w(test setup defmacro defmacrop defguard defguardp)
+
   defp application?(index, record) do
-    record["removed"] != true and record["kind"] not in ["test", "setup"] and
+    record["removed"] != true and record["kind"] not in @unattributed_kinds and
       is_binary(record["file"]) and not Grasp.Index.test_file?(index, record["file"])
   end
 
-  defp span_lines(%{"span" => %{"start_line" => first, "end_line" => last}}, lines)
-       when is_integer(first) and is_integer(last) do
-    for {line, count} <- lines, line >= first and line <= last, into: %{}, do: {line, count}
+  defp record_lines(record, counts, first, last) when is_integer(first) and is_integer(last) do
+    arities =
+      case record["arities"] do
+        arities when is_list(arities) -> arities
+        _none -> List.wrap(record["arity"])
+      end
+
+    for arity <- arities,
+        {line, count} <- Map.get(counts, {record["module"], record["name"], arity}, %{}),
+        line >= first and line <= last,
+        reduce: %{} do
+      lines -> Map.update(lines, line, count, &(&1 + count))
+    end
   end
 
-  defp span_lines(_record, _lines), do: %{}
+  defp record_lines(_record, _counts, _first, _last), do: %{}
 
   defp source_hash(record),
     do: Base.encode16(:crypto.hash(:sha256, record["source"] || ""), case: :lower)
