@@ -259,6 +259,19 @@ defmodule Grasp.MCP.ToolsTest do
     end
   end
 
+  describe "coverage" do
+    test "an unknown id is a tool error" do
+      {:reply, %Response{isError: true} = resp, _} =
+        Tools.Coverage.execute(%{function_id: "Nope.f/0"}, %Frame{})
+
+      assert [%{"text" => "unknown function: Nope.f/0"}] = resp.content
+    end
+
+    test "says how to write coverage when there is none" do
+      assert Tools.Coverage.__description__() =~ "mix grasp.cover"
+    end
+  end
+
   describe "the card lookup" do
     test "answers the card, or the message a tool replies with when there is none" do
       name = "t-#{System.unique_integer([:positive])}"
@@ -293,6 +306,7 @@ defmodule Grasp.MCP.ToolsTest do
       refute Tools.ListChanges.input_schema()["required"]
       assert Tools.TestsFor.input_schema()["required"] == ["function_id"]
       refute Tools.UntestedChanges.input_schema()["required"]
+      assert Tools.Coverage.input_schema()["required"] == ["function_id"]
     end
 
     test "state each bounded field's default and maximum" do
