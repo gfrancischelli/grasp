@@ -19,12 +19,17 @@ defmodule Grasp.Runs do
   limit arrives in chunks that are joined until its end, or until they reach sixteen times
   the limit, which is broadcast as a line of its own so output that never ends a line
   cannot grow without bound. Every line is broadcast on the
-  `"runs"` topic as `{:run_output, id, line}` as it arrives, and a run keeps its last 200
-  lines. A run starting broadcasts `{:run_started, run}` and a run ending, by exiting or by
-  being cancelled, `{:run_finished, run}`.
+  `"runs"` topic as `{:run_output, id, seq, line}` as it arrives, `seq` counting the run's
+  lines from 1, and a run keeps its last 200 lines. A run starting broadcasts
+  `{:run_started, run}` and a run ending, by exiting or by being cancelled,
+  `{:run_finished, run}`, both on `"runs"` and on `"runs:status"`, which carries those two
+  alone for a subscriber with no use for the lines (`subscribe_status/0`).
 
   A run is a map of its `id`, `kind` (`:tests` or `:coverage`), `description`, `argv`,
-  `root`, `started_at` and `output`, the last lines oldest first. A finished run adds
+  `root`, `started_at`, `output`, the last lines oldest first, and `line_count`, how many
+  lines it has produced so far — the `seq` of the last of them. A holder of a run's
+  snapshot has every line numbered up to `line_count`, and a `{:run_output, …}` at or
+  below it is one the snapshot already holds. A finished run adds
   `finished_at`, `exit_status` — the command's, `nil` for a cancelled run — and
   `cancelled?`.
 
@@ -45,6 +50,7 @@ defmodule Grasp.Runs do
   alias Grasp.Runs.ProcessTree
 
   @topic "runs"
+  @status_topic "runs:status"
   @kept_lines 200
   @line_limit 65_536
   @buffer_limit 16 * @line_limit
@@ -57,7 +63,8 @@ defmodule Grasp.Runs do
           argv: [String.t()],
           root: Path.t(),
           started_at: DateTime.t(),
-          output: [String.t()]
+          output: [String.t()],
+          line_count: non_neg_integer()
         }
   @type finished_run :: %{
           id: String.t(),
@@ -67,6 +74,7 @@ defmodule Grasp.Runs do
           root: Path.t(),
           started_at: DateTime.t(),
           output: [String.t()],
+          line_count: non_neg_integer(),
           finished_at: DateTime.t(),
           exit_status: non_neg_integer() | nil,
           cancelled?: boolean()
@@ -100,8 +108,9 @@ defmodule Grasp.Runs do
   Starts a test run of `test_ids`, as `start/3` does: `mix grasp.test` with each id an
   argument of its own, so an id's quotes and spaces reach the task as they are written.
 
-  The command in front of `grasp.test` is `command/0`'s. The description names the one test
-  a run of one runs, and counts the tests of any other.
+  The command in front of `grasp.test` is `command/0`'s. The ids follow a `--`, which ends
+  the task's switches, so no id is ever read as one whatever it starts with. The description
+  names the one test a run of one runs, and counts the tests of any other.
   """
   @spec start_tests([String.t(), ...], keyword()) ::
           {:ok, run()}
@@ -113,7 +122,7 @@ defmodule Grasp.Runs do
         ids -> "mix grasp.test (#{length(ids)} tests)"
       end
 
-    start(:tests, command() ++ ["grasp.test" | test_ids],
+    start(:tests, command() ++ ["grasp.test", "--" | test_ids],
       description: Keyword.get(opts, :description, description),
       root: opts[:root]
     )
@@ -135,15 +144,27 @@ defmodule Grasp.Runs do
   @doc """
   The command and leading arguments `start_tests/2` and `start_coverage/1` put in front of
   the task they run: the `:grasp, :runs_command` config, a non-empty list of strings, and
-  `["mix"]` when it is unset. A suite configures a stand-in here, so what a run would have
+  `["mix"]` when it is unset. Any other setting raises an `ArgumentError` naming it. A suite configures a stand-in here, so what a run would have
   been given reaches a command that prints it rather than the project's own `mix`.
   """
   @spec command() :: [String.t(), ...]
   def command do
     case Application.get_env(:grasp, :runs_command) do
-      [_ | _] = command -> Enum.map(command, &to_string/1)
-      _unset -> ["mix"]
+      nil ->
+        ["mix"]
+
+      [_ | _] = command ->
+        if Enum.all?(command, &is_binary/1), do: command, else: invalid_command!(command)
+
+      other ->
+        invalid_command!(other)
     end
+  end
+
+  defp invalid_command!(command) do
+    raise ArgumentError,
+          "config :grasp, :runs_command must be a non-empty list of strings, " <>
+            "such as [\"mix\"]; got: #{inspect(command)}"
   end
 
   @doc """
@@ -163,6 +184,13 @@ defmodule Grasp.Runs do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Grasp.PubSub, @topic)
 
+  @doc """
+  Subscribes the caller to the `"runs:status"` topic: `{:run_started, run}` and
+  `{:run_finished, run}`, without the lines between.
+  """
+  @spec subscribe_status() :: :ok | {:error, term()}
+  def subscribe_status, do: Phoenix.PubSub.subscribe(Grasp.PubSub, @status_topic)
+
   @impl true
   def init(_opts) do
     Process.flag(:trap_exit, true)
@@ -178,6 +206,7 @@ defmodule Grasp.Runs do
        buffer: "",
        output: [],
        lines: 0,
+       seq: 0,
        last: nil
      }}
   end
@@ -232,11 +261,12 @@ defmodule Grasp.Runs do
             exit_status: nil,
             buffer: "",
             output: [],
-            lines: 0
+            lines: 0,
+            seq: 0
         }
 
         view = view(state)
-        broadcast({:run_started, view})
+        broadcast_status({:run_started, view})
         {:reply, {:ok, view}, state}
 
       true ->
@@ -296,8 +326,10 @@ defmodule Grasp.Runs do
   end
 
   defp line(state, text) do
-    broadcast({:run_output, state.run.id, text})
+    seq = state.seq + 1
+    broadcast({:run_output, state.run.id, seq, text})
     output = [text | state.output]
+    state = %{state | seq: seq}
 
     if state.lines >= @kept_lines do
       %{state | output: Enum.take(output, @kept_lines)}
@@ -334,7 +366,7 @@ defmodule Grasp.Runs do
       |> view()
       |> Map.merge(%{finished_at: DateTime.utc_now(), exit_status: code, cancelled?: cancelled?})
 
-    broadcast({:run_finished, last})
+    broadcast_status({:run_finished, last})
 
     %{
       state
@@ -347,11 +379,18 @@ defmodule Grasp.Runs do
         buffer: "",
         output: [],
         lines: 0,
+        seq: 0,
         last: last
     }
   end
 
-  defp view(state), do: Map.put(state.run, :output, Enum.reverse(state.output))
+  defp view(state),
+    do: Map.merge(state.run, %{output: Enum.reverse(state.output), line_count: state.seq})
 
   defp broadcast(message), do: Phoenix.PubSub.broadcast(Grasp.PubSub, @topic, message)
+
+  defp broadcast_status(message) do
+    broadcast(message)
+    Phoenix.PubSub.broadcast(Grasp.PubSub, @status_topic, message)
+  end
 end

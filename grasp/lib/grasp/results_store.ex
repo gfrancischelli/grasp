@@ -15,8 +15,8 @@ defmodule Grasp.ResultsStore do
   keeps the previous document, is logged once per mtime, and is not read again until its
   mtime changes.
 
-  A test run finishing (`{:run_finished, run}` on `Grasp.Runs`' topic, for a run of kind
-  `:tests`) reloads the file at once rather than at the next poll: the mtime has a
+  A test run finishing (`{:run_finished, run}` on `Grasp.Runs`' status topic, for a run of
+  kind `:tests`) reloads the file at once rather than at the next poll: the mtime has a
   resolution of one second, so a run writing the file within the second of the previous
   write leaves an mtime the poll cannot tell from the one it holds.
 
@@ -90,7 +90,7 @@ defmodule Grasp.ResultsStore do
     # A store starts holding nothing: a document a previous start put there would otherwise
     # be read as this path's contents while this one is missing.
     :persistent_term.erase(@key)
-    :ok = Grasp.Runs.subscribe()
+    :ok = Grasp.Runs.subscribe_status()
     {_reply, state} = do_load(path, %{path: path, mtime: nil})
     schedule_poll()
     {:ok, state}
@@ -128,7 +128,8 @@ defmodule Grasp.ResultsStore do
     {:noreply, state}
   end
 
-  def handle_info(_run_message, state), do: {:noreply, state}
+  def handle_info({:run_finished, _other_kind}, state), do: {:noreply, state}
+  def handle_info({:run_started, _run}, state), do: {:noreply, state}
 
   defp do_load(path, state) do
     mtime = mtime(path)

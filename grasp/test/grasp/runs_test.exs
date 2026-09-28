@@ -29,9 +29,9 @@ defmodule Grasp.RunsTest do
 
     assert run.output == []
     assert_receive {:run_started, %{id: ^id}}
-    assert_receive {:run_output, ^id, "one"}, 2_000
-    assert_receive {:run_output, ^id, "two"}, 2_000
-    assert_receive {:run_output, ^id, "three"}, 2_000
+    assert_receive {:run_output, ^id, _seq, "one"}, 2_000
+    assert_receive {:run_output, ^id, _seq, "two"}, 2_000
+    assert_receive {:run_output, ^id, _seq, "three"}, 2_000
 
     assert_receive {:run_finished, %{id: ^id, exit_status: 3, cancelled?: false} = finished},
                    2_000
@@ -54,7 +54,7 @@ defmodule Grasp.RunsTest do
         description: "coverage"
       )
 
-    assert_receive {:run_output, ^id, "started"}, 2_000
+    assert_receive {:run_output, ^id, _seq, "started"}, 2_000
 
     assert {:error, {:running, %{id: ^id, description: "coverage", output: ["started"]}}} =
              Runs.start(:tests, ["sh", "-c", "true"], root: root)
@@ -180,16 +180,16 @@ defmodule Grasp.RunsTest do
     {:ok, %{id: id}} =
       Runs.start(:tests, ["sh", "-c", ~S|echo "[${MIX_BUILD_PATH-unset}]"|], root: root)
 
-    assert_receive {:run_output, ^id, "[unset]"}, 2_000
+    assert_receive {:run_output, ^id, _seq, "[unset]"}, 2_000
   end
 
   test "output that never ends a line is broadcast in bounded pieces", %{root: root} do
     {:ok, %{id: id}} =
       Runs.start(:tests, ["sh", "-c", "head -c 1048586 /dev/zero | tr '\\0' a; echo"], root: root)
 
-    assert_receive {:run_output, ^id, first}, 5_000
+    assert_receive {:run_output, ^id, _seq, first}, 5_000
     assert byte_size(first) == 1_048_576
-    assert_receive {:run_output, ^id, rest}, 5_000
+    assert_receive {:run_output, ^id, _seq, rest}, 5_000
     assert rest == String.duplicate("a", 10)
   end
 
@@ -206,8 +206,8 @@ defmodule Grasp.RunsTest do
     {:ok, %{id: id}} =
       Runs.start(:tests, ["sh", "-c", ~S|echo "$GRASP_RUNS_PROBE"; pwd -P|], root: root)
 
-    assert_receive {:run_output, ^id, "from the viewer"}, 2_000
-    assert_receive {:run_output, ^id, cwd}, 2_000
+    assert_receive {:run_output, ^id, _seq, "from the viewer"}, 2_000
+    assert_receive {:run_output, ^id, _seq, cwd}, 2_000
     assert Path.basename(cwd) == Path.basename(root)
     assert_receive {:run_finished, %{id: ^id, exit_status: 0}}, 2_000
   end
@@ -225,9 +225,9 @@ defmodule Grasp.RunsTest do
     {:ok, %{id: id}} =
       Runs.start(:tests, ["sh", "-c", "printf '%070000d\\n' 0; printf 'tail'"], root: root)
 
-    assert_receive {:run_output, ^id, long}, 2_000
+    assert_receive {:run_output, ^id, _seq, long}, 2_000
     assert byte_size(long) == 70_000
-    assert_receive {:run_output, ^id, "tail"}, 2_000
+    assert_receive {:run_output, ^id, _seq, "tail"}, 2_000
     assert_receive {:run_finished, %{id: ^id, exit_status: 0}}, 2_000
   end
 
@@ -259,8 +259,77 @@ defmodule Grasp.RunsTest do
     assert_receive {:run_finished, %{id: ^id}}, 2_000
   end
 
+  test "each line carries its number, and a run's view counts the lines it has produced", %{
+    root: root
+  } do
+    {:ok, %{id: id, line_count: 0}} =
+      Runs.start(:tests, ["sh", "-c", "echo a; echo b; echo c; sleep 30"], root: root)
+
+    assert_receive {:run_output, ^id, 1, "a"}, 2_000
+    assert_receive {:run_output, ^id, 2, "b"}, 2_000
+    assert_receive {:run_output, ^id, 3, "c"}, 2_000
+    assert %{current: %{id: ^id, line_count: 3, output: ["a", "b", "c"]}} = Runs.status()
+
+    assert {:ok, %{line_count: 3}} = Runs.cancel()
+  end
+
+  test "the count goes on past the lines a run keeps", %{root: root} do
+    {:ok, %{id: id}} = Runs.start(:tests, ["sh", "-c", "seq 1 250"], root: root)
+
+    assert_receive {:run_finished, %{id: ^id, line_count: 250, output: output}}, 5_000
+    assert output == Enum.map(51..250, &Integer.to_string/1)
+  end
+
+  test "the status topic carries a run's start and finish and none of its lines", %{
+    root: root
+  } do
+    :ok = Runs.subscribe_status()
+    {:ok, %{id: id}} = Runs.start(:tests, ["sh", "-c", "echo one"], root: root)
+
+    # The "runs" subscription of the setup receives the line; the status one does not.
+    assert_receive {:run_output, ^id, 1, "one"}, 2_000
+    assert_receive {:run_finished, %{id: ^id}}, 2_000
+    assert_receive {:run_finished, %{id: ^id}}, 2_000
+    assert_received {:run_started, %{id: ^id}}
+    assert_received {:run_started, %{id: ^id}}
+    refute_received {:run_output, ^id, _seq, _line}
+  end
+
+  describe "the configured command" do
+    setup do
+      previous = Application.get_env(:grasp, :runs_command)
+      on_exit(fn -> Application.put_env(:grasp, :runs_command, previous) end)
+    end
+
+    test "a test run passes the ids after --, one argument each", %{root: root} do
+      Application.put_env(:grasp, :runs_command, ["sh", "-c", ~S|printf '%s\n' "$@"|, "fake"])
+      ids = [~S|SampleApp.TallyTest."test init keeps the start count"/1|, "-x"]
+
+      {:ok, %{id: id, argv: argv}} = Runs.start_tests(ids, root: root)
+      assert argv == ["sh", "-c", ~S|printf '%s\n' "$@"|, "fake", "grasp.test", "--" | ids]
+
+      assert_receive {:run_finished, %{id: ^id, output: output}}, 2_000
+      assert output == ["grasp.test", "--" | ids]
+    end
+
+    test "unset is mix" do
+      Application.delete_env(:grasp, :runs_command)
+      assert Runs.command() == ["mix"]
+    end
+
+    test "anything but a non-empty list of strings is refused, naming the setting" do
+      for bad <- ["mix", [], [:mix], ["mix", 1]] do
+        Application.put_env(:grasp, :runs_command, bad)
+
+        assert_raise ArgumentError, ~r/:runs_command must be a non-empty list of strings/, fn ->
+          Runs.start_coverage()
+        end
+      end
+    end
+  end
+
   defp receive_line(id, timeout \\ 2_000) do
-    assert_receive {:run_output, ^id, line}, timeout
+    assert_receive {:run_output, ^id, _seq, line}, timeout
     String.to_integer(String.trim(line))
   end
 

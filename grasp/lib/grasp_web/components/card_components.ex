@@ -28,8 +28,8 @@ defmodule GraspWeb.CardComponents do
   reader has the coverage mode on, which is the page's CSS and not the card's markup.
 
   Test results are read the same way again, from a `GraspWeb.CardResults`: a test card wears
-  its latest result — `passed`, `failed`, `skipped` or `stale` — and a function card's tests
-  badge adds how many of its tests fresh results mark failed. A test card has `run`, and the
+  its latest result — `passed`, `failed`, `skipped`, `invalid` or `stale` — and a function
+  card's tests badge adds how many of its tests fresh results mark failed or invalid. A test card has `run`, and the
   callers menu's Tests section `run all`, each starting a run of those tests; while any run
   is under way both are disabled, titled with the command that is running.
   """

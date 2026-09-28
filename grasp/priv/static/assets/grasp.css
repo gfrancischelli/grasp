@@ -778,7 +778,8 @@ body.grasp-dragging .module__title {
   background: var(--diff-ins-bg);
   color: var(--diff-ins-fg);
 }
-.badge--result[data-result=failed] {
+.badge--result[data-result=failed],
+.badge--result[data-result=invalid] {
   background: var(--diff-del-bg);
   color: var(--diff-del-fg);
 }

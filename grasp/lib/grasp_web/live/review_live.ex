@@ -186,8 +186,14 @@ defmodule GraspWeb.ReviewLive do
     end
   end
 
-  def handle_info({:run_output, id, line}, %{assigns: %{run: %{id: id}}} = socket),
-    do: {:noreply, stream_line(socket, line)}
+  # A snapshot of the run holds every line numbered up to its count, so a line broadcast
+  # before the snapshot is taken, and still in the mailbox once it is shown, is one the
+  # panel already draws.
+  def handle_info({:run_output, id, seq, line}, %{assigns: %{run: %{id: id}}} = socket) do
+    if seq > socket.assigns.run_seen,
+      do: {:noreply, stream_line(socket, seq, line)},
+      else: {:noreply, socket}
+  end
 
   def handle_info({:run_finished, %{id: id} = run}, %{assigns: %{run: %{id: id}}} = socket),
     do: {:noreply, assign(socket, run: Map.delete(run, :output), running: nil)}
@@ -876,11 +882,19 @@ defmodule GraspWeb.ReviewLive do
 
   # A start refused because another run is under way shows that run, which is the answer to
   # what the reader asked for: the controls were disabled in every tab that had heard of it.
+  # A run this tab is showing already keeps the lines it has.
   defp started(socket, {:ok, run}),
     do: socket |> show_run(run) |> assign(runs_open?: true, chat_open?: false)
 
-  defp started(socket, {:error, {:running, run}}),
-    do: socket |> show_run(run) |> assign(runs_open?: true, chat_open?: false)
+  defp started(socket, {:error, {:running, run}}) do
+    socket =
+      case socket.assigns.run do
+        %{id: id} when id == run.id -> socket
+        _other -> show_run(socket, run)
+      end
+
+    assign(socket, runs_open?: true, chat_open?: false)
+  end
 
   defp started(socket, {:error, :no_command}),
     do: put_flash(socket, :error, "Could not start the run: #{hd(Runs.command())} not found")
@@ -889,26 +903,35 @@ defmodule GraspWeb.ReviewLive do
     do: put_flash(socket, :error, "Could not start the run: #{root} is not a directory")
 
   # The panel draws `run` and the stream of its output, reset to the lines the run still
-  # keeps. A finished run carries `finished_at`; one under way does not, and is `running`.
+  # keeps, each under the number the run gave it: the kept lines are the last of the
+  # `line_count` the run has produced. `run_seen` is the number of the last line drawn. A
+  # finished run carries `finished_at`; one under way does not, and is `running`.
   defp show_run(socket, nil),
     do:
-      socket |> assign(run: nil, running: nil, run_line: 0) |> stream(:run_lines, [], reset: true)
+      socket |> assign(run: nil, running: nil, run_seen: 0) |> stream(:run_lines, [], reset: true)
 
   defp show_run(socket, run) do
     running = if Map.has_key?(run, :finished_at), do: nil, else: run.description
+    output = Map.get(run, :output, [])
+    count = Map.get(run, :line_count, length(output))
+    first = count - length(output) + 1
 
-    socket
-    |> assign(run: Map.delete(run, :output), running: running, run_line: 0)
-    |> stream(:run_lines, [], reset: true)
-    |> then(fn socket -> Enum.reduce(Map.get(run, :output, []), socket, &stream_line(&2, &1)) end)
+    output
+    |> Enum.with_index(first)
+    |> Enum.reduce(
+      socket
+      |> assign(run: Map.delete(run, :output), running: running, run_seen: 0)
+      |> stream(:run_lines, [], reset: true),
+      fn {text, seq}, socket -> stream_line(socket, seq, text) end
+    )
+    |> assign(run_seen: count)
   end
 
-  defp stream_line(socket, text) do
-    n = socket.assigns.run_line + 1
-    line = %{id: "run-line-#{n}", text: RunsPanel.display_line(text)}
+  defp stream_line(socket, seq, text) do
+    line = %{id: "run-line-#{seq}", text: RunsPanel.display_line(text)}
 
     socket
-    |> assign(run_line: n)
+    |> assign(run_seen: seq)
     |> stream_insert(:run_lines, line, limit: -200)
   end
 

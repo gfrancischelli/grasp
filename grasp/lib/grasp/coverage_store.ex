@@ -14,6 +14,11 @@ defmodule Grasp.CoverageStore do
   previous document, is logged once per mtime, and is not read again until its mtime
   changes.
 
+  A coverage run finishing (`{:run_finished, run}` on `Grasp.Runs`' status topic, for a run
+  of kind `:coverage`) reloads the file at once rather than at the next poll: the mtime has
+  a resolution of one second, so a run writing the file within the second of the previous
+  write leaves an mtime the poll cannot tell from the one it holds.
+
   The mtime is read *before* the file, so a rewrite landing between the two leaves the
   stored mtime older than the file's and the next poll picks the rewritten content up.
 
@@ -84,6 +89,7 @@ defmodule Grasp.CoverageStore do
     # A store starts holding nothing: a document a previous start put there would otherwise
     # be read as this path's contents while this one is missing.
     :persistent_term.erase(@key)
+    :ok = Grasp.Runs.subscribe_status()
     {_reply, state} = do_load(path, %{path: path, mtime: nil})
     schedule_poll()
     {:ok, state}
@@ -115,6 +121,14 @@ defmodule Grasp.CoverageStore do
     schedule_poll()
     {:noreply, state}
   end
+
+  def handle_info({:run_finished, %{kind: :coverage}}, state) do
+    {_reply, state} = do_load(state.path, state)
+    {:noreply, state}
+  end
+
+  def handle_info({:run_finished, _other_kind}, state), do: {:noreply, state}
+  def handle_info({:run_started, _run}, state), do: {:noreply, state}
 
   defp do_load(path, state) do
     mtime = mtime(path)

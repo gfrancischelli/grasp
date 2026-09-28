@@ -13,7 +13,9 @@ defmodule GraspWeb.RunsPanel do
   one insert sent to the page, not the whole log again, and nothing else on the page
   re-renders for it. Each line is cut to `max_line/0` characters, with a `…` after the cut,
   before it is streamed, since a run keeps lines of up to a mebibyte and a page drawing one
-  whole would stall on it. The log follows the newest line only while the reader is at the
+  whole would stall on it. A line carries the number the run gave it, so a line the panel
+  already draws from a snapshot of the run is never drawn a second time. The status is
+  announced as it changes; the log, which changes a line at a time, is not. The log follows the newest line only while the reader is at the
   bottom of it, as the chat log does: the `Runs` hook pins it there and, when the reader has
   scrolled up, unhides the "latest" pill instead.
   """
@@ -50,12 +52,17 @@ defmodule GraspWeb.RunsPanel do
       <header class="runs__header">
         <span :if={@run} class="runs__description">{@run.description}</span>
         <span :if={!@run} class="runs__description runs__description--none">No run yet</span>
-        <span :if={@run} class="runs__status" data-status={status(@run, @running)}>
+        <span
+          :if={@run}
+          class="runs__status"
+          data-status={status(@run, @running)}
+          aria-live="polite"
+        >
           {status_label(@run, @running)}
         </span>
       </header>
       <div class="runs__transcript">
-        <div id="runs-log" class="runs__log" phx-update="stream" aria-live="polite">
+        <div id="runs-log" class="runs__log" phx-update="stream" role="log" aria-live="off">
           <p :for={{dom_id, line} <- @lines} id={dom_id} class="runs__line">{line.text}</p>
         </div>
         <button id="runs-jump" type="button" class="runs__jump" hidden>↓ latest</button>
@@ -90,6 +97,7 @@ defmodule GraspWeb.RunsPanel do
   defp status(%{cancelled?: true}, _running), do: "cancelled"
   defp status(%{exit_status: 0}, _running), do: "finished"
   defp status(%{exit_status: code}, _running) when is_integer(code), do: "failed"
+  defp status(%{finished_at: _}, _running), do: "finished"
   defp status(_run, _running), do: "running"
 
   defp status_label(run, running) do

@@ -121,6 +121,33 @@ defmodule Grasp.CoverageStoreTest do
              )
   end
 
+  test "a finished coverage run reloads the file at once, and a test run does not", %{
+    path: path
+  } do
+    File.write!(path, Jason.encode!(document("SampleApp.Greeter.greet/2")))
+    :ok = CoverageStore.load(path)
+    CoverageStore.subscribe()
+    Grasp.Runs.subscribe()
+
+    staged = path <> ".staged"
+    File.write!(staged, Jason.encode!(document("SampleApp.Formatter.shout/1")))
+    on_exit(fn -> File.rm(staged) end)
+
+    # The rewrite keeps the mtime the store holds, so no poll could tell it apart.
+    rewrite = ["sh", "-c", ~S|touch -r "$1" "$2" && cp -p "$2" "$1"|, "rewrite", path, staged]
+    root = System.tmp_dir!()
+
+    {:ok, %{id: tests}} = Grasp.Runs.start(:tests, rewrite, root: root)
+    assert_receive {:run_finished, %{id: ^tests}}, 2_000
+    send(CoverageStore, :poll)
+    refute_receive :coverage_reloaded, 200
+
+    {:ok, %{id: coverage}} = Grasp.Runs.start(:coverage, ["sh", "-c", "true"], root: root)
+    assert_receive {:run_finished, %{id: ^coverage}}, 2_000
+    assert_receive :coverage_reloaded, 1_000
+    assert %{"functions" => %{"SampleApp.Formatter.shout/1" => _}} = CoverageStore.get()
+  end
+
   defp document(id) do
     %{
       "version" => 1,

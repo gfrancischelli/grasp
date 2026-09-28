@@ -127,6 +127,14 @@ defmodule Mix.Tasks.Grasp.TestTest do
              Grasp.TestResults.for_test(results, counts)
   end
 
+  test "ids after -- are ids, as the viewer passes them", %{index: index, out: out} do
+    tests = %{@counts => %{"status" => "passed", "time" => 3, "errors" => []}}
+    run_task(["--index", index, "--out", out, "--", @counts], fake_runner(tests, 0))
+
+    assert_received {:ran, "mix", args, _opts}
+    assert List.last(args) == "test/acme/tally_test.exs:5"
+  end
+
   test "an id the index holds no test for aborts the task, listing every such id",
        %{index: index, out: out} do
     assert_raise Mix.Error,

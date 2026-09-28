@@ -12,12 +12,13 @@ defmodule GraspWeb.CardResults do
   they are. The LiveView hands each card its own reading from `for_function/2`, so a card's
   result differs between renders only when its reading does.
 
-  A test's reading is its status when the result is fresh and `"passed"`, `"failed"` or
-  `"skipped"`, and `"stale"` when a result of one of those is recorded against another
-  source. An `"excluded"` or `"invalid"` result — a test the run loaded but did not run, or
-  one whose module's `setup_all` failed — says nothing about the test's own code, and reads
-  as no result. A function's reading counts its reaching tests (`GraspWeb.TestReach`) whose
-  fresh result is `"failed"`.
+  A test's reading is its status when the result is fresh and `"passed"`, `"failed"`,
+  `"skipped"` or `"invalid"` — a test whose module's `setup_all` failed, so it never ran —
+  and `"stale"` when a result of one of those is recorded against another source. An
+  `"excluded"` result, a test the run loaded but did not run, says nothing about the test,
+  and reads as no result. A function's reading counts its reaching tests
+  (`GraspWeb.TestReach`) whose fresh result is `"failed"` or `"invalid"`: either is a test
+  that did not pass.
   """
 
   alias Grasp.Index
@@ -25,7 +26,8 @@ defmodule GraspWeb.CardResults do
   alias Grasp.TestResults
   alias GraspWeb.TestReach
 
-  @worn ~w(passed failed skipped)
+  @worn ~w(passed failed skipped invalid)
+  @failing ~w(failed invalid)
 
   defstruct results: nil, index: nil, readings: %{}
 
@@ -120,7 +122,8 @@ defmodule GraspWeb.CardResults do
 
   defp failed?(document, index, test_id) do
     with {:ok, record} <- Index.fetch_function(index, test_id),
-         {:fresh, %{"status" => "failed"}} <- TestResults.for_test(document, record) do
+         {:fresh, %{"status" => status}} when status in @failing <-
+           TestResults.for_test(document, record) do
       true
     else
       _other -> false

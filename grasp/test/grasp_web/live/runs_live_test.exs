@@ -96,7 +96,7 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#toggle-runs") |> render_click()
       view |> element("#runs-coverage") |> render_click()
 
-      assert_receive {:run_output, id, "second"}, 2_000
+      assert_receive {:run_output, id, _seq, "second"}, 2_000
       eventually(view, fn -> has_element?(view, "#runs-log .runs__line", "second") end)
 
       assert elements(view, "#runs-log .runs__line") == ["started", "second"]
@@ -144,13 +144,91 @@ defmodule GraspWeb.RunsLiveTest do
     test "a tab opened while a run is under way shows it and its output so far", %{conn: conn} do
       Application.put_env(:grasp, :runs_command, ["sh", "-c", "echo early; sleep 30", "fake-mix"])
       {:ok, %{id: id}} = Runs.start_coverage()
-      assert_receive {:run_output, ^id, "early"}, 2_000
+      assert_receive {:run_output, ^id, _seq, "early"}, 2_000
 
       {:ok, view, _html} = live(conn, "/s/t-#{System.unique_integer([:positive])}")
 
       assert has_element?(view, "#toggle-runs", "running…")
       assert has_element?(view, "#runs .runs__description", "mix grasp.cover")
       assert elements(view, "#runs-log .runs__line") == ["early"]
+    end
+  end
+
+  describe "the output" do
+    test "keeps the last 200 lines, in a tab open throughout and in one opened after", %{
+      conn: conn,
+      view: view
+    } do
+      Application.put_env(:grasp, :runs_command, ["sh", "-c", "seq 1 250", "fake-mix"])
+      expected = Enum.map(51..250, &Integer.to_string/1)
+
+      view |> element("#runs-coverage") |> render_click()
+      assert_receive {:run_finished, %{exit_status: 0}}, 5_000
+
+      eventually(view, fn -> elements(view, "#runs-log .runs__line") == expected end)
+
+      {:ok, later, _html} = live(conn, "/s/t-#{System.unique_integer([:positive])}")
+      assert elements(later, "#runs-log .runs__line") == expected
+    end
+
+    # A line broadcast while a tab is taking its snapshot of the run arrives after the
+    # snapshot is shown: the line is sent here as the broadcast would deliver it.
+    test "a tab opened mid-run draws each line once", %{conn: conn} do
+      Application.put_env(:grasp, :runs_command, [
+        "sh",
+        "-c",
+        "seq 1 250; sleep 30",
+        "fake-mix"
+      ])
+
+      {:ok, %{id: id}} = Runs.start_coverage()
+      assert_receive {:run_output, ^id, 250, "250"}, 5_000
+
+      {:ok, view, _html} = live(conn, "/s/t-#{System.unique_integer([:positive])}")
+      assert elements(view, "#runs-log .runs__line") == Enum.map(51..250, &Integer.to_string/1)
+
+      # Line 1 lies outside the 200 the run keeps, and 250 one the snapshot holds: neither is
+      # drawn again. Line 251 is the first the snapshot does not hold.
+      send(view.pid, {:run_output, id, 1, "1"})
+      send(view.pid, {:run_output, id, 250, "250"})
+      send(view.pid, {:run_output, id, 251, "251"})
+
+      eventually(view, fn -> has_element?(view, "#runs-log .runs__line", "251") end)
+
+      assert elements(view, "#runs-log .runs__line") ==
+               Enum.map(52..251, &Integer.to_string/1)
+    end
+
+    test "a start refused in a second tab keeps each line once in both", %{
+      conn: conn,
+      view: first
+    } do
+      {:ok, second, _html} = live(conn, "/s/t-#{System.unique_integer([:positive])}")
+
+      Application.put_env(:grasp, :runs_command, [
+        "sh",
+        "-c",
+        "echo a; echo b; sleep 30",
+        "fake-mix"
+      ])
+
+      first |> element("#runs-coverage") |> render_click()
+      assert_receive {:run_output, id, 2, "b"}, 2_000
+
+      for view <- [first, second] do
+        eventually(view, fn -> elements(view, "#runs-log .runs__line") == ["a", "b"] end)
+      end
+
+      # The second tab's controls are disabled; a start it sends anyway is refused with the
+      # run, whose lines it already draws, and lines still in flight are the same lines.
+      render_click(second, "run_coverage", %{})
+      send(second.pid, {:run_output, id, 2, "b"})
+
+      refute has_element?(second, "#runs[hidden]")
+
+      for view <- [first, second] do
+        assert elements(view, "#runs-log .runs__line") == ["a", "b"]
+      end
     end
   end
 
@@ -162,14 +240,19 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#run-1") |> render_click()
 
       assert_receive {:run_finished, %{kind: :tests, argv: argv, exit_status: 0}}, 2_000
-      assert argv == Runs.command() ++ ["grasp.test", @init]
+      assert argv == Runs.command() ++ ["grasp.test", "--", @init]
 
       refute has_element?(view, "#runs[hidden]")
       assert has_element?(view, "#runs .runs__description", "mix grasp.test #{@init}")
 
       # Each id reaches the command as an argument of its own, quotes and spaces kept.
       eventually(view, fn -> has_element?(view, "#runs-log .runs__line", "arg #{@init}") end)
-      assert elements(view, "#runs-log .runs__line") == ["arg grasp.test", "arg #{@init}"]
+
+      assert elements(view, "#runs-log .runs__line") == [
+               "arg grasp.test",
+               "arg --",
+               "arg #{@init}"
+             ]
     end
 
     test "a function card has no run of its own", %{view: view} do
@@ -190,7 +273,7 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#card-1 .callers__run") |> render_click()
 
       assert_receive {:run_finished, %{argv: argv}}, 2_000
-      assert argv == Runs.command() ++ ["grasp.test", @verified, @plain]
+      assert argv == Runs.command() ++ ["grasp.test", "--", @verified, @plain]
       assert has_element?(view, "#runs .runs__description", "mix grasp.test (2 tests)")
     end
 
@@ -204,7 +287,7 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#run-changed") |> render_click()
 
       assert_receive {:run_finished, %{argv: argv}}, 2_000
-      assert argv == Runs.command() ++ ["grasp.test", @reply, @plain]
+      assert argv == Runs.command() ++ ["grasp.test", "--", @reply, @plain]
       refute has_element?(view, "#runs[hidden]")
     end
 
@@ -227,7 +310,7 @@ defmodule GraspWeb.RunsLiveTest do
       view |> element("#card-2 .card__tests") |> render_click()
 
       view |> element("#run-1") |> render_click()
-      assert_receive {:run_output, id, "up"}, 2_000
+      assert_receive {:run_output, id, _seq, "up"}, 2_000
 
       title = "Running mix grasp.test #{@init}"
 
@@ -306,6 +389,28 @@ defmodule GraspWeb.RunsLiveTest do
       assert has_element?(view, "#card-2 .card__tests:not([data-failing])", "2 tests")
       refute has_element?(view, "#card-2 .card__tests", "failing")
       refute has_element?(view, "#card-2 .badge--result")
+    end
+
+    test "an invalid test wears invalid and counts as failing", %{
+      view: view,
+      name: name,
+      results: results
+    } do
+      document =
+        TestResults.merge(
+          nil,
+          %{@plain => %{"status" => "invalid"}, @verified => %{"status" => "passed"}},
+          %{run_id: "r2", finished_at: "2026-09-28T12:01:00Z", index: IndexStore.get()}
+        )
+
+      :ok = TestResults.write(document, results)
+      :ok = ResultsStore.reload()
+
+      Session.open_root(name, @plain)
+      Session.open_root(name, @greet)
+
+      assert has_element?(view, "#card-1 .badge--result[data-result='invalid']", "invalid")
+      assert has_element?(view, "#card-2 .card__tests[data-failing='1']", "2 tests · 1 failing")
     end
 
     test "a test with no result wears none", %{view: view, results: results, name: name} do

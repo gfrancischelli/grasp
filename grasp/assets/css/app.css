@@ -253,7 +253,7 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .card__stats { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
 /* A test's latest result, coloured as the diff colours what it adds and removes. */
 .badge--result[data-result="passed"] { background: var(--diff-ins-bg); color: var(--diff-ins-fg); }
-.badge--result[data-result="failed"] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
+.badge--result[data-result="failed"], .badge--result[data-result="invalid"] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .badge--result[data-result="skipped"], .badge--result[data-result="stale"] { background: color-mix(in oklch, var(--fg-muted) 14%, transparent); color: var(--fg-muted); }
 .card__tests[data-failing] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
 .card__run, .callers__run { padding: 0 var(--space-xs); color: var(--fg-muted); }

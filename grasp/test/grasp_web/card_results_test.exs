@@ -28,9 +28,10 @@ defmodule GraspWeb.CardResultsTest do
       )
 
     forest =
-      Enum.reduce([@init, @reply, @plain, @handle_call, @greet], Forest.new(), fn id, forest ->
-        {forest, _card} = Forest.open_root(forest, id)
-        forest
+      Enum.reduce([@init, @reply, @plain, @verified, @handle_call, @greet], Forest.new(), fn
+        id, forest ->
+          {forest, _card} = Forest.open_root(forest, id)
+          forest
       end)
 
     %{index: index, forest: forest, snapshot: {1, document}}
@@ -46,9 +47,11 @@ defmodule GraspWeb.CardResultsTest do
     assert CardResults.for_function(held, @init) == {:result, "passed"}
     assert CardResults.for_function(held, @reply) == {:result, "failed"}
     assert CardResults.for_function(held, @handle_call) == {:failing, 1}
-    # A run that loaded a test and did not run it says nothing about the test's code.
+    # A run that loaded a test and did not run it says nothing about the test's code; a test
+    # whose setup_all failed did not pass, and counts as failing.
     assert CardResults.for_function(held, @plain) == :none
-    assert CardResults.for_function(held, @greet) == :none
+    assert CardResults.for_function(held, @verified) == {:result, "invalid"}
+    assert CardResults.for_function(held, @greet) == {:failing, 1}
     assert CardResults.for_function(held, "SampleApp.Nope.gone/0") == :none
   end
 

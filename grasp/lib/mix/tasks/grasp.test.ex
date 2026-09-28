@@ -13,9 +13,11 @@ defmodule Mix.Tasks.Grasp.Test do
   `SampleApp.TallyTest."test init keeps the start count"/1`, and names the file and line
   `mix test` is given for it: the record's `file` and the line of its `test` call, where
   its one clause starts (the first line of its `span` for a record without clauses). An id
-  the index holds no test for aborts the task, listing every such id. `--changed` runs the
-  tests the index marks added or modified against its base ref, does nothing when there are
-  none, and aborts for an index built without a base ref; `--all` runs the whole suite.
+  the index holds no test for aborts the task, listing every such id. A `--` ends the
+  switches, and every argument after it is an id, as the viewer passes them. `--changed`
+  runs the tests the index marks added or modified against its base ref, does nothing when
+  there are none, and aborts for an index built without a base ref; `--all` runs the whole
+  suite.
 
   The suite runs in the project root with `MIX_ENV=test` over the environment this task
   runs in, its output streamed to the terminal:
