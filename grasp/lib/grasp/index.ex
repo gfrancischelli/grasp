@@ -26,7 +26,8 @@ defmodule Grasp.Index do
             aliases: %{},
             callers: %{},
             entry_points_by_target: %{},
-            tests: []
+            tests: [],
+            tests_by_module: %{}
 
   @type function_record :: %{required(String.t()) => term()}
   @type t :: %__MODULE__{
@@ -40,7 +41,8 @@ defmodule Grasp.Index do
           aliases: %{String.t() => String.t()},
           callers: %{String.t() => [String.t()]},
           entry_points_by_target: %{String.t() => [map()]},
-          tests: [test_module()]
+          tests: [test_module()],
+          tests_by_module: %{String.t() => [String.t()]}
         }
 
   @doc "Reads and decodes an index document from `path`."
@@ -119,7 +121,12 @@ defmodule Grasp.Index do
       entry_points_by_target: entry_points_by_target
     }
 
-    %{index | tests: test_modules(index)}
+    tests_by_module =
+      records
+      |> Enum.filter(&(&1["kind"] == "test"))
+      |> Enum.group_by(& &1["module"], & &1["id"])
+
+    %{index | tests: test_modules(index), tests_by_module: tests_by_module}
   end
 
   defp arities(record) do
@@ -290,6 +297,68 @@ defmodule Grasp.Index do
     |> then(fn {keys, groups} ->
       keys |> Enum.reverse() |> Enum.map(&{&1, Enum.reverse(Map.fetch!(groups, &1))})
     end)
+  end
+
+  @typedoc "A test reaching a function, and the number of call edges between them."
+  @type reach :: %{test: String.t(), hops: pos_integer()}
+
+  @doc """
+  The tests that reach `id` within `max_hops` call edges, nearest first and then by id.
+
+  The walk goes backwards from the function over its callers, breadth first, through any
+  record — application functions, helpers, tests and setups alike, `route` and `enqueue`
+  edges included — visiting each record once. A test calling `id` directly is one hop away.
+  A test record met on the way is collected at the hop it is first met; a setup met on the
+  way counts for every test of its module at the setup's hop, unless that test is nearer by
+  another path. An id the index does not define, or a function no test reaches, answers `[]`.
+  """
+  @spec tests_for(t(), String.t(), non_neg_integer()) :: [reach()]
+  def tests_for(%__MODULE__{} = index, id, max_hops \\ 4) do
+    start = resolve(index, id)
+
+    if Map.has_key?(index.functions, start) do
+      index
+      |> walk_back([start], MapSet.new([start]), 1, max_hops, %{})
+      |> Enum.map(fn {test, hops} -> %{test: test, hops: hops} end)
+      |> Enum.sort_by(&{&1.hops, &1.test})
+    else
+      []
+    end
+  end
+
+  defp walk_back(_index, [], _visited, _hop, _max_hops, found), do: found
+  defp walk_back(_index, _frontier, _visited, hop, max_hops, found) when hop > max_hops, do: found
+
+  defp walk_back(index, frontier, visited, hop, max_hops, found) do
+    {next, visited, found} =
+      Enum.reduce(frontier, {[], visited, found}, fn id, acc ->
+        index.callers
+        |> Map.get(id, [])
+        |> Enum.reduce(acc, fn caller, {next, visited, found} ->
+          if MapSet.member?(visited, caller) do
+            {next, visited, found}
+          else
+            {[caller | next], MapSet.put(visited, caller), meet(index, caller, hop, found)}
+          end
+        end)
+      end)
+
+    walk_back(index, next, visited, hop + 1, max_hops, found)
+  end
+
+  defp meet(index, id, hop, found) do
+    case index.functions[id] do
+      %{"kind" => "test"} ->
+        Map.put_new(found, id, hop)
+
+      %{"kind" => "setup", "module" => module} ->
+        index.tests_by_module
+        |> Map.get(module, [])
+        |> Enum.reduce(found, &Map.put_new(&2, &1, hop))
+
+      _other ->
+        found
+    end
   end
 
   @doc """

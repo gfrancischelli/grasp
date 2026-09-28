@@ -331,6 +331,242 @@ defmodule Grasp.IndexTest do
     assert ids(Index.search(index, ~S|quotetest says "hi"|)) == [record["id"]]
   end
 
+  describe "tests_for/3" do
+    test "answers a test calling the function directly at one hop" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == [
+               %{test: test_id("MyApp.WalletsTest", "credits"), hops: 1}
+             ]
+    end
+
+    test "reaches through a helper of the test module at two hops" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.WalletsTest.credit_one/0", "MyApp.WalletsTest", [
+            "MyApp.Wallets.credit/2"
+          ]),
+          test_record("MyApp.WalletsTest", "credits", ["MyApp.WalletsTest.credit_one/0"])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == [
+               %{test: test_id("MyApp.WalletsTest", "credits"), hops: 2}
+             ]
+    end
+
+    test "reaches through a route call to the controller action" do
+      route = %{"target" => "MyAppWeb.WalletController.create/2", "kind" => "route"}
+
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyAppWeb.WalletController.create/2", "MyAppWeb.WalletController", [
+            "MyApp.Wallets.credit/2"
+          ]),
+          "MyAppWeb.WalletControllerTest"
+          |> test_record("posts", [])
+          |> Map.put("calls", [route])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == [
+               %{test: test_id("MyAppWeb.WalletControllerTest", "posts"), hops: 2}
+             ]
+    end
+
+    test "counts a setup for every test of its module at the setup's hop" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          setup_record("MyApp.WalletsTest", ["MyApp.Wallets.credit/2"]),
+          test_record("MyApp.WalletsTest", "a", []),
+          test_record("MyApp.WalletsTest", "b", []),
+          test_record("MyApp.OtherTest", "c", [])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == [
+               %{test: test_id("MyApp.WalletsTest", "a"), hops: 1},
+               %{test: test_id("MyApp.WalletsTest", "b"), hops: 1}
+             ]
+    end
+
+    test "keeps a test met directly nearer than the setup of its module" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.WalletsTest.seed/0", "MyApp.WalletsTest", ["MyApp.Wallets.credit/2"]),
+          setup_record("MyApp.WalletsTest", ["MyApp.WalletsTest.seed/0"]),
+          test_record("MyApp.WalletsTest", "a", ["MyApp.Wallets.credit/2"]),
+          test_record("MyApp.WalletsTest", "b", [])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == [
+               %{test: test_id("MyApp.WalletsTest", "a"), hops: 1},
+               %{test: test_id("MyApp.WalletsTest", "b"), hops: 2}
+             ]
+    end
+
+    test "keeps the nearest distance when two paths reach a test" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.A.one/0", "MyApp.A", ["MyApp.Wallets.credit/2"]),
+          record("MyApp.A.two/0", "MyApp.A", ["MyApp.A.one/0"]),
+          test_record("MyApp.WalletsTest", "a", ["MyApp.A.two/0", "MyApp.A.one/0"])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == [
+               %{test: test_id("MyApp.WalletsTest", "a"), hops: 2}
+             ]
+    end
+
+    test "stops after max_hops, four by default" do
+      chain =
+        for n <- 1..4 do
+          record("MyApp.C.f#{n}/0", "MyApp.C", ["MyApp.C.f#{n - 1}/0"])
+        end
+
+      index =
+        reach_index(
+          [record("MyApp.C.f0/0", "MyApp.C", [])] ++
+            chain ++
+            [
+              test_record("MyApp.CTest", "far", ["MyApp.C.f4/0"]),
+              test_record("MyApp.CTest", "near", ["MyApp.C.f1/0"])
+            ]
+        )
+
+      assert Index.tests_for(index, "MyApp.C.f0/0") == [
+               %{test: test_id("MyApp.CTest", "near"), hops: 2}
+             ]
+
+      assert Index.tests_for(index, "MyApp.C.f0/0", 5) == [
+               %{test: test_id("MyApp.CTest", "near"), hops: 2},
+               %{test: test_id("MyApp.CTest", "far"), hops: 5}
+             ]
+
+      assert Index.tests_for(index, "MyApp.C.f0/0", 2) == [
+               %{test: test_id("MyApp.CTest", "near"), hops: 2}
+             ]
+
+      assert Index.tests_for(index, "MyApp.C.f0/0", 1) == []
+    end
+
+    test "terminates on a cycle" do
+      index =
+        reach_index([
+          record("MyApp.A.a/0", "MyApp.A", ["MyApp.A.b/0"]),
+          record("MyApp.A.b/0", "MyApp.A", ["MyApp.A.a/0"]),
+          test_record("MyApp.ATest", "a", ["MyApp.A.b/0"])
+        ])
+
+      assert Index.tests_for(index, "MyApp.A.a/0", 10) == [
+               %{test: test_id("MyApp.ATest", "a"), hops: 2}
+             ]
+    end
+
+    test "resolves a default-argument arity to its definition" do
+      index =
+        reach_index([
+          Map.put(record("MyApp.Wallets.credit/3"), "arities", [2, 3]),
+          test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"])
+        ])
+
+      expected = [%{test: test_id("MyApp.WalletsTest", "credits"), hops: 1}]
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == expected
+      assert Index.tests_for(index, "MyApp.Wallets.credit/3") == expected
+    end
+
+    test "sorts by hops, then by test id" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.H.h/0", "MyApp.H", ["MyApp.Wallets.credit/2"]),
+          test_record("MyApp.WalletsTest", "a", ["MyApp.H.h/0"]),
+          test_record("MyApp.WalletsTest", "c", ["MyApp.Wallets.credit/2"]),
+          test_record("MyApp.WalletsTest", "b", ["MyApp.Wallets.credit/2"])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.credit/2") == [
+               %{test: test_id("MyApp.WalletsTest", "b"), hops: 1},
+               %{test: test_id("MyApp.WalletsTest", "c"), hops: 1},
+               %{test: test_id("MyApp.WalletsTest", "a"), hops: 2}
+             ]
+    end
+
+    test "answers nothing for an unreached function, an unknown id or a test" do
+      index =
+        reach_index([
+          record("MyApp.Wallets.credit/2"),
+          record("MyApp.Wallets.debit/2"),
+          test_record("MyApp.WalletsTest", "credits", ["MyApp.Wallets.credit/2"])
+        ])
+
+      assert Index.tests_for(index, "MyApp.Wallets.debit/2") == []
+      assert Index.tests_for(index, "MyApp.Nope.none/0") == []
+      assert Index.tests_for(index, test_id("MyApp.WalletsTest", "credits")) == []
+    end
+
+    test "finds the fixture's tests reaching a function" do
+      {:ok, index} = Index.load("test/fixtures/index.json")
+
+      assert [%{test: direct, hops: 1}] =
+               Index.tests_for(index, "SampleApp.Counter.handle_call/3")
+
+      assert direct =~ "replies with the next number"
+
+      assert [%{test: helper, hops: 2}] = Index.tests_for(index, "SampleApp.Counter.init/1")
+      assert helper =~ "init keeps the start count"
+    end
+  end
+
+  defp reach_index(records) do
+    {:ok, index} = Index.from_document(%{"version" => 1, "functions" => records})
+    index
+  end
+
+  defp record(id, module \\ "MyApp.Wallets", calls \\ []) do
+    [name, arity] = id |> String.replace_prefix(module <> ".", "") |> String.split("/")
+
+    %{
+      "id" => id,
+      "kind" => "def",
+      "module" => module,
+      "name" => name,
+      "arity" => String.to_integer(arity),
+      "calls" => Enum.map(calls, &%{"target" => &1, "kind" => "remote"})
+    }
+  end
+
+  defp test_record(module, name, calls) do
+    %{
+      "id" => test_id(module, name),
+      "kind" => "test",
+      "module" => module,
+      "name" => "test #{name}",
+      "arity" => 1,
+      "test" => %{"describe" => nil, "name" => name, "tags" => []},
+      "calls" => Enum.map(calls, &%{"target" => &1, "kind" => "remote"})
+    }
+  end
+
+  defp setup_record(module, calls) do
+    %{
+      "id" => "#{module}.__ex_unit_setup_0/1",
+      "kind" => "setup",
+      "module" => module,
+      "name" => "__ex_unit_setup_0",
+      "arity" => 1,
+      "calls" => Enum.map(calls, &%{"target" => &1, "kind" => "remote"})
+    }
+  end
+
+  defp test_id(module, name), do: ~s|#{module}."test #{name}"/1|
+
   defp tmp_path do
     path = Path.join(System.tmp_dir!(), "grasp-index-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> File.rm(path) end)
