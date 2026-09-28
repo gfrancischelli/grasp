@@ -526,6 +526,184 @@ defmodule Grasp.Index.ExtractTest do
     end
   end
 
+  describe "ExUnit blocks" do
+    @test_source ~S"""
+    defmodule SampleApp.GreeterTest do
+      use ExUnit.Case, register: false
+
+      setup :named
+
+      setup do
+        {:ok, name: String.upcase("ada")}
+      end
+
+      setup_all do
+        :ok
+      end
+
+      test "greets", %{name: name} do
+        assert String.length(name) == 3
+      end
+
+      test "later"
+
+      describe "greet/2" do
+        setup context do
+          {:ok, context}
+        end
+
+        test "says hello", context do
+          helper(context)
+        end
+
+        # Runs the slow path.
+        @tag :slow
+        @tag timeout: 1000
+        test "shouts" do
+          helper(%{})
+        end
+      end
+
+      defp named(_context), do: :ok
+      defp helper(context), do: context
+    end
+    """
+
+    test "reads tests and setups as definitions under the names ExUnit compiles" do
+      {:ok, %{definitions: defs}} = Extract.extract(@test_source, "test/greeter_test.exs")
+
+      assert Enum.map(defs, &{&1.name, &1.kind, &1.arity}) == [
+               {:__ex_unit_setup_1, :setup, 1},
+               {:__ex_unit_setup_all_0, :setup, 1},
+               {:"test greets", :test, 1},
+               {:__ex_unit_setup_0_0, :setup, 1},
+               {:"test greet/2 says hello", :test, 1},
+               {:"test greet/2 shouts", :test, 1},
+               {:named, :defp, 1},
+               {:helper, :defp, 1}
+             ]
+
+      assert %{test: %{describe: nil, name: "greets", tags: []}, arities: [1]} =
+               find(defs, "SampleApp.GreeterTest", :"test greets")
+
+      assert %{test: %{describe: "greet/2", name: "says hello", tags: []}} =
+               find(defs, "SampleApp.GreeterTest", :"test greet/2 says hello")
+
+      assert %{test: nil} = find(defs, "SampleApp.GreeterTest", :__ex_unit_setup_1)
+      refute Map.has_key?(find(defs, "SampleApp.GreeterTest", :helper), :test)
+    end
+
+    test "a tagged test's span starts at its leading comment and carries its tags" do
+      {:ok, %{definitions: defs}} = Extract.extract(@test_source, "test/greeter_test.exs")
+      shouts = find(defs, "SampleApp.GreeterTest", :"test greet/2 shouts")
+
+      assert shouts.test == %{describe: "greet/2", name: "shouts", tags: ["slow", "timeout"]}
+      assert {shouts.start_line, shouts.end_line} == {29, 34}
+      assert String.starts_with?(shouts.source, "    # Runs the slow path.")
+    end
+
+    test "collects a test's and a setup's call sites from their bodies" do
+      {:ok, %{definitions: defs}} = Extract.extract(@test_source, "test/greeter_test.exs")
+
+      greets = find(defs, "SampleApp.GreeterTest", :"test greets")
+      assert site(greets, 15, 19).callee == %{module: "String", name: :length, arity: 1}
+      assert {greets.start_line, greets.end_line} == {14, 16}
+
+      setup = find(defs, "SampleApp.GreeterTest", :__ex_unit_setup_1)
+      assert site(setup, 7, 24).callee == %{module: "String", name: :upcase, arity: 1}
+    end
+
+    test "names match the functions ExUnit compiles, and a pending test is no definition" do
+      {:ok, %{definitions: defs}} = Extract.extract(@test_source, "test/greeter_test.exs")
+      [{module, _bytecode}] = Code.compile_string(@test_source, "test/greeter_test.exs")
+
+      compiled =
+        for {name, 1} <- module.module_info(:functions),
+            text = Atom.to_string(name),
+            String.starts_with?(text, "test ") or String.starts_with?(text, "__ex_unit_setup"),
+            do: name
+
+      :code.purge(module)
+      :code.delete(module)
+
+      extracted = for %{kind: kind, name: name} <- defs, kind in [:test, :setup], do: name
+      assert Enum.sort(compiled) == Enum.sort([:"test later" | extracted])
+    end
+
+    test "numbers setups the way ExUnit does, counting named callbacks and describes" do
+      source = ~S"""
+      defmodule SampleApp.CountedTest do
+        use ExUnit.Case, register: false
+
+        setup [:a, :b]
+        setup {SampleApp.Support, :c}
+
+        setup do
+          :ok
+        end
+
+        setup_all :a
+
+        setup_all _context do
+          :ok
+        end
+
+        describe "first" do
+          test "one", do: :ok
+        end
+
+        describe "second" do
+          setup :a
+
+          setup do
+            :ok
+          end
+        end
+
+        setup do
+          :ok
+        end
+
+        defp a(_context), do: :ok
+        defp b(_context), do: :ok
+      end
+      """
+
+      {:ok, %{definitions: defs}} = Extract.extract(source, "test/counted_test.exs")
+
+      assert for(%{kind: :setup, name: name} <- defs, do: name) == [
+               :__ex_unit_setup_3,
+               :__ex_unit_setup_all_1,
+               :__ex_unit_setup_1_1,
+               :__ex_unit_setup_4
+             ]
+
+      assert %{kind: :test, test: %{describe: "first", name: "one"}} =
+               find(defs, "SampleApp.CountedTest", :"test first one")
+    end
+
+    test "a named setup, a pending test and a describe add no definition of their own" do
+      source = ~S"""
+      defmodule SampleApp.QuietTest do
+        use ExUnit.Case
+
+        setup :named
+        setup [:named, :named]
+        test "pending"
+
+        describe "nothing yet" do
+          test "also pending"
+        end
+
+        defp named(_context), do: :ok
+      end
+      """
+
+      {:ok, %{definitions: defs}} = Extract.extract(source, "test/quiet_test.exs")
+      assert Enum.map(defs, &{&1.name, &1.kind}) == [{:named, :defp}]
+    end
+  end
+
   defp find(defs, module, name), do: Enum.find(defs, &(&1.module == module and &1.name == name))
 
   defp site(def, line, column),

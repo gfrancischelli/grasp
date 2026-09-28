@@ -52,6 +52,22 @@ defmodule Grasp.Index.Extract do
   same route twice, and the attribute's site is the one that survives, because it is the
   one that knows the verb.
 
+  A test file is read the same way, and ExUnit's blocks inside a module are definitions too.
+  A `test "name"` with a body is a definition of kind `:test`, arity 1, named as ExUnit
+  compiles it — `:"test <describe> <name>"` inside a `describe`, `:"test <name>"` outside one,
+  cut to ExUnit's own length limit — and carries `test`, the describe, the name and the tags
+  its `@tag` attributes give it. A `setup` or `setup_all` with a body is a definition of kind
+  `:setup`, arity 1, carrying `test: nil`, and is named by ExUnit's counters:
+  `:"__ex_unit_setup_<n>"` and `:"__ex_unit_setup_all_<n>"` count every callback registered
+  before it in the module, a `setup :name` or each entry of a `setup [...]` included, and a
+  setup inside a `describe` is `:"__ex_unit_setup_<describe>_<n>"`, where `<describe>` is the
+  describe's position among the module's describes and `<n>` counts that describe's callbacks
+  alone. A pending `test "name"` with no body, a `setup` naming callbacks and a `describe`
+  itself contribute no definition. A test's or a setup's span starts at its attached `@tag`,
+  `@describetag` or `@moduletag` attributes and leading comments, and its call sites are
+  its body's, which is where the tracer reports them: the compiled function is the caller of
+  every call in the body.
+
   Each definition also records where its clause heads are: `head_positions` is the
   `{line, column}` of the function name in every clause and `head_ranges` the matching
   ranges over that name. `Grasp.Index.Join` uses the positions to drop the events the
@@ -94,8 +110,17 @@ defmodule Grasp.Index.Extract do
           | :defguardp
           | :defdelegate
           | :template
+          | :test
+          | :setup
 
+  # What a test is to the reader, beside its compiled name: the describe it sits in, the
+  # name its author wrote and the names of the tags `@tag` attaches to it.
+  @type test_info :: %{describe: String.t() | nil, name: String.t(), tags: [String.t()]}
+
+  # `test` is present on the definitions of kind `:test`, where it is a `test_info()`, and
+  # of kind `:setup`, where it is `nil`; every other definition has no `test` key.
   @type definition :: %{
+          optional(:test) => test_info() | nil,
           module: String.t(),
           name: atom(),
           arity: non_neg_integer(),
@@ -123,7 +148,17 @@ defmodule Grasp.Index.Extract do
         }
 
   @def_kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp, :defdelegate]
-  @attached_attributes [:doc, :spec, :impl, :deprecated, :since, :decorate]
+  @attached_attributes [
+    :doc,
+    :spec,
+    :impl,
+    :deprecated,
+    :since,
+    :decorate,
+    :tag,
+    :describetag,
+    :moduletag
+  ]
   # Special forms and operators the compiler never reports as calls; leaving them in
   # would produce sites no tracer event can ever land on.
   @not_calls [
@@ -210,26 +245,160 @@ defmodule Grasp.Index.Extract do
 
   # Walks a module body in order, carrying the attributes that will attach to the next
   # definition; anything that is neither an attached attribute nor a definition resets them.
+  # `scope` carries what ExUnit counts while it compiles the module: the describe the walk is
+  # inside, how many describes came before, and how many setup callbacks each list holds.
   defp collect_definitions(exprs, module, parts, acc) do
-    {acc, _pending} =
-      Enum.reduce(exprs, {acc, []}, fn
-        {:@, _, [{attr, _, _}]} = node, {acc, pending} when attr in @attached_attributes ->
-          {acc, pending ++ [node]}
-
-        {kind, _, [head | _]} = node, {acc, pending} when kind in @def_kinds ->
-          {add_clause(acc, module, kind, head, node, pending), []}
-
-        {:defmodule, _, _} = node, {acc, _pending} ->
-          {walk(node, parts, acc), []}
-
-        {:embed_templates, meta, [pattern | opts]}, {acc, _pending} ->
-          {add_embed(acc, module, pattern, opts, meta), []}
-
-        _other, {acc, _pending} ->
-          {acc, []}
-      end)
-
+    scope = %{module: module, parts: parts, describe: nil, describes: 0, setups: 0, setups_all: 0}
+    {acc, _scope} = collect_block(exprs, acc, scope)
     acc
+  end
+
+  defp collect_block(exprs, acc, scope) do
+    {acc, scope, _pending} = Enum.reduce(exprs, {acc, scope, []}, &collect_expr/2)
+    {acc, scope}
+  end
+
+  defp collect_expr({:@, _, [{attr, _, _}]} = node, {acc, scope, pending})
+       when attr in @attached_attributes,
+       do: {acc, scope, pending ++ [node]}
+
+  defp collect_expr({kind, _, [head | _]} = node, {acc, scope, pending}) when kind in @def_kinds,
+    do: {add_clause(acc, scope.module, kind, head, node, pending), scope, []}
+
+  defp collect_expr({:defmodule, _, _} = node, {acc, scope, _pending}),
+    do: {walk(node, scope.parts, acc), scope, []}
+
+  defp collect_expr({:embed_templates, meta, [pattern | opts]}, {acc, scope, _pending}),
+    do: {add_embed(acc, scope.module, pattern, opts, meta), scope, []}
+
+  # ExUnit sets a describe's setup list aside while it compiles the describe and puts it back
+  # after, so the module's own count resumes from its value before the describe; the
+  # describe counter moves on whether or not the describe's name is a literal.
+  defp collect_expr({:describe, _, [name, block]}, {acc, scope, _pending}) when is_list(block) do
+    inner = %{scope | describe: {literal_string(name), scope.describes}, setups: 0}
+    {acc, _inner} = collect_block(do_block_exprs(block), acc, inner)
+    {acc, %{scope | describes: scope.describes + 1}, []}
+  end
+
+  defp collect_expr({:test, _, [name | rest]} = node, {acc, scope, pending}) do
+    description = test_description(scope.describe, literal_string(name))
+
+    case {description, do_body(List.last(rest))} do
+      {{describe, text, compiled}, {:ok, body}} ->
+        test = %{describe: describe, name: text, tags: tags(pending)}
+        {add_block(acc, scope.module, :test, compiled, node, body, pending, test), scope, []}
+
+      _pending_or_dynamic ->
+        {acc, scope, []}
+    end
+  end
+
+  defp collect_expr({setup, _, args} = node, {acc, scope, pending})
+       when setup in [:setup, :setup_all] and is_list(args) do
+    counter = if setup == :setup, do: :setups, else: :setups_all
+    count = Map.fetch!(scope, counter)
+
+    case setup_callbacks(args) do
+      {:body, body} ->
+        name = setup_name(setup, scope.describe, count)
+        acc = add_block(acc, scope.module, :setup, name, node, body, pending, nil)
+        {acc, Map.put(scope, counter, count + 1), []}
+
+      {:callbacks, callbacks} ->
+        {acc, Map.put(scope, counter, count + callbacks), []}
+    end
+  end
+
+  defp collect_expr(_other, {acc, scope, _pending}), do: {acc, scope, []}
+
+  defp do_body(block) when is_list(block) do
+    case block do
+      [{{:__block__, _, [:do]}, body} | _] -> {:ok, body}
+      _other -> :error
+    end
+  end
+
+  defp do_body(_other), do: :error
+
+  defp literal_string({:__block__, _, [text]}) when is_binary(text), do: text
+  defp literal_string(_dynamic), do: nil
+
+  # `{describe, name, compiled_name}`, or `nil` for a test whose name, or whose describe's
+  # name, is not a literal string and so compiles to a name no parser can know.
+  defp test_description(_describe, nil), do: nil
+  defp test_description(nil, name), do: {nil, name, test_name("test #{name}")}
+  defp test_description({nil, _index}, _name), do: nil
+
+  defp test_description({describe, _index}, name),
+    do: {describe, name, test_name("test #{describe} #{name}")}
+
+  # `ExUnit.Case`'s own rule for a name past the 255 bytes an atom may hold: the first 246
+  # bytes, an ellipsis and a short hash of the whole description.
+  defp test_name(description) when byte_size(description) > 255 do
+    hash = :erlang.md5(description) |> binary_slice(0, 3) |> Base.encode64()
+    test_name(String.byte_slice(description, 0, 246) <> "... " <> hash)
+  end
+
+  defp test_name(description), do: String.to_atom(description)
+
+  defp setup_name(:setup_all, _describe, count), do: :"__ex_unit_setup_all_#{count}"
+  defp setup_name(:setup, nil, count), do: :"__ex_unit_setup_#{count}"
+  defp setup_name(:setup, {_name, index}, count), do: :"__ex_unit_setup_#{index}_#{count}"
+
+  # A setup with a `do` body defines a function; any other argument names callbacks, which
+  # ExUnit registers one per entry of a literal list and one for anything else.
+  defp setup_callbacks(args) do
+    case {do_body(List.last(args)), args} do
+      {{:ok, body}, _args} -> {:body, body}
+      {:error, [{:__block__, _, [list]}]} when is_list(list) -> {:callbacks, length(list)}
+      {:error, _args} -> {:callbacks, 1}
+    end
+  end
+
+  # The tags `@tag` attaches: `@tag :slow` is `slow`, and each key of `@tag timeout: 100`
+  # is its own tag.
+  defp tags(pending) do
+    pending
+    |> Enum.flat_map(fn
+      {:@, _, [{:tag, _, [value]}]} -> tag_names(value)
+      _other -> []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp tag_names({:__block__, _, [name]}) when is_atom(name), do: [Atom.to_string(name)]
+  defp tag_names({:__block__, _, [pairs]}) when is_list(pairs), do: tag_names(pairs)
+
+  defp tag_names(pairs) when is_list(pairs) do
+    for {{:__block__, _, [key]}, _value} <- pairs, is_atom(key), do: Atom.to_string(key)
+  end
+
+  defp tag_names(_dynamic), do: []
+
+  defp add_block(acc, module, kind, name, node, body, pending, test) do
+    first = List.first(pending) || node
+    %{start: [line: start_line, column: _]} = Sourceror.get_range(first, include_comments: true)
+    %{end: [line: end_line, column: _]} = Sourceror.get_range(node)
+    sites = collect_sites(body)
+
+    definition = %{
+      module: module,
+      name: name,
+      arity: 1,
+      arities: [1],
+      kind: kind,
+      file: acc.file,
+      start_line: start_line,
+      end_line: end_line,
+      source: nil,
+      call_sites: sites.call_sites,
+      route_sites: sites.route_sites,
+      head_positions: [],
+      head_ranges: [],
+      test: test
+    }
+
+    %{acc | definitions: merge_clause(acc.definitions, definition, acc.lines)}
   end
 
   defp add_embed(acc, module, {:__block__, _meta, [pattern]}, opts, meta)

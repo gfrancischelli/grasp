@@ -244,7 +244,11 @@ defmodule Grasp.Index.Builder do
     }
   end
 
-  @doc "The JSON shape of one function record, classified or not."
+  @doc """
+  The JSON shape of one function record, classified or not.
+
+  A test's record also writes `"test"`, its describe, name and tags; no other record has one.
+  """
   @spec function_json(Join.function_record() | Changes.classified_record()) :: map()
   def function_json(record) do
     %{
@@ -269,7 +273,18 @@ defmodule Grasp.Index.Builder do
       "base_source" => Map.get(record, :base_source),
       "removed" => Map.get(record, :removed, false)
     }
+    |> put_test(Map.get(record, :test))
   end
+
+  defp put_test(json, nil), do: json
+
+  defp put_test(json, test),
+    do:
+      Map.put(json, "test", %{
+        "describe" => test.describe,
+        "name" => test.name,
+        "tags" => test.tags
+      })
 
   @doc "The JSON shape of one entry point."
   @spec entry_point_json(EntryPoints.entry()) :: map()

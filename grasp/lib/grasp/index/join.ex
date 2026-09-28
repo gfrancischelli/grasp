@@ -96,7 +96,9 @@ defmodule Grasp.Index.Join do
   # again when the workers change.
   @type hidden_call :: %{target: String.t(), kind: Tracer.kind(), line: pos_integer()}
 
+  # `test` is carried over from the definition, which has one only for a test or a setup.
   @type function_record :: %{
+          optional(:test) => Extract.test_info() | nil,
           id: String.t(),
           module: String.t(),
           name: atom(),
@@ -116,13 +118,32 @@ defmodule Grasp.Index.Join do
 
   `module` may be an atom or its `inspect/1` form and `name` an atom or its text, so an id
   can be rebuilt from a record read back out of an index document without turning its
-  strings into atoms.
+  strings into atoms. The name is written as a remote call writes it,
+  `Macro.inspect_atom(:remote_call, name)`: `greet`, `valid?` and `+` bare, and a name no
+  call could spell bare quoted, as in `SampleAppWeb.GreetControllerTest."test greet/2 says hello"/1`.
+  A name given as text is written the same way without creating an atom.
   """
   @spec function_id(module() | String.t(), atom() | String.t(), non_neg_integer()) :: String.t()
   def function_id(module, name, arity) when is_atom(module),
     do: function_id(inspect(module), name, arity)
 
-  def function_id(module, name, arity) when is_binary(module), do: "#{module}.#{name}/#{arity}"
+  def function_id(module, name, arity) when is_binary(module),
+    do: "#{module}.#{function_name(name)}/#{arity}"
+
+  defp function_name(name) when is_atom(name), do: Macro.inspect_atom(:remote_call, name)
+
+  # A name that is an atom already takes the atom's spelling, which covers every operator,
+  # since the parser defines them all. Any other is an identifier or text only quoting can
+  # write: `Code.Fragment.cursor_context/1` reads an identifier as the whole of the text it is
+  # given without creating an atom, and anything it reads differently is quoted.
+  defp function_name(name) when is_binary(name) do
+    Macro.inspect_atom(:remote_call, String.to_existing_atom(name))
+  rescue
+    ArgumentError ->
+      if Code.Fragment.cursor_context(name) == {:local_or_var, String.to_charlist(name)},
+        do: name,
+        else: inspect(name)
+  end
 
   @doc """
   Turns definitions and tracer events into function records with resolved calls.
@@ -319,5 +340,6 @@ defmodule Grasp.Index.Join do
       hidden_calls: hidden |> Enum.uniq() |> Enum.sort_by(&{&1.line, &1.target, &1.kind}),
       route_sites: definition.route_sites
     }
+    |> Map.merge(Map.take(definition, [:test]))
   end
 end

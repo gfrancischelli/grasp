@@ -1,7 +1,7 @@
 defmodule Grasp.Index.JoinTest do
   use ExUnit.Case, async: false
 
-  alias Grasp.Index.{Extract, Join}
+  alias Grasp.Index.{Builder, Extract, Join}
   alias Grasp.TestSupport.Compile
 
   @source ~S"""
@@ -29,6 +29,78 @@ defmodule Grasp.Index.JoinTest do
     assert Join.function_id(Grasp.JoinTest.Sample, :run, 2) == "Grasp.JoinTest.Sample.run/2"
     assert Join.function_id(:erlang, :max, 2) == ":erlang.max/2"
     assert Join.function_id("Grasp.JoinTest.Sample", :run, 2) == "Grasp.JoinTest.Sample.run/2"
+  end
+
+  test "function_id/3 quotes a name only where a remote call would", _ do
+    assert Join.function_id("SampleAppWeb.GreetControllerTest", :"test greet/2 says hello", 1) ==
+             ~S|SampleAppWeb.GreetControllerTest."test greet/2 says hello"/1|
+
+    assert Join.function_id(SampleApp.Greeter, :greet, 2) == "SampleApp.Greeter.greet/2"
+    assert Join.function_id(SampleApp.Greeter, :valid?, 1) == "SampleApp.Greeter.valid?/1"
+    assert Join.function_id(Kernel, :+, 2) == "Kernel.+/2"
+
+    assert Join.function_id(SampleApp.Greeter, :__ex_unit_setup_0, 1) ==
+             "SampleApp.Greeter.__ex_unit_setup_0/1"
+  end
+
+  test "function_id/3 quotes a name given as text the same way, creating no atom", _ do
+    unseen = "test acme #{System.unique_integer([:positive])} says \"hi\""
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unseen) end
+
+    assert Join.function_id("SampleApp.GreeterTest", unseen, 1) ==
+             "SampleApp.GreeterTest.#{inspect(unseen)}/1"
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(unseen) end
+
+    bare = "acme_unseen_#{System.unique_integer([:positive])}?"
+    assert Join.function_id("SampleApp.Greeter", bare, 1) == "SampleApp.Greeter.#{bare}/1"
+    assert_raise ArgumentError, fn -> String.to_existing_atom(bare) end
+
+    for name <- [:"test greet/2 says hello", :greet, :valid?, :+, :.., :"test \"quoted\""] do
+      assert Join.function_id("SampleApp.Greeter", Atom.to_string(name), 1) ==
+               Join.function_id("SampleApp.Greeter", name, 1)
+    end
+  end
+
+  test "pairs the calls in a test's and a setup's body with the tracer's events", _ do
+    source = ~S"""
+    defmodule Grasp.JoinTest.GreeterTest do
+      use ExUnit.Case, register: false
+
+      setup do
+        {:ok, name: String.upcase("ada")}
+      end
+
+      describe "greet/2" do
+        @tag :slow
+        test "says hello", %{name: name} do
+          assert String.length(name) == 3
+        end
+      end
+    end
+    """
+
+    events = Compile.trace(source, "test/greeter_test.exs")
+    {:ok, %{definitions: defs}} = Extract.extract(source, "test/greeter_test.exs")
+    records = Join.join(defs, events)
+
+    test_record = record(records, "Grasp.JoinTest.GreeterTest", :"test greet/2 says hello")
+    assert test_record.id == ~S|Grasp.JoinTest.GreeterTest."test greet/2 says hello"/1|
+    assert test_record.kind == :test
+    assert test_record.test == %{describe: "greet/2", name: "says hello", tags: ["slow"]}
+
+    assert %{kind: :remote, range: %{start: {11, 14}, end: {11, 27}}} =
+             call(test_record, "String.length/1")
+
+    setup = record(records, "Grasp.JoinTest.GreeterTest", :__ex_unit_setup_0)
+    assert setup.id == "Grasp.JoinTest.GreeterTest.__ex_unit_setup_0/1"
+    assert setup.test == nil
+    assert %{kind: :remote, range: %{start: {5, 17}}} = call(setup, "String.upcase/1")
+
+    assert Builder.function_json(test_record)["test"] ==
+             %{"describe" => "greet/2", "name" => "says hello", "tags" => ["slow"]}
+
+    refute Map.has_key?(Builder.function_json(setup), "test")
   end
 
   test "pairs events with call sites into ranged calls", %{events: events, defs: defs} do
