@@ -812,6 +812,156 @@ defmodule Grasp.Index.ExtractTest do
     end
   end
 
+  describe "clauses and arms" do
+    @branch_source ~S"""
+    defmodule SampleApp.Branches do
+      def classify(:ok), do: :fine
+
+      def classify(value) do
+        case value do
+          {:ok, inner} ->
+            inner
+
+          :error ->
+            nil
+
+          _other ->
+            :unknown
+        end
+      end
+
+      def load(id) do
+        with {:ok, row} <- fetch(id),
+             {:ok, parsed} <- parse(row) do
+          parsed
+        else
+          {:error, :missing} -> nil
+          {:error, reason} -> reason
+        end
+      end
+
+      def sign(n) do
+        cond do
+          n > 0 -> :positive
+          true -> :other
+        end
+      end
+
+      def wait do
+        receive do
+          {:ping, from} -> send(from, :pong)
+        after
+          100 -> :timeout
+        end
+      end
+
+      def attempt(fun) do
+        try do
+          fun.()
+        rescue
+          e in RuntimeError -> e
+        else
+          value -> value
+        end
+      end
+
+      def mappers do
+        two = fn
+          :a -> 1
+          _ -> 2
+        end
+
+        one = fn x -> x end
+        {two, one}
+      end
+
+      def nested(x) do
+        case x do
+          {:ok, y} ->
+            case y do
+              1 -> :one
+              _ -> :many
+            end
+
+          _ ->
+            :none
+        end
+      end
+    end
+    """
+
+    test "records the lines of every clause, in source order" do
+      {:ok, %{definitions: defs}} = Extract.extract(@branch_source, "lib/branches.ex")
+
+      assert find(defs, "SampleApp.Branches", :classify).clauses == [{2, 2}, {4, 15}]
+      assert find(defs, "SampleApp.Branches", :wait).clauses == [{34, 40}]
+    end
+
+    test "records the lines of every arm of every branching construct" do
+      {:ok, %{definitions: defs}} = Extract.extract(@branch_source, "lib/branches.ex")
+      arms = &find(defs, "SampleApp.Branches", &1).arms
+
+      assert arms.(:classify) == [{6, 7}, {9, 10}, {12, 13}]
+      assert arms.(:load) == [{22, 22}, {23, 23}]
+      assert arms.(:sign) == [{29, 29}, {30, 30}]
+      assert arms.(:wait) == [{36, 36}, {38, 38}]
+      assert arms.(:attempt) == [{46, 46}, {48, 48}]
+      assert arms.(:mappers) == [{54, 54}, {55, 55}]
+      assert arms.(:nested) == [{64, 68}, {66, 66}, {67, 67}, {70, 71}]
+    end
+
+    test "reads a try's after and the rescue a def writes directly as arms" do
+      source = ~S"""
+      defmodule SampleApp.Guarded do
+        def run(fun) do
+          try do
+            fun.()
+          after
+            :cleanup
+          end
+        end
+
+        def safe(fun) do
+          fun.()
+        rescue
+          _error -> :failed
+        end
+      end
+      """
+
+      {:ok, %{definitions: defs}} = Extract.extract(source, "lib/guarded.ex")
+
+      assert find(defs, "SampleApp.Guarded", :run).arms == [{5, 6}]
+      assert find(defs, "SampleApp.Guarded", :safe).arms == [{13, 13}]
+    end
+
+    test "records a test or a setup as one clause, with the arms its body holds" do
+      source = ~S"""
+      defmodule SampleApp.BranchesTest do
+        use ExUnit.Case
+
+        setup do
+          :ok
+        end
+
+        test "branches" do
+          case 1 do
+            1 -> :ok
+          end
+        end
+      end
+      """
+
+      {:ok, %{definitions: defs}} = Extract.extract(source, "test/branches_test.exs")
+
+      setup = find(defs, "SampleApp.BranchesTest", :__ex_unit_setup_0)
+      assert {setup.clauses, setup.arms} == {[{4, 6}], []}
+
+      test = find(defs, "SampleApp.BranchesTest", :"test branches")
+      assert {test.clauses, test.arms} == {[{8, 12}], [{10, 10}]}
+    end
+  end
+
   defp find(defs, module, name), do: Enum.find(defs, &(&1.module == module and &1.name == name))
 
   defp site(def, line, column),

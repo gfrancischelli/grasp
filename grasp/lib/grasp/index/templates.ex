@@ -133,7 +133,9 @@ defmodule Grasp.Index.Templates do
           else: []
         ),
       head_positions: [],
-      head_ranges: []
+      head_ranges: [],
+      clauses: [],
+      arms: []
     }
   end
 

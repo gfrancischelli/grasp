@@ -131,6 +131,7 @@
         2
       ],
       "arity": 2,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -149,6 +150,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          6,
+          6
+        ]
+      ],
       "file": "lib/sample_app/application.ex",
       "hidden_calls": [],
       "id": "SampleApp.Application.start/2",
@@ -168,6 +175,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -186,6 +194,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          8,
+          8
+        ]
+      ],
       "file": "lib/sample_app/audited.ex",
       "hidden_calls": [],
       "id": "SampleApp.Audited.leave_trail/1",
@@ -205,6 +219,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -223,6 +238,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          5,
+          5
+        ]
+      ],
       "file": "lib/sample_app/counter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Counter.start_link/1",
@@ -242,9 +263,16 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [],
       "change": "unchanged",
+      "clauses": [
+        [
+          8,
+          8
+        ]
+      ],
       "file": "lib/sample_app/counter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Counter.init/1",
@@ -264,9 +292,16 @@
         3
       ],
       "arity": 3,
+      "arms": [],
       "base_source": null,
       "calls": [],
       "change": "unchanged",
+      "clauses": [
+        [
+          11,
+          11
+        ]
+      ],
       "file": "lib/sample_app/counter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Counter.handle_call/3",
@@ -286,9 +321,16 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [],
       "change": "unchanged",
+      "clauses": [
+        [
+          6,
+          6
+        ]
+      ],
       "file": "lib/sample_app/formatter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Formatter.wrap/1",
@@ -308,6 +350,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": "  @doc \"Upcases text and adds an exclamation mark.\"\n  @spec shout(String.t()) :: String.t()\n  def shout(text), do: text",
       "calls": [
         {
@@ -326,6 +369,12 @@
         }
       ],
       "change": "modified",
+      "clauses": [
+        [
+          10,
+          10
+        ]
+      ],
       "file": "lib/sample_app/formatter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Formatter.shout/1",
@@ -346,6 +395,7 @@
         2
       ],
       "arity": 2,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -378,6 +428,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          8,
+          11
+        ]
+      ],
       "file": "lib/sample_app/greeter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Greeter.greet/2",
@@ -397,6 +453,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -429,6 +486,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          15,
+          15
+        ]
+      ],
       "file": "lib/sample_app/greeter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Greeter.greet_all/1",
@@ -448,6 +511,7 @@
         0
       ],
       "arity": 0,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -466,6 +530,12 @@
         }
       ],
       "change": "added",
+      "clauses": [
+        [
+          22,
+          22
+        ]
+      ],
       "file": "lib/sample_app/greeter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Greeter.Nested.hello/0",
@@ -485,6 +555,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -503,6 +574,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          7,
+          7
+        ]
+      ],
       "file": "lib/sample_app/supervisor.ex",
       "hidden_calls": [],
       "id": "SampleApp.Supervisor.start_link/1",
@@ -522,6 +599,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -540,6 +618,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          10,
+          10
+        ]
+      ],
       "file": "lib/sample_app/supervisor.ex",
       "hidden_calls": [],
       "id": "SampleApp.Supervisor.init/1",
@@ -559,6 +643,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -577,6 +662,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          6,
+          6
+        ]
+      ],
       "file": "lib/sample_app/workers/mailer.ex",
       "hidden_calls": [],
       "id": "SampleApp.Workers.Mailer.perform/1",
@@ -596,6 +687,7 @@
         2
       ],
       "arity": 2,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -628,6 +720,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          7,
+          9
+        ]
+      ],
       "file": "lib/sample_app_web/greet_controller.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetController.show/2",
@@ -647,6 +745,7 @@
         2
       ],
       "arity": 2,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -679,6 +778,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          12,
+          12
+        ]
+      ],
       "file": "lib/sample_app_web/greet_controller.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetController.create/2",
@@ -698,6 +803,7 @@
         2
       ],
       "arity": 2,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -734,6 +840,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          15,
+          15
+        ]
+      ],
       "file": "lib/sample_app_web/greet_controller.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetController.again/2",
@@ -771,6 +883,7 @@
         2
       ],
       "arity": 2,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -811,6 +924,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          18,
+          21
+        ]
+      ],
       "file": "lib/sample_app_web/greet_controller.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetController.mail/2",
@@ -830,9 +949,16 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [],
       "change": "unchanged",
+      "clauses": [
+        [
+          10,
+          14
+        ]
+      ],
       "file": "lib/sample_app_web/greet_html.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetHTML.badge/1",
@@ -852,6 +978,7 @@
         3
       ],
       "arity": 3,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -870,6 +997,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          5,
+          5
+        ]
+      ],
       "file": "lib/sample_app_web/greeting_component.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetingComponent.handle_event/3",
@@ -889,6 +1022,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -907,6 +1041,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          7,
+          11
+        ]
+      ],
       "file": "lib/sample_app_web/greeting_component.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetingComponent.render/1",
@@ -926,6 +1066,7 @@
         3
       ],
       "arity": 3,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -944,6 +1085,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          5,
+          5
+        ]
+      ],
       "file": "lib/sample_app_web/hello_live.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.HelloLive.mount/3",
@@ -963,6 +1110,7 @@
         3
       ],
       "arity": 3,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -981,6 +1129,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          7,
+          8
+        ]
+      ],
       "file": "lib/sample_app_web/hello_live.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.HelloLive.handle_event/3",
@@ -1000,6 +1154,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1032,6 +1187,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          10,
+          15
+        ]
+      ],
       "file": "lib/sample_app_web/hello_live.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.HelloLive.render/1",
@@ -1051,9 +1212,16 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [],
       "change": "unchanged",
+      "clauses": [
+        [
+          5,
+          5
+        ]
+      ],
       "file": "lib/sample_app_web/request_id.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.RequestId.init/1",
@@ -1073,6 +1241,7 @@
         2
       ],
       "arity": 2,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1091,6 +1260,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          7,
+          7
+        ]
+      ],
       "file": "lib/sample_app_web/request_id.ex",
       "hidden_calls": [],
       "id": "SampleAppWeb.RequestId.call/2",
@@ -1110,6 +1285,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1266,6 +1442,7 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [],
       "file": "lib/sample_app_web/greet_html/show.html.heex",
       "hidden_calls": [],
       "id": "SampleAppWeb.GreetHTML.show/1",
@@ -1335,6 +1512,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1353,6 +1531,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          14,
+          16
+        ]
+      ],
       "file": "test/support/sample_case.ex",
       "hidden_calls": [],
       "id": "SampleApp.SampleCase.__ex_unit_setup_0/1",
@@ -1372,6 +1556,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1404,6 +1589,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          20,
+          22
+        ]
+      ],
       "file": "test/support/sample_case.ex",
       "hidden_calls": [],
       "id": "SampleApp.SampleCase.conn_for/1",
@@ -1423,9 +1614,16 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [],
       "change": "unchanged",
+      "clauses": [
+        [
+          6,
+          8
+        ]
+      ],
       "file": "test/sample_app/tally_test.exs",
       "hidden_calls": [],
       "id": "SampleApp.TallyTest.__ex_unit_setup_0/1",
@@ -1445,6 +1643,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1477,6 +1676,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          12,
+          14
+        ]
+      ],
       "file": "test/sample_app/tally_test.exs",
       "hidden_calls": [],
       "id": "SampleApp.TallyTest.\"test handle_call/3 replies with the next number\"/1",
@@ -1503,6 +1708,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1535,6 +1741,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          17,
+          19
+        ]
+      ],
       "file": "test/sample_app/tally_test.exs",
       "hidden_calls": [],
       "id": "SampleApp.TallyTest.\"test init keeps the start count\"/1",
@@ -1559,6 +1771,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1577,6 +1790,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          21,
+          21
+        ]
+      ],
       "file": "test/sample_app/tally_test.exs",
       "hidden_calls": [],
       "id": "SampleApp.TallyTest.init_with/1",
@@ -1596,6 +1815,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1646,6 +1866,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          5,
+          7
+        ]
+      ],
       "file": "test/sample_app_web/routes_test.exs",
       "hidden_calls": [],
       "id": "SampleAppWeb.RoutesTest.\"test a plain path reaches the controller\"/1",
@@ -1687,6 +1913,7 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": null,
       "calls": [
         {
@@ -1737,6 +1964,12 @@
         }
       ],
       "change": "unchanged",
+      "clauses": [
+        [
+          9,
+          11
+        ]
+      ],
       "file": "test/sample_app_web/routes_test.exs",
       "hidden_calls": [],
       "id": "SampleAppWeb.RoutesTest.\"test a verified path reaches the controller\"/1",
@@ -1778,9 +2011,16 @@
         1
       ],
       "arity": 1,
+      "arms": [],
       "base_source": "  def whisper(text) do\n    String.downcase(text)\n  end",
       "calls": [],
       "change": "removed",
+      "clauses": [
+        [
+          20,
+          22
+        ]
+      ],
       "file": "lib/sample_app/formatter.ex",
       "hidden_calls": [],
       "id": "SampleApp.Formatter.whisper/1",

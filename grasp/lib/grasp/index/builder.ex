@@ -306,6 +306,8 @@ defmodule Grasp.Index.Builder do
   The JSON shape of one function record, classified or not.
 
   A test's record also writes `"test"`, its describe, name and tags; no other record has one.
+  `"clauses"` and `"arms"` are the `[start_line, end_line]` of each clause and each branch arm
+  the definition holds, `[]` for a record that has none, as a template has.
   """
   @spec function_json(Join.function_record() | Changes.classified_record()) :: map()
   def function_json(record) do
@@ -327,6 +329,8 @@ defmodule Grasp.Index.Builder do
         ),
       "route_sites" =>
         record |> Map.get(:route_sites, []) |> Enum.map(&Resolve.route_site_json/1),
+      "clauses" => record |> Map.get(:clauses, []) |> Enum.map(&Tuple.to_list/1),
+      "arms" => record |> Map.get(:arms, []) |> Enum.map(&Tuple.to_list/1),
       "change" => Map.get(record, :change, "unchanged"),
       "base_source" => Map.get(record, :base_source),
       "removed" => Map.get(record, :removed, false)

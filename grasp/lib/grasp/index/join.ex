@@ -110,7 +110,9 @@ defmodule Grasp.Index.Join do
           source: String.t(),
           calls: [call()],
           hidden_calls: [hidden_call()],
-          route_sites: [Extract.route_site()]
+          route_sites: [Extract.route_site()],
+          clauses: [Extract.line_range()],
+          arms: [Extract.line_range()]
         }
 
   @doc """
@@ -340,7 +342,9 @@ defmodule Grasp.Index.Join do
       source: definition.source,
       calls: calls |> Enum.uniq() |> Enum.sort_by(&{&1.range.start, &1.target, &1.kind}),
       hidden_calls: hidden |> Enum.uniq() |> Enum.sort_by(&{&1.line, &1.target, &1.kind}),
-      route_sites: definition.route_sites
+      route_sites: definition.route_sites,
+      clauses: Map.get(definition, :clauses, []),
+      arms: Map.get(definition, :arms, [])
     }
     |> Map.merge(Map.take(definition, [:test]))
   end

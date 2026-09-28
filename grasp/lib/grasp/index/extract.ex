@@ -82,12 +82,24 @@ defmodule Grasp.Index.Extract do
   ranges over that name. `Grasp.Index.Join` uses the positions to drop the events the
   compiler reports while registering a definition, and the range to place the call a
   `defdelegate` makes, which the compiler reports with no column at all.
+
+  A definition records where its branches are too, as `{start_line, end_line}` pairs.
+  `clauses` holds one per clause in source order, from the line of its `def` — or its
+  `test` or `setup` — through its `end`; a test or a setup is one clause. `arms` holds every
+  arm, anywhere in those clauses, of a `case`, a `cond`, a `with`'s `else`, a `receive` and
+  its `after`, a `try`'s `rescue`, `catch`, `else` and `after` — and of the same clauses
+  written straight on a `def`, a test or a setup, which is a `try` the compiler writes — and
+  of a `fn` with more than one clause. An arm runs from its pattern's line through its
+  body's last line, an `after` that has no pattern from the `after` itself; a construct
+  nested inside an arm adds arms of its own. Arms are sorted by their start line, then their
+  end line.
   """
 
   alias Grasp.Index.Heex
 
   @type range :: %{start: {pos_integer(), pos_integer()}, end: {pos_integer(), pos_integer()}}
   @type position :: {pos_integer(), pos_integer()}
+  @type line_range :: {pos_integer(), pos_integer()}
   @type callee :: %{module: String.t() | nil, name: atom(), arity: non_neg_integer()}
   # `callee` is the call as written: `module` is the literal receiver — an alias joined
   # with "." (`"Greeter"`, `"SampleApp.Greeter"`) or an Erlang module's own text — and is
@@ -142,7 +154,9 @@ defmodule Grasp.Index.Extract do
           call_sites: [call_site()],
           route_sites: [route_site()],
           head_positions: [position()],
-          head_ranges: [range()]
+          head_ranges: [range()],
+          clauses: [line_range()],
+          arms: [line_range()]
         }
 
   @type module_info :: %{name: String.t(), file: String.t(), line: pos_integer()}
@@ -414,6 +428,8 @@ defmodule Grasp.Index.Extract do
       route_sites: sites.route_sites,
       head_positions: [],
       head_ranges: [],
+      clauses: [clause_lines(node)],
+      arms: arms(node, block),
       test: test
     }
 
@@ -476,7 +492,9 @@ defmodule Grasp.Index.Extract do
           call_sites: sites.call_sites,
           route_sites: sites.route_sites,
           head_positions: head_positions,
-          head_ranges: head_ranges
+          head_ranges: head_ranges,
+          clauses: [clause_lines(node)],
+          arms: arms(node, List.last(elem(node, 2)))
         }
 
         %{acc | definitions: merge_clause(acc.definitions, clause, acc.lines)}
@@ -496,7 +514,9 @@ defmodule Grasp.Index.Extract do
             call_sites: existing.call_sites ++ clause.call_sites,
             route_sites: existing.route_sites ++ clause.route_sites,
             head_positions: Enum.uniq(existing.head_positions ++ clause.head_positions),
-            head_ranges: Enum.uniq(existing.head_ranges ++ clause.head_ranges)
+            head_ranges: Enum.uniq(existing.head_ranges ++ clause.head_ranges),
+            clauses: existing.clauses ++ clause.clauses,
+            arms: Enum.sort(existing.arms ++ clause.arms)
         }
 
         [with_source(merged, lines) | rest]
@@ -513,6 +533,88 @@ defmodule Grasp.Index.Extract do
       |> Enum.join("\n")
 
     %{definition | source: source}
+  end
+
+  defp clause_lines(node) do
+    %{start: [line: start_line, column: _], end: [line: end_line, column: _]} =
+      Sourceror.get_range(node)
+
+    {start_line, end_line}
+  end
+
+  # `block` is the definition's own keyword list — its `do` and whatever `rescue`, `catch`,
+  # `else` or `after` it writes, which the compiler turns into a `try` around the body.
+  defp arms(node, block) do
+    own = keyword_arms(block, [:rescue, :catch, :else, :after])
+
+    {_, arms} =
+      Macro.prewalk(node, own, fn
+        {:case, _, [_ | _] = args} = node, arms ->
+          {node, keyword_arms(List.last(args), [:do]) ++ arms}
+
+        {:cond, _, [block]} = node, arms ->
+          {node, keyword_arms(block, [:do]) ++ arms}
+
+        {:receive, _, [block]} = node, arms ->
+          {node, keyword_arms(block, [:do, :after]) ++ arms}
+
+        {:with, _, [_ | _] = args} = node, arms ->
+          {node, keyword_arms(List.last(args), [:else]) ++ arms}
+
+        {:try, _, [block]} = node, arms ->
+          {node, keyword_arms(block, [:rescue, :catch, :else, :after]) ++ arms}
+
+        {:fn, _, [_, _ | _] = clauses} = node, arms ->
+          {node, Enum.flat_map(clauses, &arrow_lines/1) ++ arms}
+
+        node, arms ->
+          {node, arms}
+      end)
+
+    Enum.sort(arms)
+  end
+
+  # The arms under the given keys of a `do` block's keyword list. A key holding `->`
+  # clauses gives one arm per clause; a `try`'s `after` holds a plain body, which is one arm
+  # starting at the `after` keyword.
+  defp keyword_arms(block, keys) when is_list(block) do
+    Enum.flat_map(block, fn
+      {{:__block__, meta, [key]}, value} when is_atom(key) ->
+        cond do
+          key not in keys -> []
+          arrows?(value) -> Enum.flat_map(value, &arrow_lines/1)
+          key == :after -> body_lines(meta, value)
+          true -> []
+        end
+
+      _other ->
+        []
+    end)
+  end
+
+  defp keyword_arms(_other, _keys), do: []
+
+  defp arrows?(value), do: is_list(value) and Enum.all?(value, &match?({:->, _, _}, &1))
+
+  defp arrow_lines({:->, _, _} = arrow) do
+    case Sourceror.get_range(arrow) do
+      %{start: [line: start_line, column: _], end: [line: end_line, column: _]} ->
+        [{start_line, end_line}]
+
+      _other ->
+        []
+    end
+  end
+
+  defp arrow_lines(_other), do: []
+
+  defp body_lines(meta, body) do
+    with start_line when is_integer(start_line) <- meta[:line],
+         %{end: [line: end_line, column: _]} <- Sourceror.get_range(body) do
+      [{start_line, end_line}]
+    else
+      _ -> []
+    end
   end
 
   defp head_signature({:when, _, [head, _guard]}), do: head_signature(head)

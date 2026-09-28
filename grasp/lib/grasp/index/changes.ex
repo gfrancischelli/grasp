@@ -53,6 +53,8 @@ defmodule Grasp.Index.Changes do
           source: String.t(),
           calls: [Join.call()],
           hidden_calls: [Join.hidden_call()],
+          clauses: [Extract.line_range()],
+          arms: [Extract.line_range()],
           change: String.t(),
           base_source: String.t() | nil,
           removed: boolean()
@@ -153,6 +155,8 @@ defmodule Grasp.Index.Changes do
       source: definition.source,
       calls: [],
       hidden_calls: [],
+      clauses: Map.get(definition, :clauses, []),
+      arms: Map.get(definition, :arms, []),
       change: "removed",
       base_source: definition.source,
       removed: true
