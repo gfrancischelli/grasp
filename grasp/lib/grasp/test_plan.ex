@@ -26,7 +26,7 @@ defmodule Grasp.TestPlan do
   def recipe do
     """
     When the user asks you to plan tests — "#{request("<function id>")}", or "#{request(:changes)}":
-    1. Find the functions under test: the function named, or for the changes every function list_changes returns. For each, call get_function, tests_for for the tests that reach it, and coverage for the lines, clauses and arms the suite never ran. When coverage answers `none`, say that `mix grasp.cover` writes it and plan from the tests alone.
+    1. Find the functions under test: the function named, or for the changes, every changed application function list_changes returns — not the tests and setups — beginning with those untested_changes names, since no test reaches them. For each, call get_function, tests_for for the tests that reach it, and coverage for the lines, clauses and arms the suite never ran. When coverage answers `none`, say that `mix grasp.cover` writes it and plan from the tests alone.
     2. Call set_cards with one group per function under test, titled with its id, holding the function and the tests that reach it; group_cards frames cards already open the same way.
     3. Call add_comment on every clause and arm coverage reports never entered, and on the first line of every function no test reaches, saying what a test for it would have to exercise: the input, the path it takes and what to assert.
     4. Stop there and write no test. Reply that the plan is on the canvas for review.

@@ -19,7 +19,11 @@ defmodule Grasp.TestPlanTest do
   test "recipe/0 reads each function under test with its tests and its coverage" do
     recipe = TestPlan.recipe()
 
-    assert recipe =~ "every function list_changes returns"
+    assert recipe =~
+             "for the changes, every changed application function list_changes returns — " <>
+               "not the tests and setups — beginning with those untested_changes names, " <>
+               "since no test reaches them"
+
     assert recipe =~ "call get_function, tests_for for the tests that reach it, and coverage"
   end
 
