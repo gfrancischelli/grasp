@@ -153,6 +153,8 @@ its shortcut when you hover or tab to it.
   also take ⌘0 for their own page zoom and reset both.
 - **fit** (`f`) — bring every card on the canvas into view at once.
 - **signatures** (`s`) — turn the cards down to their signatures.
+- **coverage** (`v`) — tint the lines the test suite ran and never ran, once
+  `mix grasp.cover` has written them. See [Coverage](coverage.md).
 - **modules** (`m`) — frame the cards of each module inside their flow, under the module's
   name. See [Reviewing](reviewing.md).
 - **reset layout** — lay every card out again.
@@ -170,3 +172,4 @@ selected cards and ⇧⌘G takes them back out. Escape lets a selection go.
 - [Pull requests](pull-requests.md) — reviewing a branch or someone else's PR.
 - [The agent](agent.md) — the chat panel and the MCP tools.
 - [Indexing](indexing.md) — what the index holds and what it misses.
+- [Coverage](coverage.md) — what the test suite ran, written by `mix grasp.cover`.

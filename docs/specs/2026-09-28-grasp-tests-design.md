@@ -25,10 +25,10 @@ holds for test records unless this document says otherwise.
   test. The host changes nothing when its test files compile without `test_helper.exs`.
   Measured on a 258-file suite: 15 s, 115 000 events from 6 600 test-side functions.
 - **Coverage and runs use the host's own `mix test`.** Grasp never runs a test itself: it
-  runs the host's test command, with Grasp's beams on the path the same way, so the suite
-  runs with the host's configuration, database and environment. Results and coverage are
-  written by Grasp code loaded into that run (a formatter, a coverage export) and read back
-  by the viewer.
+  runs the host's test command, so the suite runs with the host's configuration, database
+  and environment. Coverage is Mix's own cover export, which `mix grasp.cover` reads in a
+  process of its own; results are written by Grasp code loaded into the run, a formatter on
+  Grasp's beams put on the path the same way. The viewer reads both back.
 - **Static first.** Test records, their edges and "tested by" need no test run and ship
   first; coverage and results are layers over the canvas that a run brings and a later run
   replaces.
@@ -274,46 +274,89 @@ test paths uncompared.
 
 ## Coverage (milestone 10.3)
 
-- **Run.** `mix grasp.cover` runs the host's test command — `:grasp, :test_command`, default
-  `["mix", "test"]`, in the project root with `MIX_ENV=test` and the environment the task
-  itself was started with — adding `--cover --export-coverage grasp`, so the suite runs
-  exactly as the host runs it and Mix's own cover tool counts the lines. A run whose tests
-  fail still exports what ran. The export lands where the host's `:test_coverage` config
-  puts it — its `:output` directory, `cover` unless set, and its `:export` name when it sets
-  one, in which case no `--export-coverage` is added. The task then loads `:tools`, imports
-  the export with `:cover` in its own process — analysis of imported data needs no
-  cover-compiled module — and writes `.grasp/coverage.json`. At an umbrella root, whose
-  apps each export their own coverage, the task refuses and says to run it inside the app.
+- **Run.** `mix grasp.cover [--out PATH] [--index PATH]` runs the host's test command —
+  `:grasp, :test_command`, default `["mix", "test"]`, in the project root with
+  `MIX_ENV=test` over the environment the task itself was started with — adding `--cover`
+  and `--export-coverage grasp`, so the suite runs exactly as the host runs it and Mix's own
+  cover tool counts the lines. The suite's output streams to the terminal. The export lands
+  where the host's `:test_coverage` config puts it — its `:output` directory, `cover` unless
+  set, named by its `:export` when it sets one, in which case no `--export-coverage` is
+  added. An export an earlier run left there is removed before the suite starts, so the
+  document never describes another run. A run whose tests fail still exports what ran: the
+  task reports the exit status and writes the coverage; a run that leaves no export aborts
+  the task. The task then loads `:tools`, imports the export with `:cover` in its own
+  process — analysis of imported data needs no cover-compiled module, so Grasp is never
+  needed in the host's test environment — and writes the document to `--out`, by default
+  `coverage.json` beside the index (`--index`, else `:grasp, :index_path`, else
+  `.grasp/index.json`). The task refuses when the index cannot be read, when `:cover` is
+  already running in its VM, and at an umbrella root, whose apps each export their own
+  coverage, saying to run it inside the app.
 - **The coverage document** holds, per indexed application function, the `:cover` counts on
   the lines of its span, keyed by offset from the span's first line (a line `:cover` does
-  not count is absent), and a hash of the record's `source` as the index held it when the
-  coverage is written, beside the git head and the index's `generated_at`. A function that
-  moves in its file with its source unchanged keeps its counts, read on the lines it
-  occupies; a function whose current source hashes differently reads as stale: its counts
-  describe a body other than the one the record holds. Macros and guards get no entry:
-  their bodies run when their callers compile, before `:cover` starts.
-- **Attribution.** `:cover` counts by module and line, and a module can hold code whose
-  lines are another file's. Each count goes to the one compiled function whose code carries
-  that line, read from the debug info of the test build's beam. Code the compiler marks as
-  another file's (`@file`, `quote location: :keep`, templates embedded from their files) is
-  never counted by `:cover`; a line carried by more than one function — a template compiled
-  from a string whose lines overlap the module's own — is credited to none of them; and a
-  module whose beam has no readable debug info contributes nothing. An uncounted line is
-  untinted, so an ambiguity costs a tint, never a wrong one.
-- **Loading.** The viewer watches `.grasp/coverage.json` as it watches the index, and
-  reloads it when it changes.
-- **Tint.** While coverage is loaded and the `coverage` toggle is on (toolbar, key `v`), a
-  card body tints each counted line as run or never run; an uncounted line stays untinted.
-  In a diff body only the inserted lines are tinted. A stale card says `coverage stale`
-  and tints nothing.
+  not count is absent), and a sha256 of the record's `source` as the index held it when the
+  coverage is written, beside the time it was written, the git head and the index's
+  `generated_at`. Removed records, tests, setups and every record in a file under the
+  project's `test_paths` get no entry, and neither does a function with no counted line. A
+  function that moves in its file with its source unchanged keeps its counts, read on the
+  lines it occupies; a function whose current source hashes differently reads as stale: its
+  counts describe a body other than the one the record holds. Macros and guards get no
+  entry: their bodies run when their callers compile, before `:cover` starts. The document
+  is written to a file beside its path and renamed over it, so a reader never sees one half
+  written.
+- **Attribution.** `:cover` counts by module and line, and a module can hold code whose lines
+  are another file's. Each count goes to the one compiled function whose code carries that
+  line, read from the debug info of the test build's beam, and a record takes the counts of
+  every arity it defines that lie inside its span. Code the compiler marks as another file's
+  (`@file`, `quote location: :keep`, templates embedded from their files) is never counted
+  by `:cover`; a line carried by more than one function — a template compiled from a string
+  whose lines overlap the module's own, a head whose default arguments every arity carries —
+  is credited to none of them; and a module whose beam has no readable debug info
+  contributes nothing. An uncounted line is untinted, so an ambiguity costs a tint, never a
+  wrong one.
+- **Loading.** The viewer watches the document as it watches the index, polling its mtime
+  every two seconds, and reloads it when it changes. The path is `:grasp, :coverage_path`,
+  else `coverage.json` beside the index the viewer reads. A missing file is no coverage,
+  not an error; a file that cannot be read or decoded keeps the previous document and is
+  logged once for each version of the file.
+- **Tint.** The `coverage` toggle (toolbar, key `v`) is disabled while no coverage is
+  loaded. While it is on, a card body tints each counted line as run or never run; an
+  uncounted line stays untinted, and a stale card says `coverage stale` in its header and
+  tints nothing. In a diff body only the inserted lines are tinted.
 - **Clause gaps.** Extraction records, for every definition, the line range of each clause
-  (`"clauses"`) and of each arm of the `case`, `cond`, `with … else`, `receive`, `try`
-  (`rescue`, `catch`, `else`) and multi-clause `fn` in its body (`"arms"`). A clause or arm
-  that has at least one counted line and whose every counted line ran zero times is marked
-  `never entered` at its first line.
-- **MCP.** `coverage(function_id)` answers the lines run and never run, the clauses and arms
-  never entered, and whether the coverage is stale. Starting a coverage run from the viewer
-  or the agent is part of the run machinery of milestone 10.4.
+  (`"clauses"`, from the line of its `def`, `test` or `setup` through its last line; a head
+  with no body declares default arguments and is no clause) and of each arm (`"arms"`, from
+  its pattern's line through its body's last line) of the `case`, `cond`, `with … else`,
+  `receive` and its `after`, `try` (`rescue`, `catch`, `else`, `after`) — the same keys
+  written straight on a `def`, a test or a setup included — and multi-clause `fn` in its
+  body, in `do` block or keyword form. A clause or arm that has at least one counted line
+  and whose every counted line ran zero times is marked `never entered` at its first line: a
+  bar along the line's edge, and the words for a screen reader. A clause wins over an arm starting
+  on the same line. In a diff the mark sits on the line of the current source that begins
+  it, inserted or kept.
+- **MCP.** `coverage(function_id)` answers `status` — `fresh`, `stale`, or `none` when the
+  document holds nothing for the function or there is no document — with `run` and `missed`,
+  the sorted lines run and never run, `gaps`, the clauses and arms never entered as
+  `[start_line, end_line]`, and the document's `generated_at`. Only a fresh answer carries
+  lines and gaps. Starting a coverage run from the viewer or the agent is part of the run
+  machinery of milestone 10.4.
+
+### Known gaps (milestone 10.3)
+
+- **Only the project's own modules are counted.** Coverage counts only the modules Mix's
+  cover compiles — the project's `elixirc_paths` in the test environment — so a function in
+  a dependency has none.
+- **A line `:cover` does not count stays untinted** — a bodiless head, a `do` line, a blank
+  line.
+- **A line two compiled functions carry is credited to neither.** A one-line function with
+  default arguments, whose only line every arity carries, has no coverage.
+- **Code compiled from another file is not counted.** Templates embedded with
+  `embed_templates` and code a `location: :keep` macro injects are left out by `:cover`, so a
+  template record and code a `use` injects carry no coverage.
+- **A `case` inside a `~H` sigil adds no arm.** The walk reads Elixir, not template text.
+- **Macros and guards carry no coverage.** They run at compile time, before `:cover` starts.
+- **A module whose test-build beam has no debug info carries no coverage.**
+- **The whole suite runs.** `mix grasp.cover` runs every test, and starting it from the
+  viewer or the agent is milestone 10.4's.
 
 ## Runs and failures (milestone 10.4)
 

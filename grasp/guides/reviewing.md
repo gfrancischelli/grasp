@@ -180,6 +180,26 @@ Reach is read from the calls the compiler saw: a test that reaches a function on
 `apply/3`, a function passed as a value, a behaviour dispatched at runtime or a test double
 is not counted, and a function more than four calls from every test reads as untested.
 
+### Coverage
+
+Once `mix grasp.cover` has written what the suite ran (see [Coverage](coverage.md)), the
+cards can show it. **coverage** in the toolbar, or the `v` key, turns the mode on and off;
+the button is disabled while no coverage is loaded.
+
+- **Tints.** A line the suite ran is tinted green and a line it never ran red. A line the
+  coverage does not count — a bodiless head, a `do` line, a blank line — stays untinted. In a
+  diff only the inserted lines are tinted, so the tint reads on what the branch wrote.
+- **Gaps.** A clause, or an arm of a `case`, `cond`, `with`'s `else`, `receive`, `try` or
+  multi-clause `fn`, that holds a counted line and never ran any of them is marked with a bar
+  on its first line: the suite never entered it. A clause and an arm starting on the same line
+  are marked as the clause.
+- **Stale.** A function whose source changed after the coverage was written says `coverage
+  stale` in its header and tints nothing, since its counts describe another body. Run
+  `mix grasp.cover` again to bring it back.
+
+The mode is this tab's own and draws nothing outside it, so a canvas read without it looks as
+it always does.
+
 ## Edges
 
 An edge runs from a card to each card its open calls reach, one line per callee however many

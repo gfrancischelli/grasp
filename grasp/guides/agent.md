@@ -117,6 +117,11 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
 - `untested_changes` — the functions the branch added or modified that no test reaches
   within four calls, each with its file and change. Tests, setups and functions in files
   under the test paths are left out. Empty without a base ref.
+- `coverage` — what the test suite ran in a function: its `status` (`fresh`, `stale` when the
+  function changed after the coverage was written, `none` when there is none for it), the
+  lines that ran and never ran, and the clauses and arms never entered, as line ranges. Only
+  a fresh answer carries lines. The coverage is what `mix grasp.cover` last wrote (see
+  [Coverage](coverage.md)); the tool does not run the suite.
 - `list_modules` — modules with their file and the behaviours they implement.
 - `reload_index` — reload the index file and report what it now holds: the path, how many
   functions, how many the branch changed, and the git refs. Call it as soon as

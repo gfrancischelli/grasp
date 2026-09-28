@@ -63,6 +63,7 @@ In `.gitignore`:
 
 ```gitignore
 .grasp/index.json
+.grasp/coverage.json
 .grasp/worktrees/
 ```
 
@@ -91,6 +92,8 @@ claude mcp add --transport http grasp http://localhost:4000/grasp/mcp
 - [The agent](guides/agent.md) — the chat panel, the MCP tools and what to ask for.
 - [Indexing](guides/indexing.md) — what the index holds, how it stays current, and what it
   misses.
+- [Coverage](guides/coverage.md) — `mix grasp.cover`, what the suite ran and how the cards
+  show it.
 - [Contributing](guides/contributing.md) — layout, tests, assets and docs.
 
 ## License

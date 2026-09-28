@@ -329,6 +329,9 @@ touched is unchanged.
       // one the source computes
       "route_sites": [ { "verb": "GET", "path": ["users", null],
                          "range": { "start": [3, 9], "end": [3, 21] } } ],
+      // the [start_line, end_line] of each clause, and of each arm of a case, cond, with's
+      // else, receive, try and multi-clause fn in its body; [] for a template
+      "clauses": [[42, 51], [53, 62]], "arms": [[45, 47], [48, 50]],
       "change": "modified", "base_source": "...", "removed": false
     },
     {
@@ -1378,6 +1381,13 @@ first reference. Results are JSON text content, so any MCP client can read them.
   naming it. `untested_changes()` answers `functions`, the application functions the
   branch added or modified that no test reaches within four hops, sorted by id, each with
   its `id`, `file` and `change` — empty for an index built without a base ref.
+- Coverage adds one read tool (see [the tests design](2026-09-28-grasp-tests-design.md),
+  Coverage). `coverage(function_id)` answers the function's `id`, a `status` — `fresh`,
+  `stale` when the function changed after the coverage was written, `none` when the
+  coverage document holds nothing for it or there is none — and, when fresh, `run` and
+  `missed`, the sorted lines the suite ran and never ran, and `gaps`, the `clauses` and
+  `arms` it never entered as `[start_line, end_line]`; `generated_at` is when the coverage
+  was written, null without a document. An unknown id is a tool error naming it.
 
 Registering in Claude Code:
 
@@ -1776,6 +1786,13 @@ request switches the working tree" is closed.
      marks the changes no test reaches and gathers them in an Untested changes group, pairs
      each change with the changed tests that reach it, and the MCP tools `tests_for` and
      `untested_changes` answer the same (see
+     [the tests design](2026-09-28-grasp-tests-design.md)).
+   - Milestone 10.3: coverage — `mix grasp.cover` runs the host's suite under Mix's cover
+     tool and writes a coverage document crediting each counted line to the one compiled
+     function that carries it, keyed by offset from its span and a hash of its source; the
+     `coverage` toggle and the `v` key tint each card's lines as run or never run, mark the
+     clauses and arms never entered and say `coverage stale` on a function that changed
+     since, and the MCP tool `coverage` answers the same (see
      [the tests design](2026-09-28-grasp-tests-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
