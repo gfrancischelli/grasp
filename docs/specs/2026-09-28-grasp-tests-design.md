@@ -274,29 +274,38 @@ test paths uncompared.
 
 ## Coverage (milestone 10.3)
 
-- **Run.** `mix grasp.cover` — and the toolbar's `coverage` menu, and the MCP tool
-  `run_coverage` — runs the host's test command (`:grasp, :test_command`, default
-  `["mix", "test"]`, with the host's environment) with `--cover --export-coverage grasp`
-  and Grasp's beams on the code path, then imports `cover/grasp.coverdata` with `:cover`
-  in a subprocess and writes `.grasp/coverage.json`: per source file, the lines `:cover`
-  counted and the count on each, stamped with the git head and the index's
-  `generated_at`.
-- **Tint.** While coverage is loaded and the `coverage` toggle is on (key `v`), a card body
-  tints each counted line as run or never run; a line `:cover` does not count stays
-  untinted. In a diff body the inserted lines that never ran are the ones marked. A card
-  whose record's source differs from the source the coverage was taken against says
-  `coverage stale` and tints nothing.
+- **Run.** `mix grasp.cover` runs the host's test command — `:grasp, :test_command`, default
+  `["mix", "test"]`, in the project root with `MIX_ENV=test` and the environment the task
+  itself was started with — adding `--cover --export-coverage grasp`, so the suite runs
+  exactly as the host runs it and Mix's own cover tool counts the lines. A run whose tests
+  fail still exports what ran. The task then loads `:tools`, imports
+  `cover/grasp.coverdata` with `:cover` in its own process — analysis of imported data
+  needs no cover-compiled module — and writes `.grasp/coverage.json`.
+- **The coverage document** holds, per indexed application function, the `:cover` counts on
+  the lines of its span (a line `:cover` does not count is absent) and a hash of the
+  record's `source` as the index held it when the coverage was written, beside the git head
+  and the index's `generated_at`. A function whose current source hashes differently reads
+  as stale: its counts describe code that is no longer there.
+- **Loading.** The viewer watches `.grasp/coverage.json` as it watches the index, and
+  reloads it when it changes.
+- **Tint.** While coverage is loaded and the `coverage` toggle is on (toolbar, key `v`), a
+  card body tints each counted line as run or never run; an uncounted line stays untinted.
+  In a diff body only the inserted lines are tinted. A stale card says `coverage stale`
+  and tints nothing.
 - **Clause gaps.** Extraction records, for every definition, the line range of each clause
-  and of each arm of the `case`, `cond`, `with … else`, `receive` and `fn` clauses in its
-  body. A clause or arm whose every counted line ran zero times is marked `never entered` at
-  its head.
-- **MCP.** `coverage(function_id)` answers the lines run and not run and the clauses and
-  arms never entered.
+  (`"clauses"`) and of each arm of the `case`, `cond`, `with … else`, `receive`, `try`
+  (`rescue`, `catch`, `else`) and multi-clause `fn` in its body (`"arms"`). A clause or arm
+  that has at least one counted line and whose every counted line ran zero times is marked
+  `never entered` at its first line.
+- **MCP.** `coverage(function_id)` answers the lines run and never run, the clauses and arms
+  never entered, and whether the coverage is stale. Starting a coverage run from the viewer
+  or the agent is part of the run machinery of milestone 10.4.
 
 ## Runs and failures (milestone 10.4)
 
 - **Run.** A test card has `run`; a tests badge has `run all`; the Changes group has `run
-  changed tests`; MCP `run_tests(ids | "changed")`. Each runs the host's test command with
+  changed tests`; the toolbar's coverage menu has `run coverage`, which runs
+  `mix grasp.cover`; MCP `run_tests(ids | "changed")` and `run_coverage()`. Each runs the host's test command with
   `file:line` arguments and `--formatter Grasp.Test.Formatter --formatter
   ExUnit.CLIFormatter`, Grasp's beams on the path. The formatter writes
   `.grasp/results.json`: per test id, `passed`, `failed`, `skipped` or `excluded`, its time,
