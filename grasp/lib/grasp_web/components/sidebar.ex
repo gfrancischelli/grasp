@@ -15,6 +15,13 @@ defmodule GraspWeb.Sidebar do
   row's `title`. Routes are headed by their router — a forwarded router is a section of the
   URL space, and its rows keep their `VERB /path` label, ordered by path.
 
+  After the entry points comes the Tests group, present when the index holds test records:
+  one row per test module in file order, opening into its setup callbacks and then its tests
+  under their `describe` names, each test named as it is written. A test drives the system
+  from outside as an entry point does, and clicking one opens its card as a root of its
+  own. A module written under the project's test paths is listed there and not in the
+  module list, which is the code under review.
+
   A review against a base ref leads with what the branch did: a Changes group above the
   entry points, listing every added, modified and removed function under its module with
   the badge naming which it is. It is the table of contents of a pull request, so it opens
@@ -43,11 +50,13 @@ defmodule GraspWeb.Sidebar do
 
   use GraspWeb, :html
 
-  import GraspWeb.CardComponents, only: [change_badge: 1]
+  import GraspWeb.CardComponents, only: [change_badge: 1, test_badge: 1, title: 1]
 
   alias Grasp.Index
 
-  @function_id ~r/^([A-Z][\w.]*)\.([^.\/]+\/\d+)$/
+  # The id of a function the index does not hold, which only its text can be read for. A
+  # test's compiled name is written quoted and may hold a dot or a slash.
+  @function_id ~r/^([A-Z][\w.]*)\.((?:"(?:[^"\\]|\\.)*"|[^.\/]+)\/\d+)$/
 
   # Ordered from the outside in: what calls into the system, then what the runtime calls,
   # then the plumbing. Each entry is {data-kind, title, kinds it collects}.
@@ -62,7 +71,8 @@ defmodule GraspWeb.Sidebar do
 
   @known_kinds Enum.flat_map(@groups, fn {_kind, _title, kinds} -> kinds end)
   @group_kinds ["comments", "changes"] ++
-                 Enum.map(@groups, fn {kind, _title, _kinds} -> kind end) ++ ~w(other modules)
+                 Enum.map(@groups, fn {kind, _title, _kinds} -> kind end) ++
+                 ~w(other tests modules)
 
   # Past this many routes the list is a wall rather than a table of contents, and the
   # reader is better served by the search palette.
@@ -195,13 +205,20 @@ defmodule GraspWeb.Sidebar do
   attr :expanded_module, :string, default: nil
 
   def entry_groups(assigns) do
-    changes = Index.changed_functions(assigns.index)
+    index = assigns.index
+    changes = Index.changed_functions(index)
     threads = open_threads(assigns.comments)
+    tests = Index.tests(index)
 
     assigns =
       assign(assigns,
-        groups: groups(assigns.index),
-        modules: Index.modules(assigns.index),
+        groups: groups(index),
+        # A module written under the test paths is listed with its tests, not beside the code
+        # it tests.
+        modules: Enum.reject(Index.modules(index), &Index.test_file?(index, &1["file"])),
+        tests: tests,
+        test_count:
+          tests |> Enum.flat_map(& &1.describes) |> Enum.map(&length(elem(&1, 1))) |> Enum.sum(),
         changes: changes_by_module(changes),
         change_count: length(changes),
         threads: rows_by_module(threads, assigns.index),
@@ -258,7 +275,9 @@ defmodule GraspWeb.Sidebar do
               phx-value-id={record["id"]}
               title={record["id"]}
             >
-              <.change_badge change={record["change"]} />{record["name"]}/{record["arity"]}
+              <.change_badge change={record["change"]} /><.test_badge kind={record["kind"]} />{title(
+                record
+              ).name}
             </button>
           </div>
         </div>
@@ -287,6 +306,43 @@ defmodule GraspWeb.Sidebar do
               {row_label(module, entry)}
             </button>
           </div>
+        </div>
+      </section>
+      <section :if={@tests != []} class="group" data-kind="tests">
+        <.group_title
+          kind="tests"
+          title="Tests"
+          count={@test_count}
+          open?={open?(@expanded, "tests")}
+        />
+        <div id="group-tests" class="group__body" hidden={not open?(@expanded, "tests")}>
+          <nav id="tests">
+            <div :for={test_module <- @tests} class="module-group">
+              <button
+                class={["module", @expanded_module == test_module.module && "module--open"]}
+                phx-click="expand_module"
+                phx-value-module={test_module.module}
+                title={test_module.file}
+              >
+                {test_module.module}
+              </button>
+              <div :if={@expanded_module == test_module.module} class="tests">
+                <ul :if={test_module.setups != []} class="fns">
+                  <li :for={setup <- test_module.setups}>
+                    <.test_row record={setup} />
+                  </li>
+                </ul>
+                <div :for={{describe, tests} <- test_module.describes} class="tests__describe">
+                  <h3 :if={describe} class="tests__heading">{describe}</h3>
+                  <ul class="fns">
+                    <li :for={test <- tests}>
+                      <.test_row record={test} />
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </nav>
         </div>
       </section>
       <section class="group" data-kind="modules">
@@ -322,6 +378,24 @@ defmodule GraspWeb.Sidebar do
         </div>
       </section>
     </nav>
+    """
+  end
+
+  attr :record, :map, required: true
+
+  # A test row sits under its module and its describe, so it reads as the name alone; a
+  # setup row is the only one that says what kind it is.
+  defp test_row(assigns) do
+    ~H"""
+    <button
+      class={["fn", "fn--#{@record["kind"]}"]}
+      phx-click="open_root"
+      phx-value-id={@record["id"]}
+      title={@record["id"]}
+    >
+      <.change_badge change={@record["change"]} />
+      <.test_badge :if={@record["kind"] == "setup"} kind="setup" />{title(@record).name}
+    </button>
     """
   end
 
@@ -376,16 +450,25 @@ defmodule GraspWeb.Sidebar do
   defp rows_by_module(threads, index) do
     threads
     |> Enum.map(fn thread ->
+      # A thread on an indexed function is named by its record, which a test's id cannot
+      # be parsed for; one on a function the index lost has only its id to go on.
+      {module, name} =
+        case Index.fetch_function(index, thread.function_id) do
+          {:ok, record} -> {record["module"], title(record).name}
+          :error -> {module_of(thread.function_id), name_of(thread.function_id)}
+        end
+
       %{
         id: thread.id,
         function_id: thread.function_id,
-        name: name_of(thread.function_id),
+        module: module,
+        name: name,
         lines: lines_label(thread),
         excerpt: excerpt(thread.body),
         orphan?: not indexed?(index, thread.function_id)
       }
     end)
-    |> Enum.group_by(&module_of(&1.function_id))
+    |> Enum.group_by(& &1.module)
     |> Enum.sort_by(fn {module, _rows} -> module end)
   end
 

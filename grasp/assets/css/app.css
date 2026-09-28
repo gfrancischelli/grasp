@@ -99,7 +99,8 @@ kbd { font-family: var(--mono); background: var(--bg-sunken); border: 1px solid 
 .group__heading { margin: var(--space-xs) 0 0; padding: 0 var(--space-m); font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--fg-subtle); }
 .entry { display: block; width: 100%; text-align: start; padding: 2px var(--space-m); font-family: var(--mono); font-size: 13px; }
 .entry:hover { color: var(--accent); background: var(--accent-soft); }
-.entry .badge--change { margin-inline-end: var(--space-xs); font-size: 10px; }
+.entry .badge--change, .entry .badge--test, .fn .badge--change, .fn .badge--test { margin-inline-end: var(--space-xs); font-size: 10px; }
+.tests__heading { margin: var(--space-xs) 0 0; padding: 0 var(--space-m) 0 var(--space-l); font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--fg-subtle); }
 .entry--comment { display: flex; flex-direction: column; align-items: start; }
 .entry--orphan { color: var(--fg-faint); }
 .entry__excerpt { color: var(--fg-muted); font-family: var(--sans); font-size: 12px; }
@@ -210,6 +211,7 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .badge--change[data-change="added"] { background: var(--diff-ins-bg); color: var(--diff-ins-fg); }
 .badge--change[data-change="modified"] { background: var(--accent-soft); color: var(--accent); }
 .badge--change[data-change="removed"] { background: var(--diff-del-bg); color: var(--diff-del-fg); }
+.badge--test { background: color-mix(in oklch, var(--diff-ins-fg) 14%, transparent); color: var(--diff-ins-fg); }
 .card--removed .card__header { background: var(--diff-del-bg); }
 /* An added function reads as green from the header down, the way a removed one reads as red:
    the badge alone is easy to miss on a canvas of many cards. */
@@ -235,6 +237,9 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .card__view:hover, .card__context:hover { color: var(--accent); }
 .card__close:hover { color: var(--danger); }
 .card__signature { display: none; margin: 0; padding: var(--space-s) var(--space-m); font-weight: 600; white-space: nowrap; }
+/* A test card's assertions are several lines of code under its title, read as code rather
+   than as a head. */
+.card__assertion { margin: 0; font-weight: 400; }
 /* A drag along the gutter selects lines, not text: the body stops being selectable for as
    long as the button is down, so the drag leaves no smeared text range behind it. */
 .card .card__body[data-selecting] { user-select: none; }
@@ -363,7 +368,8 @@ body.grasp-modules #stage .card__module { display: none; }
 .palette__meta { color: var(--fg-muted); font-size: 12px; white-space: nowrap; }
 /* The row is a space-between flex, so the badge keeps to the id it belongs to and the file
    meta is what the free space is pushed against. */
-.palette__item .badge--change { margin-inline-end: auto; }
+.palette__item .badge--change, .palette__item .badge--test { margin-inline-end: auto; }
+.palette__item .badge--change:has(+ .badge--test) { margin-inline-end: 0; }
 
 /* The keys-and-gestures list. Unlike the palette this is a modal dialog, so the dim behind it
    is the element's own ::backdrop rather than a rendered sibling; the surface is the palette's. */

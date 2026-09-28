@@ -697,6 +697,76 @@ defmodule Grasp.HighlightTest do
     end
   end
 
+  describe "assertions/1" do
+    test "gives a test's assertion lines, numbered as the file numbers them and highlighted" do
+      {:ok, index} = Grasp.Index.load(@fixture)
+
+      {:ok, record} =
+        Grasp.Index.fetch_function(
+          index,
+          ~s|SampleApp.TallyTest."test handle_call/3 replies with the next number"/1|
+        )
+
+      assert [{13, html}] = Highlight.assertions(record)
+      doc = html |> Phoenix.HTML.safe_to_string() |> LazyHTML.from_fragment()
+
+      assert LazyHTML.text(doc) ==
+               "assert {:reply, 42, 42} = Counter.handle_call(:next, self(), start)"
+
+      assert LazyHTML.query(doc, ".ln") |> Enum.count() == 0
+      assert LazyHTML.query(doc, "span.call") |> Enum.count() == 0
+    end
+
+    test "reads assert, refute and the assert_/refute_ calls, and nothing else" do
+      source =
+        Enum.join(
+          [
+            ~s|  test "x" do|,
+            "    assert_value = 1",
+            "    assert x == 1",
+            "    refute y",
+            "    assert_receive {:done, _}",
+            "    refute_received :late",
+            "    Helpers.assert_ok(z)",
+            "    conn |> assert_element(\"a\")",
+            "    assertion = 2",
+            "    assert(z)",
+            "  end"
+          ],
+          "\n"
+        )
+
+      record = %{"id" => "M.t/1", "span" => %{"start_line" => 1}, "source" => source}
+
+      lines =
+        record
+        |> Highlight.assertions()
+        |> Enum.map(fn {line, html} ->
+          {line,
+           html |> Phoenix.HTML.safe_to_string() |> LazyHTML.from_fragment() |> LazyHTML.text()}
+        end)
+
+      assert lines == [
+               {3, "assert x == 1"},
+               {4, "refute y"},
+               {5, "assert_receive {:done, _}"},
+               {6, "refute_received :late"},
+               {7, "Helpers.assert_ok(z)"},
+               {10, "assert(z)"}
+             ]
+    end
+
+    test "is empty for a test asserting nothing" do
+      record = %{
+        "id" => "M.t/1",
+        "span" => %{"start_line" => 1},
+        "source" => ~s|  test "x" do\n    :ok\n  end|
+      }
+
+      assert Highlight.assertions(record) == []
+    end
+  end
+
   describe "signature_line/1" do
     test "numbers the head as the file numbers it, past the docs above it" do
       {:ok, index} = Grasp.Index.load(@fixture)

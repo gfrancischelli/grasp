@@ -286,9 +286,20 @@ kbd {
   color: var(--accent);
   background: var(--accent-soft);
 }
-.entry .badge--change {
+.entry .badge--change,
+.entry .badge--test,
+.fn .badge--change,
+.fn .badge--test {
   margin-inline-end: var(--space-xs);
   font-size: 10px;
+}
+.tests__heading {
+  margin: var(--space-xs) 0 0;
+  padding: 0 var(--space-m) 0 var(--space-l);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fg-subtle);
 }
 .entry--comment {
   display: flex;
@@ -628,6 +639,10 @@ body.grasp-dragging .module__title {
   background: var(--diff-del-bg);
   color: var(--diff-del-fg);
 }
+.badge--test {
+  background: color-mix(in oklch, var(--diff-ins-fg) 14%, transparent);
+  color: var(--diff-ins-fg);
+}
 .card--removed .card__header {
   background: var(--diff-del-bg);
 }
@@ -728,6 +743,10 @@ body.grasp-dragging .module__title {
   padding: var(--space-s) var(--space-m);
   font-weight: 600;
   white-space: nowrap;
+}
+.card__assertion {
+  margin: 0;
+  font-weight: 400;
 }
 .card .card__body[data-selecting] {
   user-select: none;
@@ -1135,8 +1154,12 @@ body.grasp-modules #stage .card__module {
   font-size: 12px;
   white-space: nowrap;
 }
-.palette__item .badge--change {
+.palette__item .badge--change,
+.palette__item .badge--test {
   margin-inline-end: auto;
+}
+.palette__item .badge--change:has(+ .badge--test) {
+  margin-inline-end: 0;
 }
 .help {
   width: min(36rem, 90vw);

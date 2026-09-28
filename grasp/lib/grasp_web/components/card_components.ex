@@ -7,6 +7,13 @@ defmodule GraspWeb.CardComponents do
   edges paints its own call site — the span in the body, or the button in the "Also calls"
   footer — with the edge's palette colour and the id of the card at the far end, so the
   connector layer can join the two without a second source of truth.
+
+  A test card is named by its test rather than its compiled function: the header wears a
+  `test` badge, titles itself with the test's name and fills the module slot with its
+  `describe`, or its module when there is none, and signature mode shows its assertion
+  lines where a function card shows its head. A setup callback wears `setup` and is titled
+  `setup` or `setup_all`. The node's `data-module` is read from the record, so a test
+  clusters with its module whatever its name holds.
   """
 
   use GraspWeb, :html
@@ -28,7 +35,9 @@ defmodule GraspWeb.CardComponents do
     "live_component" => "component",
     "genserver" => "GenServer"
   }
-  @function_id ~r/^([A-Z][\w.]*)\.([^.\/]+)\/(\d+)$/
+  # A test's compiled name is written quoted, and may hold any character but an unescaped
+  # quote, so a dot or a slash inside the quotes belongs to the name.
+  @function_id ~r/^([A-Z][\w.]*)\.("(?:[^"\\]|\\.)*"|[^.\/]+)\/(\d+)$/
   @erlang_function_id ~r/\A(:[a-z]\w*)\.[^.\/]+\/\d+\z/
 
   attr :forest, Forest, required: true
@@ -52,8 +61,14 @@ defmodule GraspWeb.CardComponents do
     card = Forest.card(assigns.forest, assigns.card_id)
     {x, y} = card.position || {0, 0}
 
-    # A function id with no module part stands for its own module, clustering alone.
-    module = cluster_module_of(card.function_id) || card.function_id
+    # A record names its module, which a test's id could only be parsed for; a stub has no
+    # record, and a function id with no module part stands for its own module, clustering
+    # alone.
+    module =
+      case Index.fetch_function(assigns.index, card.function_id) do
+        {:ok, %{"module" => module}} when is_binary(module) -> module
+        _none -> cluster_module_of(card.function_id) || card.function_id
+      end
 
     assigns = assign(assigns, card: card, x: x, y: y, module: module)
 
@@ -124,12 +139,79 @@ defmodule GraspWeb.CardComponents do
     """
   end
 
+  attr :kind, :string, default: nil
+
+  @doc """
+  The badge a test or a setup callback wears: `test` for a record of kind `"test"`, `setup`
+  for one of kind `"setup"`.
+
+  Renders nothing for any other kind, so a caller can hand it every record it lists.
+  """
+  def test_badge(assigns) do
+    ~H"""
+    <span :if={@kind in ~w(test setup)} class="badge badge--test" data-test-kind={@kind}>
+      {@kind}
+    </span>
+    """
+  end
+
+  @typedoc """
+  How a card's header names its record: `module` fills the slot module frames hide,
+  `separator` sits between it and `name`, and `badge` is the test kind the header wears, if
+  any.
+  """
+  @type title :: %{
+          module: String.t() | nil,
+          separator: String.t(),
+          name: String.t(),
+          badge: String.t() | nil
+        }
+
+  @doc """
+  The parts a card's header names `record` by.
+
+  A function is `Module.` and `name/arity`. A test is its name as written, under its
+  `describe` when it has one and its module otherwise; a setup callback is `setup` or
+  `setup_all`, as its compiled name says, under its module. Both carry the badge of their
+  kind and no arity, since a test is a block, not a function anyone calls.
+  """
+  @spec title(map()) :: title()
+  def title(%{"kind" => "test"} = record) do
+    test = if is_map(record["test"]), do: record["test"], else: %{}
+
+    %{
+      module: test["describe"] || record["module"],
+      separator: " › ",
+      name: test["name"] || to_string(record["name"]),
+      badge: "test"
+    }
+  end
+
+  def title(%{"kind" => "setup"} = record) do
+    name =
+      if String.starts_with?(to_string(record["name"]), "__ex_unit_setup_all_"),
+        do: "setup_all",
+        else: "setup"
+
+    %{module: record["module"], separator: " › ", name: name, badge: "setup"}
+  end
+
+  def title(record) do
+    %{
+      module: record["module"],
+      separator: ".",
+      name: "#{record["name"]}/#{record["arity"]}",
+      badge: nil
+    }
+  end
+
   defp function_card(assigns) do
     %{forest: forest, index: index, card: card, record: record, comments: comments} = assigns
 
     external? = fn target -> match?(:error, Index.fetch_function(index, target)) end
 
     change = record["change"] || "unchanged"
+    title = title(record)
     diffable? = Diff.diffable?(record)
 
     # A card holds its view across an index reload, so one opened on a diff can outlive the
@@ -243,8 +325,10 @@ defmodule GraspWeb.CardComponents do
         stats: diffable? && Diff.stats(record["base_source"], record["source"]),
         callers: Index.callers(index, record["id"]),
         entries: Index.entry_points_for(index, record["id"]),
+        title: title,
         signature: signature(record),
-        signature_html: Grasp.Highlight.signature(record),
+        signature_html: !title.badge && Grasp.Highlight.signature(record),
+        assertions: if(title.badge == "test", do: Grasp.Highlight.assertions(record), else: []),
         callees: Forest.callees(forest, card.id),
         hidden_count: Forest.hidden_count(forest, card.id),
         view: view,
@@ -289,11 +373,10 @@ defmodule GraspWeb.CardComponents do
         >
           {badge_label(entry)}
         </span>
+        <.test_badge kind={@title.badge} />
         <h2 class="card__title">
-          <span class="card__module">{@record["module"]}.</span><span class="card__fn">{@record[
-            "name"
-          ]}/{@record["arity"]}</span>
-          <span class="card__kind">{@record["kind"]}</span>
+          <span class="card__module">{@title.module}{@title.separator}</span><span class="card__fn">{@title.name}</span>
+          <span :if={!@title.badge} class="card__kind">{@record["kind"]}</span>
         </h2>
         <span :if={@stats} class="card__stats">+{@stats.added} −{@stats.removed}</span>
         <div class="card__tools">
@@ -364,7 +447,14 @@ defmodule GraspWeb.CardComponents do
           </button>
         </div>
       </header>
-      <p class="card__signature lumis" title={@signature}>{@signature_html}</p>
+      <p :if={!@title.badge} class="card__signature lumis" title={@signature}>{@signature_html}</p>
+      <%!-- A test's promise is its assertions, so those are what a far-out test card reads
+      under its title; a test asserting nothing, and a setup, are the title alone. --%>
+      <div :if={@assertions != []} class="card__signature card__assertions lumis">
+        <p :for={{line, html} <- @assertions} class="card__assertion" data-line={line}>
+          {html}
+        </p>
+      </div>
       <%!-- The lines are rendered one at a time so a thread can sit between two of them.
       Whitespace between the children here is ordinary white-space, which the body does not
       preserve — only the lines themselves are preformatted. --%>
@@ -539,9 +629,15 @@ defmodule GraspWeb.CardComponents do
 
   The card renders the head highlighted, and carries this beside it as the title a pointer
   reads — an attribute holds text, not markup. A record with no definition line anywhere
-  falls back to `Mod.fun/arity`, which is what a stub shows.
+  falls back to `Mod.fun/arity`, which is what a stub shows. A test or a setup callback has
+  no head a reader would name it by, and reads as its card's title does.
   """
   @spec signature(map()) :: String.t()
+  def signature(%{"kind" => kind} = record) when kind in ~w(test setup) do
+    title = title(record)
+    "#{title.module}#{title.separator}#{title.name}"
+  end
+
   def signature(record) do
     case Grasp.Highlight.signature_line(record) do
       {_line, text} -> text

@@ -10,12 +10,14 @@ defmodule GraspWeb.Palette do
   `palette_choose`) and the backdrop is an ordinary sibling element rather than `::backdrop`.
 
   A result the branch added, modified or removed carries the same change badge the card and
-  the sidebar wear, so searching in PR mode says which hits are part of the review.
+  the sidebar wear, so searching in PR mode says which hits are part of the review, and a
+  test or a setup callback wears the badge its card does, so a hit on a test's name reads as
+  the test it is.
   """
 
   use GraspWeb, :html
 
-  import GraspWeb.CardComponents, only: [change_badge: 1]
+  import GraspWeb.CardComponents, only: [change_badge: 1, test_badge: 1]
 
   attr :open?, :boolean, required: true
   attr :query, :string, required: true
@@ -61,6 +63,7 @@ defmodule GraspWeb.Palette do
           >
             <span class="palette__id">{fun["id"]}</span>
             <.change_badge change={fun["change"]} />
+            <.test_badge kind={fun["kind"]} />
             <span class="palette__meta">{fun["kind"]} · {fun["file"]}</span>
           </button>
         </li>

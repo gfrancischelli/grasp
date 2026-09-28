@@ -46,6 +46,8 @@ defmodule Grasp.Highlight do
 
   `signature/1` renders a single line — the function's head, which is all a far-out card
   shows — from the same cached pieces, without the gutter and without the call spans.
+  `assertions/1` renders a test's assertion lines the same way, which is what a far-out test
+  card shows in place of a head.
 
   `render_diff/2` renders the same lines against the record's `base_source`, interleaving
   the lines the branch deleted. The base side is a second parse memoised under the function
@@ -56,6 +58,11 @@ defmodule Grasp.Highlight do
   require Logger
 
   @cache :grasp_highlight_cache
+
+  # The first token of the line: `assert`, `refute`, or a name starting `assert_`/`refute_`,
+  # optionally called through an alias, and followed by what opens a call's arguments — not
+  # by the `=` of a variable that happens to share the prefix.
+  @assertion ~r/\A\s*(?:[A-Z]\w*\.)*(?:assert|refute)(?:_\w*[?!]?)?(?:\(|\s+(?!=[^=~])|\z)/
 
   @definition_prefixes [
     "def ",
@@ -313,6 +320,49 @@ defmodule Grasp.Highlight do
         {line, String.trim_trailing(trimmed, " do")}
       end
     end)
+  end
+
+  @doc """
+  The assertion lines of a test record, in source order, each as `{line number in the file,
+  highlighted HTML}`.
+
+  An assertion line is one whose first token is `assert` or `refute`, or a call whose name
+  starts with `assert_` or `refute_` — `assert_receive`, a project's `assert_element`, the
+  same name called through a module alias. The HTML is the line's tokens from the memoised
+  parse, trimmed of the indentation the line was written at, with no gutter and no call
+  spans, the way `signature/1` renders a head. A record with no such line gives `[]`.
+  """
+  @spec assertions(map()) :: [{pos_integer(), Phoenix.HTML.safe()}]
+  def assertions(record) do
+    {source, first_line, id} = signature_source(record)
+
+    numbers =
+      for {text, line} <- source |> source_lines() |> Enum.with_index(first_line),
+          Regex.match?(@assertion, text),
+          do: line
+
+    if numbers == [] do
+      []
+    else
+      by_line = source |> pieces(first_line, id, language(record)) |> Enum.group_by(& &1.line)
+
+      for line <- numbers do
+        html =
+          by_line
+          |> Map.get(line, [])
+          |> trim_leading_pieces()
+          |> Enum.map_join(&token_html/1)
+
+        {line, {:safe, html}}
+      end
+    end
+  end
+
+  defp trim_leading_pieces(pieces) do
+    case Enum.drop_while(pieces, &blank_piece?/1) do
+      [first | rest] -> [%{first | text: String.trim_leading(first.text)} | rest]
+      [] -> []
+    end
   end
 
   # Which text the head is read from, how its lines are numbered and under which key its

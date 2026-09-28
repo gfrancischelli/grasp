@@ -213,9 +213,86 @@ defmodule Grasp.Index do
     index |> functions() |> Enum.filter(&(&1["change"] in ~w(added modified removed)))
   end
 
+  @typedoc """
+  One test module as the sidebar lists it: its name, the file it is written in, its setup
+  callbacks in source order and its tests grouped under their `describe` — `nil` for the
+  tests written outside any — each group placed where its first test is, its tests in
+  source order.
+  """
+  @type test_module :: %{
+          module: String.t(),
+          file: String.t(),
+          setups: [function_record()],
+          describes: [{String.t() | nil, [function_record()]}]
+        }
+
+  @doc """
+  Every module holding test or setup records, sorted by file and then by name.
+
+  A record is a test when its `kind` is `"test"` and a setup when it is `"setup"`; a module
+  holding only setups — a case template's callback — is listed too, since its setup runs in
+  every test that uses it. An index built without tests returns `[]`.
+  """
+  @spec tests(t()) :: [test_module()]
+  def tests(%__MODULE__{} = index) do
+    index.functions
+    |> Map.values()
+    |> Enum.filter(&(&1["kind"] in ["test", "setup"]))
+    |> Enum.sort_by(&{&1["span"]["start_line"], &1["id"]})
+    |> Enum.group_by(& &1["module"])
+    |> Enum.map(fn {module, [first | _] = records} ->
+      {setups, tests} = Enum.split_with(records, &(&1["kind"] == "setup"))
+
+      %{
+        module: module,
+        file: first["file"],
+        setups: setups,
+        describes: group_in_order(tests, &get_in(&1, ["test", "describe"]))
+      }
+    end)
+    |> Enum.sort_by(&{&1.file, &1.module})
+  end
+
+  # Enum.group_by loses the order the groups first appear in, which is the order the file
+  # reads in; this keeps it, and each group's records in the order they arrived.
+  defp group_in_order(records, key_fun) do
+    records
+    |> Enum.reduce({[], %{}}, fn record, {keys, groups} ->
+      key = key_fun.(record)
+      keys = if Map.has_key?(groups, key), do: keys, else: [key | keys]
+      {keys, Map.update(groups, key, [record], &[record | &1])}
+    end)
+    |> then(fn {keys, groups} ->
+      keys |> Enum.reverse() |> Enum.map(&{&1, Enum.reverse(Map.fetch!(groups, &1))})
+    end)
+  end
+
+  @doc """
+  Whether `file`, relative to the project root, lies under one of the project's
+  `test_paths`.
+
+  An index built without tests names no test paths, so nothing in it is a test file.
+  """
+  @spec test_file?(t(), String.t() | nil) :: boolean()
+  def test_file?(%__MODULE__{} = index, file) when is_binary(file) do
+    index.project
+    |> Map.get("test_paths")
+    |> List.wrap()
+    |> Enum.any?(fn path ->
+      path = String.trim_trailing(path, "/")
+      file == path or String.starts_with?(file, path <> "/")
+    end)
+  end
+
+  def test_file?(%__MODULE__{}, _file), do: false
+
   @doc """
   Ranks functions against `query`: exact id, then ids containing it, then ids containing
   it as a subsequence. Case-insensitive; shorter ids win ties.
+
+  A test or setup record is also matched by its module followed by its test's `describe` and
+  name as written, so a test is found by the words of its name even where its id escapes
+  them, and the better of the two scores ranks it.
   """
   @spec search(t(), String.t(), pos_integer()) :: [function_record()]
   def search(%__MODULE__{} = index, query, limit \\ 20) do
@@ -227,7 +304,7 @@ defmodule Grasp.Index do
       index.functions
       |> Map.values()
       |> Enum.flat_map(fn record ->
-        case score(String.downcase(record["id"]), query) do
+        case record |> search_texts() |> Enum.map(&score(&1, query)) |> Enum.max() do
           nil -> []
           score -> [{score, record}]
         end
@@ -241,6 +318,13 @@ defmodule Grasp.Index do
   end
 
   defp resolve(%__MODULE__{} = index, id), do: Map.get(index.aliases, id, id)
+
+  defp search_texts(%{"test" => %{} = test} = record) do
+    words = [record["module"], test["describe"], test["name"]] |> Enum.reject(&is_nil/1)
+    [String.downcase(record["id"]), words |> Enum.join(" ") |> String.downcase()]
+  end
+
+  defp search_texts(record), do: [String.downcase(record["id"])]
 
   defp score(id, query) do
     cond do

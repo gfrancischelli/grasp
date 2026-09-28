@@ -237,6 +237,63 @@ defmodule Grasp.IndexTest do
     assert :error = Index.fetch_function(index, "MyApp.Wallets.credit/2")
   end
 
+  describe "tests/1" do
+    setup do
+      {:ok, index} = Index.load("test/fixtures/index.json")
+      %{fixture: index}
+    end
+
+    test "lists every module holding tests or setups by file, setups apart, tests by describe",
+         %{fixture: index} do
+      assert [tally, routes, sample_case] = Index.tests(index)
+
+      assert %{module: "SampleApp.TallyTest", file: "test/sample_app/tally_test.exs"} = tally
+      assert ids(tally.setups) == ["SampleApp.TallyTest.__ex_unit_setup_0/1"]
+
+      assert [{"handle_call/3", [reply]}, {nil, [init]}] = tally.describes
+      assert reply["id"] =~ "replies with the next number"
+      assert init["id"] =~ "init keeps the start count"
+
+      assert routes.module == "SampleAppWeb.RoutesTest"
+      assert [{nil, [plain, verified]}] = routes.describes
+      assert plain["test"]["name"] == "a plain path reaches the controller"
+      assert verified["test"]["name"] == "a verified path reaches the controller"
+
+      assert %{module: "SampleApp.SampleCase", describes: [], setups: [_setup]} = sample_case
+    end
+
+    test "is empty for an index built without tests", %{index: index} do
+      assert Index.tests(index) == []
+    end
+  end
+
+  test "test_file?/2 reads the project's test paths", %{index: index} do
+    {:ok, fixture} = Index.load("test/fixtures/index.json")
+
+    assert Index.test_file?(fixture, "test/sample_app/tally_test.exs")
+    assert Index.test_file?(fixture, "test/support/sample_case.ex")
+    refute Index.test_file?(fixture, "lib/sample_app/counter.ex")
+    refute Index.test_file?(fixture, "testing/x.ex")
+    refute Index.test_file?(fixture, nil)
+    refute Index.test_file?(index, "test/sample_app/tally_test.exs")
+  end
+
+  test "search/3 finds a test by the words of its name, however its id escapes them" do
+    record = %{
+      "id" => ~S|MyApp.QuoteTest."test says \"hi\""/1|,
+      "kind" => "test",
+      "module" => "MyApp.QuoteTest",
+      "name" => ~S|test says "hi"|,
+      "arity" => 1,
+      "test" => %{"describe" => nil, "name" => ~S|says "hi"|, "tags" => []}
+    }
+
+    {:ok, index} = Index.from_document(%{"version" => 1, "functions" => [record]})
+
+    assert ids(Index.search(index, ~S|says "hi"|)) == [record["id"]]
+    assert ids(Index.search(index, ~S|quotetest says "hi"|)) == [record["id"]]
+  end
+
   defp tmp_path do
     path = Path.join(System.tmp_dir!(), "grasp-index-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> File.rm(path) end)
