@@ -13,7 +13,10 @@ defmodule GraspWeb.ChatMarkdown do
       whether it was written in backticks or bare in a sentence, so naming a function in an
       answer is the same gesture as clicking a call site. An id the index does not hold is
       left as the code span or the prose it was written as, since a button that opens
-      nothing is worse than no button. An id inside a Markdown link or an autolink is left
+      nothing is worse than no button. A module name the index holds is linked the same
+      way when it is written in backticks, and left as prose when it is not, since a
+      capitalised word in a sentence is far more often a word than a module. An id inside
+      a Markdown link or an autolink is left
       alone too, because a link is already one, as is one in an image's alt text, which is
       an attribute rather than markup by the time it is serialised. An `a` the model wrote
       as raw HTML is not recognised as a link, so an id inside one is still drawn as a
@@ -42,6 +45,8 @@ defmodule GraspWeb.ChatMarkdown do
   # refused after a word character or a dot.
   @function_id ~r{\A(?:[A-Z]\w*\.)+[a-z_]\w*[?!]?/\d+\z}
   @function_id_in_text ~r{(?<![\w.])(?:[A-Z]\w*\.)+[a-z_]\w*[?!]?/\d+}
+  @module_name ~r{\A[A-Z]\w*(?:\.[A-Z]\w*)*\z}
+  @module_span ~r{`([A-Z]\w*(?:\.[A-Z]\w*)*)`}
 
   # Fence info strings Lumis does not answer to under the name a writer reaches for.
   @language_aliases %{
@@ -61,14 +66,27 @@ defmodule GraspWeb.ChatMarkdown do
   @doc """
   The Markdown in `text` as sanitised HTML.
 
-  `known?` decides which function ids become buttons: it is given an id exactly as the text
-  wrote it and answers whether the index holds a function under it, following the arities a
-  default argument declares.
+  `known?` decides which function ids and module names become buttons: it is given an id
+  exactly as the text wrote it and answers whether the index holds a function or a module
+  under it, following the arities a default argument declares. `known/1` builds it for an
+  index.
   """
   @spec render(String.t(), (String.t() -> boolean())) :: Phoenix.HTML.safe()
   def render(text, known?) when is_binary(text) and is_function(known?, 1) do
     {:safe, cached(text, known?, fn -> html(text, known?) end)}
   end
+
+  @doc """
+  The `known?` an index answers for `render/2`: whether it holds a function under the id,
+  followed through the arities a default argument declares as a call site on a card is, or
+  a module under the name. With no index nothing is linkable, since every button would open
+  a card of nothing.
+  """
+  @spec known(Grasp.Index.t() | nil) :: (String.t() -> boolean())
+  def known(nil), do: fn _id -> false end
+
+  def known(%Grasp.Index{} = index),
+    do: &match?({:ok, _record}, Grasp.Index.fetch_record(index, &1))
 
   @doc """
   Creates the render cache unless it exists; the calling process owns it.
@@ -115,7 +133,9 @@ defmodule GraspWeb.ChatMarkdown do
     do: %MDEx.HtmlBlock{literal: fence_html(info, code)}
 
   defp rewrite(%MDEx.Code{literal: id} = node, known?) do
-    if function_id?(id) and known?.(id), do: %MDEx.HtmlInline{literal: link_html(id)}, else: node
+    if (function_id?(id) or module_name?(id)) and known?.(id),
+      do: %MDEx.HtmlInline{literal: link_html(id)},
+      else: node
   end
 
   defp rewrite(%MDEx.Text{literal: text} = node, known?), do: link_prose(node, text, known?)
@@ -146,6 +166,8 @@ defmodule GraspWeb.ChatMarkdown do
   defp linkable?(text, known?), do: function_id?(text) and known?.(text)
 
   defp function_id?(text), do: Regex.match?(@function_id, text)
+
+  defp module_name?(text), do: Regex.match?(@module_name, text)
 
   defp link_html(id) do
     escaped = escape(id)
@@ -179,11 +201,14 @@ defmodule GraspWeb.ChatMarkdown do
     end
   end
 
-  # Which ids written anywhere in the answer the index holds, in the order they were written.
-  # This is everything the index contributes to the rendering; a fence and a link resolve no
-  # ids, so counting them here only costs an entry that is never reused.
+  # Which ids written anywhere in the answer the index holds, and which module names written
+  # in backticks, each in the order they were written. This is everything the index
+  # contributes to the rendering; a fence and a link resolve no ids, so counting them here
+  # only costs an entry that is never reused.
   defp links(text, known?) do
-    @function_id_in_text |> Regex.scan(text) |> List.flatten() |> Enum.filter(known?)
+    functions = @function_id_in_text |> Regex.scan(text) |> List.flatten()
+    modules = @module_span |> Regex.scan(text, capture: :all_but_first) |> List.flatten()
+    {Enum.filter(functions, known?), Enum.filter(modules, known?)}
   end
 
   # Lumis answers for a language it does not know by highlighting nothing rather than by

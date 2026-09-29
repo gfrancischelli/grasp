@@ -701,6 +701,13 @@ body.grasp-dragging .module__title {
   color: var(--fg-muted);
   font-weight: 400;
 }
+button.card__module {
+  padding: 0;
+}
+button.card__module:hover {
+  color: var(--accent);
+  text-decoration: underline dotted;
+}
 .card__kind {
   margin-inline-start: var(--space-s);
   color: var(--fg-muted);
@@ -1267,6 +1274,95 @@ body:not(.grasp-coverage) .gap-label {
 .stub .card__header {
   border-bottom: 0;
 }
+.badge--module,
+.badge--behaviour {
+  background: color-mix(in oklch, var(--fg-muted) 14%, transparent);
+  color: var(--fg-muted);
+}
+.card__views {
+  display: inline-flex;
+  gap: 2px;
+}
+.card__views .card__view[aria-pressed=true] {
+  color: var(--accent);
+}
+.card__doc {
+  padding: var(--space-xs) var(--space-m) var(--space-s);
+  max-width: 72ch;
+  line-height: 1.5;
+}
+.card__doc > :first-child {
+  margin-block-start: 0;
+}
+.card__doc > :last-child {
+  margin-block-end: 0;
+}
+.card__doc p {
+  margin: var(--space-s) 0;
+}
+.card__doc ul,
+.card__doc ol {
+  margin: var(--space-s) 0;
+  padding-inline-start: var(--space-l);
+}
+.card__doc h1,
+.card__doc h2,
+.card__doc h3,
+.card__doc h4,
+.card__doc h5,
+.card__doc h6 {
+  margin: var(--space-m) 0 var(--space-s);
+  font-size: 14px;
+}
+.card__doc code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-sunken);
+  border-radius: 4px;
+  padding: 0 0.3em;
+}
+.card__doc blockquote {
+  margin: var(--space-s) 0;
+  padding-inline-start: var(--space-s);
+  border-inline-start: 2px solid var(--border);
+  color: var(--fg-muted);
+}
+.card__doc table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  margin: var(--space-s) 0;
+}
+.card__doc th,
+.card__doc td {
+  border: 1px solid var(--border);
+  padding: 2px var(--space-xs);
+  text-align: start;
+}
+.card__doc .fn {
+  display: inline;
+  width: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-sunken);
+  border-radius: 4px;
+  padding: 0 0.3em;
+  color: inherit;
+  cursor: pointer;
+  border-bottom: 1px dashed var(--accent);
+}
+.card__doc .fn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.card__doc-note {
+  color: var(--fg-muted);
+}
+.card__doc-base {
+  padding-inline-start: var(--space-s);
+  border-inline-start: 2px solid var(--diff-del-fg);
+  color: var(--fg-muted);
+}
 .stub__text,
 .stub__docs {
   margin: 0 var(--space-m) var(--space-s);
@@ -1277,6 +1373,7 @@ body:not(.grasp-coverage) .gap-label {
   color: var(--accent);
 }
 body.grasp-signatures #stage .card__body,
+body.grasp-signatures #stage .card__doc,
 body.grasp-signatures #stage .card__also,
 body.grasp-signatures #stage .stub__text,
 body.grasp-signatures #stage .stub__docs {

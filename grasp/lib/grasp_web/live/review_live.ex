@@ -46,6 +46,7 @@ defmodule GraspWeb.ReviewLive do
   alias Grasp.{CoverageStore, Index, IndexStore, Links, ResultsStore, Runs, Session, TestPlan}
   alias Grasp.Session.Disk
   alias Grasp.Session.Forest
+  alias GraspWeb.CardComponents
   alias GraspWeb.CardCoverage
   alias GraspWeb.CardResults
   alias GraspWeb.RunsPanel
@@ -116,6 +117,7 @@ defmodule GraspWeb.ReviewLive do
       composing: nil,
       expanded_threads: MapSet.new(),
       expanded_folds: MapSet.new(),
+      opened_near: %{},
       selected: MapSet.new(),
       palette_open?: false,
       palette_query: "",
@@ -240,6 +242,39 @@ defmodule GraspWeb.ReviewLive do
 
   def handle_event("open_root", %{"id" => id}, socket) when is_binary(id),
     do: socket |> clear_selection() |> mutate(&Session.open_root(&1, canonical(socket, id)))
+
+  # A module card belongs to no call, so it opens as a root; the card it is opened from is
+  # held for the canvas, which places the module card at the nearest free spot beside it. A card
+  # already open is focused where it stands. `view` opens the card on that view, which is how
+  # a row naming a modified moduledoc opens it on its diff.
+  def handle_event("open_module", %{"module" => module} = params, socket)
+      when is_binary(module) do
+    with %Index{} = index <- socket.assigns.index,
+         {:ok, %{"kind" => "module", "name" => name}} <- Index.fetch_module(index, module) do
+      socket = socket |> clear_selection() |> close_overlays()
+      session = socket.assigns.name
+      open? = Forest.find(socket.assigns.forest, name) != nil
+      forest = Session.open_root(session, name)
+      id = Forest.find(forest, name)
+
+      forest =
+        case module_view_param(params["view"]) do
+          nil -> forest
+          view -> Session.set_view(session, id, view)
+        end
+
+      from = int(params["card"])
+
+      socket =
+        if not open? and is_integer(from) and Forest.card(forest, from) != nil,
+          do: update(socket, :opened_near, &Map.put(&1, id, from)),
+          else: socket
+
+      {:noreply, put_forest(socket, forest)}
+    else
+      _no_module -> {:noreply, socket}
+    end
+  end
 
   def handle_event("open_call", %{"card" => card, "target" => target}, socket)
       when is_binary(target),
@@ -401,6 +436,16 @@ defmodule GraspWeb.ReviewLive do
 
   def handle_event("toggle_view", %{"card" => card}, socket),
     do: toggle_view(socket, int(card))
+
+  def handle_event("set_view", %{"card" => card, "view" => view}, socket) do
+    case {int(card), module_view_param(view)} do
+      {id, view} when is_integer(id) and view != nil ->
+        mutate(socket, &Session.set_view(&1, id, view))
+
+      _unreadable ->
+        {:noreply, socket}
+    end
+  end
 
   def handle_event("toggle_view_focused", _params, socket),
     do: toggle_view(socket, socket.assigns.forest.focus)
@@ -1112,7 +1157,7 @@ defmodule GraspWeb.ReviewLive do
   defp record_for(socket, card_id) do
     with function_id when is_binary(function_id) <- function_id(socket, card_id),
          %Index{} = index <- socket.assigns.index,
-         {:ok, record} <- Index.fetch_function(index, function_id) do
+         {:ok, record} <- Index.fetch_record(index, function_id) do
       record
     else
       _no_record -> nil
@@ -1152,7 +1197,7 @@ defmodule GraspWeb.ReviewLive do
   defp open_thread(socket, body, composing) do
     with function_id when is_binary(function_id) <- function_id(socket, composing.card),
          %Index{} = index <- socket.assigns.index,
-         {:ok, record} <- Index.fetch_function(index, function_id) do
+         {:ok, record} <- Index.fetch_record(index, function_id) do
       Grasp.Comments.add(%{
         session: socket.assigns.name,
         function_id: function_id,
@@ -1243,10 +1288,37 @@ defmodule GraspWeb.ReviewLive do
   # card that has nothing to compare rather than putting it in a view that would render the
   # source back unchanged.
   defp toggle_view(socket, card_id) do
-    if diffable?(socket, card_id),
-      do: mutate(socket, &Session.toggle_view(&1, card_id)),
-      else: {:noreply, socket}
+    case record(socket, card_id) do
+      %{"kind" => "module"} = record ->
+        toggle_module_view(socket, card_id, record)
+
+      record when is_map(record) ->
+        if Grasp.Diff.diffable?(record),
+          do: mutate(socket, &Session.toggle_view(&1, card_id)),
+          else: {:noreply, socket}
+
+      nil ->
+        {:noreply, socket}
+    end
   end
+
+  # A module card's diff is swapped with the view it opens on, the first it offers, since
+  # the moduledoc's text is what the card is read for.
+  defp toggle_module_view(socket, card_id, record) do
+    views = CardComponents.module_views(record)
+    current = CardComponents.module_view(Forest.card(socket.assigns.forest, card_id).view, views)
+
+    cond do
+      :diff not in views -> {:noreply, socket}
+      current == :diff -> mutate(socket, &Session.set_view(&1, card_id, hd(views)))
+      true -> mutate(socket, &Session.set_view(&1, card_id, :diff))
+    end
+  end
+
+  defp module_view_param(view) when view in ~w(auto doc source diff),
+    do: String.to_existing_atom(view)
+
+  defp module_view_param(_view), do: nil
 
   # The length that decides what `:auto` folds is the function's own, so the card whose
   # context is being swapped has to be found before the session is asked to swap it.
@@ -1261,17 +1333,10 @@ defmodule GraspWeb.ReviewLive do
     end
   end
 
-  defp diffable?(socket, card_id) do
-    case record(socket, card_id) do
-      nil -> false
-      record -> Grasp.Diff.diffable?(record)
-    end
-  end
-
   defp record(socket, card_id) do
     with %Index{} = index <- socket.assigns.index,
          %{function_id: function_id} <- Forest.card(socket.assigns.forest, card_id),
-         {:ok, record} <- Index.fetch_function(index, function_id) do
+         {:ok, record} <- Index.fetch_record(index, function_id) do
       record
     else
       _no_record -> nil
@@ -1687,6 +1752,7 @@ defmodule GraspWeb.ReviewLive do
               composing={@composing}
               expanded_threads={@expanded_threads}
               expanded_folds={@expanded_folds}
+              near={Map.get(@opened_near, node.id)}
             />
           </div>
         </div>

@@ -344,6 +344,11 @@
         this.pushEvent("toggle_select", { card: card.id.replace("card-", "") });
         return;
       }
+      const docLink = e.target.closest(".card__doc .fn[data-fn]");
+      if (docLink) {
+        this.pushEvent("open_root", { id: docLink.dataset.fn });
+        return;
+      }
       const control = e.target.closest(
         "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-coverage"
       );
@@ -632,6 +637,7 @@
         kind: "module",
         ctrl: false,
         pointerId: e.pointerId,
+        module: label.dataset.module,
         nodes,
         startX: e.clientX,
         startY: e.clientY,
@@ -785,6 +791,11 @@
     pointerUp(e) {
       if (this.otherPointer(e)) return;
       const drag = this.endDrag();
+      if (!drag.moved && drag.kind === "module") {
+        const [first] = drag.nodes;
+        this.pushEvent("open_module", { module: drag.module, card: first?.dataset.card });
+        return;
+      }
       if (!drag.moved) return;
       if (drag.kind === "card") {
         const { scale } = this.view;
@@ -1190,7 +1201,9 @@
         const opener = sites.find(
           (hit) => hit.to === id && hit.node.dataset.group === group && boxes.has(hit.node)
         );
-        const calls = !opener && sites.find((hit) => {
+        const near = !opener && node.dataset.near ? document.getElementById(`node-${node.dataset.near}`) : null;
+        const nearBox = near && boxes.has(near) ? boxes.get(near) : null;
+        const calls = !opener && !nearBox && sites.find((hit) => {
           if (hit.node !== node) return false;
           const callee = document.getElementById(`node-${hit.to}`);
           return !!callee && callee.dataset.group === group && boxes.has(callee);
@@ -1221,6 +1234,9 @@
           const line = anchored ? (a.top + a.height / 2 - s.top) / scale - measured.get(opener.node).top : PORT_Y;
           x = box2.right + GAP_X;
           y = box2.top + Math.min(Math.max(line, 0), box2.bottom - box2.top) - PORT_Y;
+        } else if (nearBox) {
+          x = nearBox.right + GAP_X;
+          y = nearBox.top;
         } else if (calls) {
           const box2 = boxes.get(document.getElementById(`node-${calls.to}`));
           x = box2.left - m.width - GAP_X;
@@ -1274,7 +1290,7 @@
         };
         const ideal = { left: x, top: y, right: x + m.width, bottom: y + m.height, node };
         let box;
-        if (home && (opener || calls)) {
+        if (home && (opener || calls || nearBox)) {
           const band = Math.max(home.top, Math.min(ideal.top, home.bottom - m.height));
           const spots = [];
           for (const at of [
@@ -1302,7 +1318,7 @@
             }
             if (nearest === 0) break;
           }
-        } else if (opener) {
+        } else if (opener || nearBox) {
           const over = m.width + GAP_X;
           const next = { ...ideal, left: ideal.left + over, right: ideal.right + over };
           let nearest = Infinity;

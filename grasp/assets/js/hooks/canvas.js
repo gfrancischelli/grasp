@@ -377,6 +377,14 @@ const Canvas = {
       this.pushEvent("toggle_select", {card: card.id.replace("card-", "")})
       return
     }
+    // A module card's text is rendered Markdown, whose markup carries no event bindings; a code
+    // span naming a card the index holds is a button carrying its id, mapped here to the
+    // event the chat's own links send.
+    const docLink = e.target.closest(".card__doc .fn[data-fn]")
+    if (docLink) {
+      this.pushEvent("open_root", {id: docLink.dataset.fn})
+      return
+    }
     const control = e.target.closest(
       "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-coverage",
     )
@@ -651,8 +659,8 @@ const Canvas = {
     const altCard = e.altKey && e.target.closest(".card")
     if (altCard && !e.target.closest("a")) return this.beginGraphDrag(e, altCard)
     // A module's label is the handle for the cards of that cluster, the way a frame's header
-    // is for a group's. It carries no controls to press, and a press that never moves does
-    // nothing: the label names the cluster and there is nothing else to open from it.
+    // is for a group's. It carries no controls to press, and a press that never moves opens
+    // the module's card, as the module part of a card's title does.
     const label = e.target.closest(".module__title")
     if (label) return this.beginModuleDrag(e, label)
     // A frame's header is the handle the whole group is dragged by, with or without Ctrl, the
@@ -750,6 +758,7 @@ const Canvas = {
       kind: "module",
       ctrl: false,
       pointerId: e.pointerId,
+      module: label.dataset.module,
       nodes,
       startX: e.clientX,
       startY: e.clientY,
@@ -926,6 +935,13 @@ const Canvas = {
   pointerUp(e) {
     if (this.otherPointer(e)) return
     const drag = this.endDrag()
+    // A label pressed and let go without moving is a click on it. The card opened is placed
+    // beside the cluster's first card, which is the cluster the label stands over.
+    if (!drag.moved && drag.kind === "module") {
+      const [first] = drag.nodes
+      this.pushEvent("open_module", {module: drag.module, card: first?.dataset.card})
+      return
+    }
     if (!drag.moved) return
     if (drag.kind === "card") {
       const {scale} = this.view
@@ -1468,8 +1484,16 @@ const Canvas = {
       const opener = sites.find(
         (hit) => hit.to === id && hit.node.dataset.group === group && boxes.has(hit.node),
       )
+      // A card opened from another without a call — a module card opened from a card's title —
+      // names that card, and stands beside it as a callee would, without an edge to align to.
+      const near =
+        !opener && node.dataset.near
+          ? document.getElementById(`node-${node.dataset.near}`)
+          : null
+      const nearBox = near && boxes.has(near) ? boxes.get(near) : null
       const calls =
         !opener &&
+        !nearBox &&
         sites.find((hit) => {
           if (hit.node !== node) return false
           const callee = document.getElementById(`node-${hit.to}`)
@@ -1542,6 +1566,9 @@ const Canvas = {
           : PORT_Y
         x = box.right + GAP_X
         y = box.top + Math.min(Math.max(line, 0), box.bottom - box.top) - PORT_Y
+      } else if (nearBox) {
+        x = nearBox.right + GAP_X
+        y = nearBox.top
       } else if (calls) {
         // A card opened from its callee is the caller, and a caller reads to the left of what
         // it calls, its top edge level with it.
@@ -1635,7 +1662,8 @@ const Canvas = {
       // leaves it nearest its call. Below and above the frame the card owes the cards inside it
       // one GAP_Y and nothing more, because it is joining that frame rather than clearing it.
       // A card whose module has nothing down yet is placed by the ordinary rule, and so is a
-      // root either way.
+      // root opened from no card. A root opened from a card it names stands against that card's
+      // cluster the way a callee does, the ideal spot being the one beside that card.
       const obstacles = occupied.concat(foreign)
       const sweep = (start, direction) => {
         const swept = {...start}
@@ -1658,7 +1686,7 @@ const Canvas = {
       }
       const ideal = {left: x, top: y, right: x + m.width, bottom: y + m.height, node}
       let box
-      if (home && (opener || calls)) {
+      if (home && (opener || calls || nearBox)) {
         // Beside the cluster the card keeps the line of its call, clamped into the frame's own
         // band so that it stands against the cluster rather than off one of its corners. Below
         // and above, the card is joining the frame rather than clearing it, so it owes the
@@ -1692,7 +1720,7 @@ const Canvas = {
           }
           if (nearest === 0) break
         }
-      } else if (opener) {
+      } else if (opener || nearBox) {
         const over = m.width + GAP_X
         const next = {...ideal, left: ideal.left + over, right: ideal.right + over}
         let nearest = Infinity

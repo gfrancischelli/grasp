@@ -163,7 +163,7 @@ defmodule Grasp.Index do
       generated_at: document["generated_at"],
       project: document["project"] || %{},
       git: document["git"],
-      modules: Enum.reject(document["modules"] || [], &(is_map(&1) and &1["removed"] == true)),
+      modules: Enum.reject(modules, &(&1["removed"] == true)),
       modules_by_name: modules_by_name,
       moduledoc_summaries: summaries(modules_by_name),
       entry_points: entry_points,
@@ -344,9 +344,10 @@ defmodule Grasp.Index do
   The first paragraph of a module's moduledoc as plain text, or `nil` for a module without
   moduledoc text.
 
-  The paragraph runs up to the first blank line. Markdown's emphasis and code markers are
-  dropped and every run of whitespace, line breaks included, reads as one space; a summary
-  longer than #{@summary_length} characters is cut to that length, its last one an ellipsis.
+  The paragraph runs up to the first blank line. Markdown's heading, emphasis and code
+  markers are dropped, a link or an image reads as its text, and every run of whitespace,
+  line breaks included, reads as one space; a summary longer than #{@summary_length}
+  characters is cut to that length, its last one an ellipsis.
   """
   @spec moduledoc_summary(t(), String.t()) :: String.t() | nil
   def moduledoc_summary(%__MODULE__{} = index, name), do: Map.get(index.moduledoc_summaries, name)
@@ -375,6 +376,8 @@ defmodule Grasp.Index do
       text
       |> String.split(~r/\n[ \t]*\n/, parts: 2)
       |> hd()
+      |> String.replace(~r/^[ \t]*\#{1,6}[ \t]+/m, "")
+      |> String.replace(~r/!?\[([^\]]*)\]\([^)]*\)/, "\\1")
       |> then(&Regex.split(~r/`+[^`]*`+/, &1, include_captures: true))
       |> Enum.map_join(&plain/1)
       |> String.replace(~r/\s+/u, " ")

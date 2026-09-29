@@ -276,15 +276,9 @@ defmodule GraspWeb.ChatPanel do
   # An assistant turn is Markdown and brings its own block structure; every other row is the
   # text the entry carries.
   defp body(%{type: :assistant} = entry, index),
-    do: ChatMarkdown.render(entry.text, known?(index))
+    do: ChatMarkdown.render(entry.text, ChatMarkdown.known(index))
 
   defp body(entry, _index), do: text(entry)
-
-  # Which ids the chat may turn into cards: the ones the index holds, followed through the
-  # arities a default argument declares, exactly as a call site on a card resolves them. With
-  # no index nothing is linkable, since every button would open a card of nothing.
-  defp known?(nil), do: fn _id -> false end
-  defp known?(index), do: &match?({:ok, _record}, Grasp.Index.fetch_function(index, &1))
 
   defp text(%{type: :done} = entry), do: done_text(entry)
   defp text(entry), do: entry.text

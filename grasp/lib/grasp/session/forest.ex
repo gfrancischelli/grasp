@@ -2,7 +2,9 @@ defmodule Grasp.Session.Forest do
   @moduledoc """
   The graph of cards a review session shows, as pure data with pure operations.
 
-  One card per function. Opening a function already on screen focuses the card that shows
+  One card per function, or per module: a card's `function_id` is a function id or, for a
+  module card, the module's name, which never ends in `/arity` and so never names a
+  function. Opening a function already on screen focuses the card that shows
   it rather than cloning it, so a helper called from three places is one card with three
   edges arriving at it, and reading it once is reading it for every caller. `edges` are
   directed caller → callee. Each carries the raw call `target` the caller's source wrote —
@@ -94,9 +96,10 @@ defmodule Grasp.Session.Forest do
   @typedoc """
   How a card shows its function: `:auto` reads as the diff when the function has one and as
   the source otherwise, so a changed function opens on what changed; `:source` and `:diff`
-  are the reviewer's explicit picks.
+  are the reviewer's explicit picks. `:doc` is a module card's rendered moduledoc, the view
+  a module card reads `:auto` as.
   """
-  @type view :: :auto | :source | :diff
+  @type view :: :auto | :doc | :source | :diff
   @typedoc """
   How much of a function's diff a card shows: `:hunks` draws the changed lines with three
   lines of context on either side and folds the rest away, `:full` draws every line, and
@@ -693,7 +696,7 @@ defmodule Grasp.Session.Forest do
 
   @doc "Picks how `id` is shown; unknown ids are ignored."
   @spec set_view(t(), id(), view()) :: t()
-  def set_view(%__MODULE__{} = forest, id, view) when view in [:auto, :source, :diff] do
+  def set_view(%__MODULE__{} = forest, id, view) when view in [:auto, :doc, :source, :diff] do
     case card(forest, id) do
       nil -> forest
       card -> put_card(forest, %{card | view: view})
@@ -713,10 +716,13 @@ defmodule Grasp.Session.Forest do
     end
   end
 
-  @doc "The view a card renders in: `:auto` becomes the diff when `diffable?`, else the source."
+  @doc """
+  The view a function card renders in: `:auto` becomes the diff when `diffable?`, else the
+  source. A function has no moduledoc to show, so `:doc` reads as `:auto` does.
+  """
   @spec effective_view(view(), boolean()) :: :source | :diff
-  def effective_view(:auto, true), do: :diff
-  def effective_view(:auto, false), do: :source
+  def effective_view(view, true) when view in [:auto, :doc], do: :diff
+  def effective_view(view, false) when view in [:auto, :doc], do: :source
   def effective_view(view, _diffable?), do: view
 
   @doc "Picks how much of `id`'s diff is drawn; unknown ids are ignored."
@@ -927,11 +933,11 @@ defmodule Grasp.Session.Forest do
   half-written file is therefore refused whole rather than drawn in part, and a card the
   renderer would crash on never reaches it.
 
-  With an `index`, a card whose `function_id` the index no longer holds is dropped together
-  with the edges touching it, and a group left with no members goes as well, so a file
-  written before a branch changed never draws a card nothing can render. A nil index prunes
-  nothing, which is what a caller reading a file for its contents rather than for display
-  wants.
+  With an `index`, a card whose `function_id` names neither a function nor a module the index
+  holds (`Grasp.Index.fetch_record/2`) is dropped together with the edges touching it, and a
+  group left with no members goes as well, so a file written before a branch changed never
+  draws a card nothing can render. A nil index prunes nothing, which is what a caller
+  reading a file for its contents rather than for display wants.
 
   Focus is left as the document wrote it, so `load/2` against no index returns what `dump/1`
   was given — a graph focused on nothing comes back focused on nothing. It moves only when
@@ -999,7 +1005,7 @@ defmodule Grasp.Session.Forest do
     highlight = Map.get(card, "highlight")
     group = Map.get(card, "group")
 
-    with {:ok, view} <- decode_name(view, [:auto, :source, :diff]),
+    with {:ok, view} <- decode_name(view, [:auto, :doc, :source, :diff]),
          {:ok, context} <- decode_name(context, [:auto, :hunks, :full]),
          {:ok, highlight} <- decode_highlight(highlight),
          {:ok, position} <- decode_position(version, Map.fetch(card, "position")),
@@ -1147,7 +1153,7 @@ defmodule Grasp.Session.Forest do
   defp prune(forest, %Grasp.Index{} = index) do
     gone =
       for {id, card} <- forest.cards,
-          Grasp.Index.fetch_function(index, card.function_id) == :error,
+          Grasp.Index.fetch_record(index, card.function_id) == :error,
           do: id
 
     drop(forest, gone)

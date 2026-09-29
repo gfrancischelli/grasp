@@ -1006,6 +1006,13 @@ defmodule Grasp.IndexTest do
       assert Index.changed_modules(index) == [removed]
     end
 
+    test "modules/1 leaves out an entry that is not a module record" do
+      live = module_record("A", "Kept.")
+      index = module_index([live, "not a module", nil])
+
+      assert Index.modules(index) == [live]
+    end
+
     test "changed_modules/1 answers the added, modified and removed modules, sorted by name" do
       index =
         module_index([
@@ -1032,6 +1039,15 @@ defmodule Grasp.IndexTest do
       assert Index.moduledoc_summary(index, "A") ==
                "Credits and debits wallets, with care, through Ledger.post/2 and the " <>
                  "__MODULE__ of snake_case_names."
+    end
+
+    test "moduledoc_summary/2 reads a heading and a link as their text" do
+      heading = module_index([module_record("A", "## Wallets\n\nThe rest.")])
+      assert Index.moduledoc_summary(heading, "A") == "Wallets"
+
+      text = "Posts to [the ledger](https://example.com/ledger) and [`Ledger`](Ledger.html)."
+      linked = module_index([module_record("B", text)])
+      assert Index.moduledoc_summary(linked, "B") == "Posts to the ledger and Ledger."
     end
 
     test "moduledoc_summary/2 cuts a long paragraph to 300 characters, the last an ellipsis" do
