@@ -253,7 +253,7 @@ defmodule GraspWeb.TestsLiveTest do
              ]
 
       render_click(view, "open_root", %{"id" => @handle_call})
-      view |> element("#card-2 .card__callers-toggle") |> render_click()
+      view |> element("#card-2 .card__tests") |> render_click()
 
       refute has_element?(view, "#card-1 .card__callers ul")
       assert rows(view, 2) == [{"handle_call/3 › replies with the next number", "direct"}]
@@ -270,6 +270,37 @@ defmodule GraspWeb.TestsLiveTest do
       assert has_element?(view, "#node-1[data-depth='1']")
       assert has_element?(view, "#card-2 span.call[data-edge-to='1']")
       refute has_element?(view, "#card-1 .card__callers ul")
+    end
+
+    test "keeps the test suite's callers out of the callers it counts", %{view: view} do
+      render_click(view, "open_root", %{"id" => @handle_call})
+      render_click(view, "open_root", %{"id" => "SampleApp.Counter.init/1"})
+
+      refute has_element?(view, "#card-1 .card__callers-toggle")
+      refute has_element?(view, "#card-2 .card__callers-toggle")
+
+      view |> element("#card-1 .card__tests") |> render_click()
+      refute has_element?(view, "#card-1 .card__callers ul button.caller:not(.caller--test)")
+      refute has_element?(view, "#card-1 .card__callers li.callers__heading", "Test helpers")
+
+      view |> element("#card-2 .card__tests") |> render_click()
+
+      assert has_element?(
+               view,
+               "#card-2 .card__callers li.callers__heading:first-child",
+               "Test helpers"
+             )
+
+      assert has_element?(
+               view,
+               "#card-2 .card__callers button.caller[phx-value-caller='SampleApp.TallyTest.init_with/1']"
+             )
+
+      view
+      |> element("#card-2 button.caller[phx-value-caller='SampleApp.TallyTest.init_with/1']")
+      |> render_click()
+
+      assert has_element?(view, "#card-3[data-function-id='SampleApp.TallyTest.init_with/1']")
     end
 
     test "opens a farther test through the helper between them", %{view: view} do

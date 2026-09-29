@@ -377,7 +377,7 @@ defmodule Grasp.Index do
     |> changed_functions()
     |> Enum.filter(fn record ->
       record["change"] in ~w(added modified) and record["removed"] != true and
-        record["kind"] not in ["test", "setup"] and not test_file?(index, record["file"])
+        not test_side?(index, record)
     end)
   end
 
@@ -587,6 +587,15 @@ defmodule Grasp.Index do
       parent -> trace(parents, parent, [id | path])
     end
   end
+
+  @doc """
+  Whether a record belongs to the test suite rather than the application: a test, a setup
+  callback, or any function defined in a test file, which is how a test module's helpers
+  are told apart.
+  """
+  @spec test_side?(t(), function_record()) :: boolean()
+  def test_side?(%__MODULE__{} = index, record),
+    do: record["kind"] in ["test", "setup"] or test_file?(index, record["file"])
 
   @doc """
   Whether `file`, relative to the project root, lies under one of the project's
