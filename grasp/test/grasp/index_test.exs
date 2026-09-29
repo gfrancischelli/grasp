@@ -127,7 +127,7 @@ defmodule Grasp.IndexTest do
     assert Index.callees(index, "MyApp.Wallets.credit/2") == ["MyApp.Ledger.post/2"]
   end
 
-  test "search/4 with modules: true ranks modules by name beside functions" do
+  test "search/4 with modules: true ranks functions before modules of the same score" do
     module = %{
       "id" => "MyApp.Wallets",
       "kind" => "module",
@@ -144,12 +144,17 @@ defmodule Grasp.IndexTest do
     assert ids(rest) == ["MyApp.Wallets.debit/3", "MyApp.Wallets.credit/3"]
 
     assert ids(Index.search(index, "wallets", 20, modules: true)) == [
+             "MyApp.Wallets.debit/3",
+             "MyApp.Wallets.credit/3",
+             "MyApp.Wallets"
+           ]
+
+    assert ids(Index.search(index, "myapp.wallets", 20, modules: true)) == [
              "MyApp.Wallets",
              "MyApp.Wallets.debit/3",
              "MyApp.Wallets.credit/3"
            ]
 
-    assert ids(Index.search(index, "mywal", 20, modules: true)) |> hd() == "MyApp.Wallets"
     refute "MyApp.Wallets" in ids(Index.search(index, "wallets"))
   end
 

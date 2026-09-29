@@ -728,8 +728,10 @@ defmodule Grasp.Index do
   them, and the better of the two scores ranks it.
 
   With `modules: true` the module records are ranked in the same list by their names, scored
-  and ordered as a function's id is, each name once with the record `fetch_module/2` answers;
-  a result is a module when its `kind` is `"module"`.
+  as a function's id is, each name once with the record `fetch_module/2` answers. At an equal
+  score every function ranks ahead of every module, and within each the shorter wins; a
+  module ranks above a function only on a higher score, as an exact name does. A result is
+  a module when its `kind` is `"module"`.
   """
   @spec search(t(), String.t(), pos_integer(), keyword()) :: [
           function_record() | module_record()
@@ -739,7 +741,7 @@ defmodule Grasp.Index do
 
     candidates =
       for record <- Map.values(index.functions),
-          do: {search_texts(record), record["id"], record}
+          do: {search_texts(record), 0, record["id"], record}
 
     candidates =
       if Keyword.get(opts, :modules, false),
@@ -747,7 +749,7 @@ defmodule Grasp.Index do
           candidates ++
             for(
               {name, record} <- index.modules_by_name,
-              do: {[String.downcase(name)], name, record}
+              do: {[String.downcase(name)], 1, name, record}
             ),
         else: candidates
 
@@ -755,10 +757,10 @@ defmodule Grasp.Index do
       []
     else
       candidates
-      |> Enum.flat_map(fn {texts, key, record} ->
+      |> Enum.flat_map(fn {texts, kind, key, record} ->
         case texts |> Enum.map(&score(&1, query)) |> Enum.max() do
           nil -> []
-          score -> [{{-score, String.length(key), key}, record}]
+          score -> [{{-score, kind, String.length(key), key}, record}]
         end
       end)
       |> Enum.sort_by(&elem(&1, 0))
