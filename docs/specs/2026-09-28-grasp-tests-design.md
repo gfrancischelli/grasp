@@ -236,7 +236,10 @@ test paths uncompared.
   cheaper than walking forward from every test on every index load, and answers the same
   question.
 - **Card.** A function card reached by any test wears a `n tests` badge in its header, and
-  the badge opens the callers menu. The menu gains a Tests section listing them, nearest
+  the badge opens the callers menu. The menu's callers are the application's
+  (`Grasp.Index.test_side?/2` false); the setups and helpers of the suite that call the
+  function follow under a Test helpers heading, and a test calling it is a `direct` row of
+  the Tests section only. The Tests section lists the tests reaching it, nearest
   first, each row titled by its `describe` and name and marked `direct` or `n hops`. A test
   one hop away opens as a caller does; a farther test opens the path to it — the records of
   a shortest backward path of calls (`Grasp.Index.path_back/4`), each opened as a caller of

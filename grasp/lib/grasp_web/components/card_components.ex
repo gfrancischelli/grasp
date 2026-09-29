@@ -17,7 +17,9 @@ defmodule GraspWeb.CardComponents do
 
   A function card that tests reach wears `n tests` in its header, and its callers menu lists
   those tests after the callers, nearest first with the hops between; the badge opens the
-  menu. A row opens the calls between its test and the function, each record a caller of
+  menu. The callers the menu counts are the application's: the setups and helpers of the
+  test suite that call the function sit under their own Test helpers heading, and the tests
+  that call it are the Tests section's `direct` rows. A row opens the calls between its test and the function, each record a caller of
   the next. The answers are the LiveView's, held in a `GraspWeb.TestReach`, so a card reads them
   rather than walking the index as it renders.
 
@@ -424,6 +426,8 @@ defmodule GraspWeb.CardComponents do
     {failures_under, failures_aside} =
       Enum.split_with(failures, &MapSet.member?(drawn_new, &1.line))
 
+    {callers, helpers} = split_callers(index, record["id"])
+
     assigns =
       assign(assigns,
         failures_under: Enum.group_by(failures_under, & &1.line),
@@ -438,7 +442,8 @@ defmodule GraspWeb.CardComponents do
         change: change,
         diffable?: diffable?,
         stats: diffable? && Diff.stats(record["base_source"], record["source"]),
-        callers: Index.callers(index, record["id"]),
+        callers: callers,
+        helpers: helpers,
         tests: tests_reaching(assigns.test_reach, card.function_id),
         result: result_worn(assigns.result),
         failing: failing(assigns.result),
@@ -527,15 +532,17 @@ defmodule GraspWeb.CardComponents do
           <span :if={!@editor_href} class="card__file">
             {@record["file"]}:{@record["span"]["start_line"]}
           </span>
-          <div :if={@callers != [] or @tests != []} class="card__callers">
+          <div :if={@callers != [] or @helpers != [] or @tests != []} class="card__callers">
             <button
-              :if={@callers != []}
+              :if={@callers != [] or (@helpers != [] and @tests == [])}
               class="card__callers-toggle"
               phx-click="toggle_callers"
               phx-value-card={@card.id}
               aria-expanded={to_string(@callers_open == @card.id)}
             >
-              callers ({length(@callers)})
+              {if @callers != [],
+                do: "callers (#{length(@callers)})",
+                else: "test helpers (#{length(@helpers)})"}
             </button>
             <ul :if={@callers_open == @card.id}>
               <li :for={caller <- @callers}>
@@ -546,6 +553,17 @@ defmodule GraspWeb.CardComponents do
                   phx-value-caller={caller}
                 >
                   {caller}
+                </button>
+              </li>
+              <li :if={@helpers != []} class="callers__heading">Test helpers</li>
+              <li :for={helper <- @helpers}>
+                <button
+                  class="caller"
+                  phx-click="open_caller"
+                  phx-value-card={@card.id}
+                  phx-value-caller={helper}
+                >
+                  {helper}
                 </button>
               </li>
               <li :if={@tests != []} class="callers__heading">
@@ -863,6 +881,28 @@ defmodule GraspWeb.CardComponents do
   # title nor the body carries, so it is shown in full.
   defp badge_label(%{"kind" => "route", "label" => label}), do: label
   defp badge_label(%{"kind" => kind}), do: Map.get(@badge_labels, kind, kind)
+
+  # The application's callers apart from the test suite's: a test calling the function is a
+  # row of the Tests section already, so of the suite only setups and helpers are listed.
+  defp split_callers(index, id) do
+    index
+    |> Index.callers(id)
+    |> Enum.reduce({[], []}, fn caller, {callers, helpers} ->
+      case Index.fetch_function(index, caller) do
+        {:ok, %{"kind" => "test"}} ->
+          {callers, helpers}
+
+        {:ok, record} ->
+          if Index.test_side?(index, record),
+            do: {callers, [caller | helpers]},
+            else: {[caller | callers], helpers}
+
+        :error ->
+          {[caller | callers], helpers}
+      end
+    end)
+    |> then(fn {callers, helpers} -> {Enum.reverse(callers), Enum.reverse(helpers)} end)
+  end
 
   defp tests_reaching(nil, _function_id), do: []
   defp tests_reaching(reach, function_id), do: TestReach.for_function(reach, function_id)

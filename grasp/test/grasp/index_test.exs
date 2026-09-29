@@ -315,6 +315,20 @@ defmodule Grasp.IndexTest do
     refute Index.test_file?(index, "test/sample_app/tally_test.exs")
   end
 
+  test "test_side?/2 holds for tests, setups and whatever a test file defines" do
+    {:ok, fixture} = Index.load("test/fixtures/index.json")
+    record = fn id -> elem(Index.fetch_function(fixture, id), 1) end
+
+    assert Index.test_side?(
+             fixture,
+             record.(~s|SampleApp.TallyTest."test init keeps the start count"/1|)
+           )
+
+    assert Index.test_side?(fixture, record.("SampleApp.TallyTest.__ex_unit_setup_0/1"))
+    assert Index.test_side?(fixture, record.("SampleApp.TallyTest.init_with/1"))
+    refute Index.test_side?(fixture, record.("SampleApp.Counter.init/1"))
+  end
+
   test "search/3 finds a test by the words of its name, however its id escapes them" do
     record = %{
       "id" => ~S|MyApp.QuoteTest."test says \"hi\""/1|,
