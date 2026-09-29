@@ -45,7 +45,10 @@ defmodule Grasp.Index.Incremental do
   Classification is per file, against the base commit the document was built with: the
   base contents of the changed files come from `git show`, and a file the base does not
   hold compares against an empty string, which is how `Grasp.Index.Changes` recognises a
-  file the branch added. With no base commit, records are left `"unchanged"`.
+  file the branch added. With no base commit, records are left `"unchanged"`. The modules of
+  the rebuilt files are read again, moduledoc included, and classified by their moduledocs
+  against the same base contents; when the base cannot be read, or there is none, a module
+  keeps the `change`, `base_source` and `base_doc` the document held for its name.
 
   Entry points and module behaviours are recomputed from the modules the VM has loaded. A
   VM that cannot see the application at all keeps what the document already held, so
@@ -124,13 +127,14 @@ defmodule Grasp.Index.Incremental do
 
     kept = Enum.reject(document["functions"] || [], &MapSet.member?(rebuilt, &1["file"]))
 
-    records =
-      definitions
-      |> Join.join(events_for(events, definitions),
+    joined =
+      Join.join(definitions, events_for(events, definitions),
         known_ids: ids(kept),
         unmatched_positions: :drop
       )
-      |> classify(rebuilt, base_ctx, paths, document)
+
+    {records, rebuilt_modules} =
+      classify(joined, extracted.modules, rebuilt, base_ctx, paths, document)
 
     kept_modules = Enum.reject(document["modules"] || [], &MapSet.member?(rebuilt, &1["file"]))
 
@@ -146,9 +150,11 @@ defmodule Grasp.Index.Incremental do
       |> then(&sort_functions(refreshed ++ &1))
 
     modules =
-      sort_modules(
-        kept_modules ++ Enum.map(extracted.modules, &Builder.module_json(&1, behaviours))
-      )
+      rebuilt_modules
+      |> Enum.map(&Builder.module_json(&1, behaviours))
+      |> preserve_modules(document)
+      |> then(&live_or_removed(kept_modules ++ &1))
+      |> sort_modules()
 
     {:ok,
      document
@@ -274,12 +280,15 @@ defmodule Grasp.Index.Incremental do
     do:
       Logger.debug("grasp: live routes skipped, no indexed functions: #{Enum.join(views, ", ")}")
 
-  defp classify(records, _rebuilt, nil, _paths, _document), do: records
+  # Modules come back unclassified whenever the functions are not classified against the
+  # base, and `preserve_modules/3` gives them what the document held.
+  defp classify(records, modules, _rebuilt, nil, _paths, _document), do: {records, modules}
 
-  defp classify(records, rebuilt, base_ctx, paths, document) do
+  defp classify(records, modules, rebuilt, base_ctx, paths, document) do
     case compared_sources(base_ctx, rebuilt) do
       {:ok, compared} ->
-        Changes.classify(records, compared, paths)
+        {Changes.classify(records, compared, paths),
+         Changes.classify_modules(modules, compared, paths)}
 
       :error ->
         Logger.warning(
@@ -287,8 +296,42 @@ defmodule Grasp.Index.Incremental do
             "rebuilt keep the classification they had"
         )
 
-        preserve(records, document)
+        {preserve(records, document), modules}
     end
+  end
+
+  # A rebuilt module left unclassified keeps the `change`, `base_source` and
+  # `base_doc` its name had in the document, and a module the document never classified
+  # stays unclassified. A removed module record describes a module the base had and is
+  # never what a defined module keeps.
+  defp preserve_modules(modules, document) do
+    previous =
+      for module <- document["modules"] || [],
+          module["removed"] != true,
+          Map.has_key?(module, "change"),
+          into: %{},
+          do: {module["name"], module}
+
+    Enum.map(modules, fn module ->
+      case {Map.has_key?(module, "change"), Map.fetch(previous, module["name"])} do
+        {false, {:ok, kept}} ->
+          module
+          |> Map.merge(Map.take(kept, ~w(change base_source base_doc)))
+          |> Map.put("removed", false)
+
+        _classified_or_new ->
+          module
+      end
+    end)
+  end
+
+  # A module this update defines is never also a removed record: a removed record left in a
+  # file it did not rebuild names a module that is back.
+  defp live_or_removed(modules) do
+    live =
+      for module <- modules, module["removed"] != true, into: MapSet.new(), do: module["name"]
+
+    Enum.reject(modules, &(&1["removed"] == true and MapSet.member?(live, &1["name"])))
   end
 
   # The base commit is checked once, before any path is asked for. That is what tells an

@@ -36,6 +36,10 @@ defmodule Grasp.Index.Changes do
   become removed records: the same shape as any other record, carrying the base file, span
   and source and no calls, so a reader can still see what a deleted function used to be.
   They are appended after the records that were passed in, ordered by id.
+
+  Modules are classified beside the functions, by `classify_modules/3`, on the same compared
+  files: a module is matched to the base by its name and compared by its moduledoc's source,
+  which is the part of a module a card shows.
   """
 
   alias Grasp.Index.{Extract, Join}
@@ -60,6 +64,19 @@ defmodule Grasp.Index.Changes do
           removed: boolean()
         }
 
+  @type classified_module :: %{
+          name: String.t(),
+          file: String.t(),
+          line: pos_integer(),
+          doc: Extract.moduledoc() | nil,
+          span: %{start_line: pos_integer(), end_line: pos_integer()} | nil,
+          source: String.t() | nil,
+          change: String.t(),
+          base_source: String.t() | nil,
+          base_doc: Extract.moduledoc() | nil,
+          removed: boolean()
+        }
+
   @doc """
   Classifies `records` against `compared_sources`, mapping every project-relative path that
   differs from the base to the contents it had there — an empty string for a file the base
@@ -73,23 +90,8 @@ defmodule Grasp.Index.Changes do
           classified_record()
         ]
   def classify(records, compared_sources, paths) do
-    prefixes = Enum.map(paths, &(String.trim_trailing(&1, "/") <> "/"))
-
-    compared_sources =
-      Map.filter(compared_sources, fn {file, _} -> String.starts_with?(file, prefixes) end)
-
-    base_definitions =
-      Enum.flat_map(compared_sources, fn {file, source} ->
-        # Only Elixir sources, test files among them, hold definitions to match by name; a
-        # template is compared as a whole file, and running it through the parser would
-        # yield nothing anyway.
-        with extension when extension in [".ex", ".exs"] <- Path.extname(file),
-             {:ok, %{definitions: definitions}} <- Extract.extract(source, file) do
-          definitions
-        else
-          _ -> []
-        end
-      end)
+    compared_sources = within(compared_sources, paths)
+    base_definitions = Enum.flat_map(base_extracts(compared_sources), & &1.definitions)
 
     base_ids =
       Map.new(base_definitions, &{Join.function_id(&1.module, &1.name, &1.arity), &1})
@@ -105,6 +107,104 @@ defmodule Grasp.Index.Changes do
       |> Enum.map(fn {_id, definition} -> removed_record(definition) end)
 
     Enum.map(records, &classify_record(&1, base_ids, compared_sources)) ++ removed
+  end
+
+  @doc """
+  Classifies `modules`, as `Grasp.Index.Extract` reads them, by their moduledocs against
+  the modules the base sources in `compared_sources` define, matched by name; `paths` bound
+  the compared files as they do for `classify/3`.
+
+  Every module gains `:change`, `:base_source`, `:base_doc` and `:removed`. A module whose
+  file is not among the compared files is `"unchanged"`. Otherwise it is `"added"` when it
+  has a moduledoc and the base module of its name has none, or the base defines no module
+  of its name; `"removed"` when the base module has one and it has none; `"modified"` when
+  both have one and their sources differ; and `"unchanged"` otherwise, so a module that
+  moved between files with the same moduledoc is unchanged. A `"modified"` or `"removed"`
+  module carries the base side's moduledoc source as `:base_source` and its doc as
+  `:base_doc`.
+
+  A base module with a moduledoc that no module in `modules` is named after becomes a
+  removed module: its base `file`, `line`, `doc`, `span` and `source`, no behaviours, and
+  `removed: true`. Removed modules are appended after the others, ordered by name. A base
+  module without a moduledoc that the head does not define leaves nothing a review could
+  read, and no record.
+  """
+  @spec classify_modules([Extract.module_info()], %{String.t() => String.t()}, [String.t()]) ::
+          [classified_module()]
+  def classify_modules(modules, compared_sources, paths) do
+    compared_sources = within(compared_sources, paths)
+
+    base_modules =
+      compared_sources
+      |> base_extracts()
+      |> Enum.flat_map(& &1.modules)
+      |> Map.new(&{&1.name, &1})
+
+    names = MapSet.new(modules, & &1.name)
+
+    removed =
+      base_modules
+      |> Map.values()
+      |> Enum.reject(&(MapSet.member?(names, &1.name) or is_nil(&1.doc)))
+      |> Enum.sort_by(& &1.name)
+      |> Enum.map(
+        &Map.merge(&1, %{
+          change: "removed",
+          base_source: &1.source,
+          base_doc: &1.doc,
+          removed: true
+        })
+      )
+
+    Enum.map(modules, fn module ->
+      if Map.has_key?(compared_sources, module.file),
+        do: classify_module(module, Map.get(base_modules, module.name)),
+        else: module_change(module, "unchanged", nil)
+    end) ++ removed
+  end
+
+  defp classify_module(%{doc: nil} = module, %{doc: doc} = base) when not is_nil(doc),
+    do: module_change(module, "removed", base)
+
+  defp classify_module(%{doc: doc} = module, base) when not is_nil(doc) do
+    cond do
+      is_nil(base) or is_nil(base.doc) -> module_change(module, "added", nil)
+      base.source != module.source -> module_change(module, "modified", base)
+      true -> module_change(module, "unchanged", nil)
+    end
+  end
+
+  defp classify_module(module, _base), do: module_change(module, "unchanged", nil)
+
+  defp module_change(module, change, nil),
+    do: Map.merge(module, %{change: change, base_source: nil, base_doc: nil, removed: false})
+
+  defp module_change(module, change, base),
+    do:
+      Map.merge(module, %{
+        change: change,
+        base_source: base.source,
+        base_doc: base.doc,
+        removed: false
+      })
+
+  defp within(compared_sources, paths) do
+    prefixes = Enum.map(paths, &(String.trim_trailing(&1, "/") <> "/"))
+    Map.filter(compared_sources, fn {file, _} -> String.starts_with?(file, prefixes) end)
+  end
+
+  # Only Elixir sources, test files among them, hold definitions and modules to match by
+  # name; a template is compared as a whole file, and running it through the parser would
+  # yield nothing anyway.
+  defp base_extracts(compared_sources) do
+    Enum.flat_map(compared_sources, fn {file, source} ->
+      with extension when extension in [".ex", ".exs"] <- Path.extname(file),
+           {:ok, extracted} <- Extract.extract(source, file) do
+        [extracted]
+      else
+        _ -> []
+      end
+    end)
   end
 
   defp classify_record(%{kind: :template} = record, _base_ids, compared_sources) do

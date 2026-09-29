@@ -498,6 +498,128 @@ defmodule Grasp.Index.IncrementalTest do
     end
   end
 
+  describe "update/5 over the moduledocs of a rebuilt file" do
+    test "classifies the modules it rebuilt against what the base holds",
+         %{document: document, root: root} do
+      original = File.read!(Path.join(@sample_app, @greeter))
+
+      base_source =
+        original <>
+          ~S"""
+
+          defmodule SampleApp.Greeter.Retired do
+            @moduledoc "Retired from greeting."
+          end
+          """
+
+      write(root, @greeter, redocument(@changed_greeter, "Greets people, briefly."))
+      base = repository(root, @greeter, base_source)
+
+      {:ok, updated} = update(document, root, [@greeter], [], base)
+
+      greeter = module(updated, "SampleApp.Greeter")
+      assert greeter["change"] == "modified"
+      assert greeter["doc"] == %{"text" => "Greets people, briefly.", "hidden" => false}
+      assert greeter["source"] == ~S(  @moduledoc "Greets people, briefly.")
+      assert greeter["base_source"] =~ "Greets people, exercising aliases"
+      assert greeter["base_doc"]["text"] =~ "Greets people, exercising aliases"
+      assert greeter["removed"] == false
+
+      assert module(updated, "SampleApp.Greeter.Nested")["change"] == "unchanged"
+
+      assert %{
+               "change" => "removed",
+               "removed" => true,
+               "file" => @greeter,
+               "doc" => %{"text" => "Retired from greeting."}
+             } = module(updated, "SampleApp.Greeter.Retired")
+
+      refute Map.has_key?(module(updated, "SampleApp.Counter"), "change")
+    end
+
+    test "keeps each module's classification without a base",
+         %{document: document, root: root} do
+      document = classify_module(document, "SampleApp.Greeter")
+      write(root, @greeter, @changed_greeter)
+
+      {:ok, updated} = update(document, root, [@greeter], [])
+
+      assert %{
+               "change" => "modified",
+               "base_source" => ~S(  @moduledoc "Greets."),
+               "base_doc" => %{"text" => "Greets.", "hidden" => false},
+               "removed" => false
+             } = module(updated, "SampleApp.Greeter")
+
+      assert module(updated, "SampleApp.Greeter")["doc"]["text"] =~ "Greets people"
+      refute Map.has_key?(module(updated, "SampleApp.Greeter.Nested"), "change")
+    end
+
+    test "keeps each module's classification when git cannot answer",
+         %{document: document, root: root} do
+      document = classify_module(document, "SampleApp.Greeter")
+      write(root, @greeter, @changed_greeter)
+      base = %{root: root, base_sha: String.duplicate("a", 40), paths: ["lib"]}
+
+      {result, _log} = with_log(fn -> update(document, root, [@greeter], [], base) end)
+      {:ok, updated} = result
+
+      assert module(updated, "SampleApp.Greeter")["change"] == "modified"
+      assert module(updated, "SampleApp.Greeter")["base_source"] == ~S(  @moduledoc "Greets.")
+    end
+
+    test "a removed module record the file defines again is dropped",
+         %{document: document, root: root} do
+      retired = %{
+        "id" => "SampleApp.Greeter",
+        "kind" => "module",
+        "name" => "SampleApp.Greeter",
+        "file" => "lib/sample_app/old_greeter.ex",
+        "line" => 1,
+        "behaviours" => [],
+        "doc" => %{"text" => "Greets.", "hidden" => false},
+        "change" => "removed",
+        "base_source" => ~S(  @moduledoc "Greets."),
+        "base_doc" => %{"text" => "Greets.", "hidden" => false},
+        "removed" => true
+      }
+
+      document = Map.update!(document, "modules", &[retired | &1])
+      write(root, @greeter, @changed_greeter)
+
+      {:ok, updated} = update(document, root, [@greeter], [])
+
+      assert [%{"file" => @greeter}] =
+               Enum.filter(updated["modules"], &(&1["name"] == "SampleApp.Greeter"))
+    end
+  end
+
+  defp redocument(source, text),
+    do:
+      String.replace(
+        source,
+        ~S(@moduledoc "Greets people, exercising aliases, imports, defaults, captures and nesting."),
+        ~s(@moduledoc "#{text}")
+      )
+
+  defp classify_module(document, name) do
+    Map.update!(document, "modules", fn modules ->
+      Enum.map(modules, fn module ->
+        if module["name"] == name,
+          do:
+            Map.merge(module, %{
+              "change" => "modified",
+              "base_source" => ~S(  @moduledoc "Greets."),
+              "base_doc" => %{"text" => "Greets.", "hidden" => false},
+              "removed" => false
+            }),
+          else: module
+      end)
+    end)
+  end
+
+  defp module(document, name), do: Enum.find(document["modules"], &(&1["name"] == name))
+
   defp update(document, root, changed, events, base \\ nil),
     do: Incremental.update(document, root, changed, events, base)
 

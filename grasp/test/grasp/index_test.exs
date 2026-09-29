@@ -956,6 +956,124 @@ defmodule Grasp.IndexTest do
     assert one.generation != two.generation
   end
 
+  describe "module records" do
+    test "fetch_module/2 answers a module record by name, and :error for an unknown one" do
+      index = module_index([module_record("A", "Adds things.")])
+
+      assert {:ok, %{"id" => "A", "kind" => "module", "doc" => %{"text" => "Adds things."}}} =
+               Index.fetch_module(index, "A")
+
+      assert Index.fetch_module(index, "B") == :error
+    end
+
+    test "fetch_record/2 answers a function by id, a module by name, and nothing else" do
+      index = module_index([module_record("MyApp.Wallets", "Wallets.")])
+
+      assert {:ok, %{"id" => "MyApp.Wallets.credit/3"}} =
+               Index.fetch_record(index, "MyApp.Wallets.credit/3")
+
+      assert {:ok, %{"id" => "MyApp.Wallets.credit/3"}} =
+               Index.fetch_record(index, "MyApp.Wallets.credit/2")
+
+      assert {:ok, %{"id" => "MyApp.Wallets", "kind" => "module"}} =
+               Index.fetch_record(index, "MyApp.Wallets")
+
+      assert Index.fetch_record(index, "MyApp.Nothing") == :error
+    end
+
+    test "a removed module record never shadows a module the head defines" do
+      removed =
+        Map.merge(module_record("A", "Base."), %{"removed" => true, "change" => "removed"})
+
+      live = module_record("A", "Head.")
+      index = module_index([live, removed])
+
+      assert {:ok, %{"doc" => %{"text" => "Head."}}} = Index.fetch_module(index, "A")
+      assert Index.modules(index) == [live, removed]
+    end
+
+    test "changed_modules/1 answers the added, modified and removed modules, sorted by name" do
+      index =
+        module_index([
+          Map.put(module_record("D", "D."), "change", "modified"),
+          Map.put(module_record("C", "C."), "change", "unchanged"),
+          Map.put(module_record("B", "B."), "change", "added"),
+          module_record("E", "E."),
+          Map.merge(module_record("A", "A."), %{"change" => "removed", "removed" => true})
+        ])
+
+      assert Enum.map(Index.changed_modules(index), & &1["name"]) == ["A", "B", "D"]
+    end
+
+    test "moduledoc_summary/2 answers the first paragraph as plain text on one line" do
+      text = """
+      Credits and debits *wallets*, with **care**, through
+      `Ledger.post/2` and _the_ `__MODULE__` of snake_case_names.
+
+      A second paragraph that is never read.
+      """
+
+      index = module_index([module_record("A", text)])
+
+      assert Index.moduledoc_summary(index, "A") ==
+               "Credits and debits wallets, with care, through Ledger.post/2 and the " <>
+                 "__MODULE__ of snake_case_names."
+    end
+
+    test "moduledoc_summary/2 cuts a long paragraph to 300 characters, the last an ellipsis" do
+      words = String.duplicate("word ", 100)
+      index = module_index([module_record("A", words)])
+      summary = Index.moduledoc_summary(index, "A")
+
+      assert String.length(summary) <= 300
+      assert String.ends_with?(summary, "word…")
+      assert String.starts_with?(words, String.trim_trailing(summary, "…"))
+
+      exact = String.duplicate("a", 300)
+      assert Index.moduledoc_summary(module_index([module_record("B", exact)]), "B") == exact
+    end
+
+    test "moduledoc_summary/2 is nil for a module without moduledoc text" do
+      hidden = Map.put(module_record("A", nil), "doc", %{"text" => nil, "hidden" => true})
+      none = Map.put(module_record("B", nil), "doc", nil)
+      index = module_index([hidden, none])
+
+      assert Index.moduledoc_summary(index, "A") == nil
+      assert Index.moduledoc_summary(index, "B") == nil
+      assert Index.moduledoc_summary(index, "C") == nil
+    end
+
+    test "the fixture's modules are records with their moduledocs" do
+      {:ok, index} = Index.load(Path.expand("../fixtures/index.json", __DIR__))
+
+      assert {:ok, supervisor} = Index.fetch_record(index, "SampleApp.Supervisor")
+      assert supervisor["span"] == %{"start_line" => 2, "end_line" => 9}
+      assert supervisor["doc"]["text"] =~ "\n\n"
+
+      assert Index.moduledoc_summary(index, "SampleApp.Supervisor") ==
+               "A supervisor whose init/1 is written by hand, with no children to start."
+    end
+  end
+
+  defp module_index(modules) do
+    {:ok, index} = Index.from_document(Map.put(document(), "modules", modules))
+    index
+  end
+
+  defp module_record(name, text) do
+    %{
+      "id" => name,
+      "kind" => "module",
+      "name" => name,
+      "file" => "lib/a.ex",
+      "line" => 1,
+      "behaviours" => [],
+      "doc" => %{"text" => text, "hidden" => false},
+      "span" => %{"start_line" => 2, "end_line" => 2},
+      "source" => ~s(  @moduledoc "#{text}")
+    }
+  end
+
   defp reach_index(records) do
     {:ok, index} = Index.from_document(%{"version" => 1, "functions" => records})
     index

@@ -72,10 +72,179 @@ defmodule Grasp.Index.ExtractTest do
     assert %{kind: :defp} = find(defs, "Sample.Deep", :hidden)
 
     assert modules == [
-             %{name: "Sample", file: "lib/sample.ex", line: 1},
-             %{name: "Sample.Nested", file: "lib/sample.ex", line: 13},
-             %{name: "Sample.Deep", file: "lib/sample.ex", line: 17}
+             %{name: "Sample", file: "lib/sample.ex", line: 1, doc: nil, span: nil, source: nil},
+             %{
+               name: "Sample.Nested",
+               file: "lib/sample.ex",
+               line: 13,
+               doc: nil,
+               span: nil,
+               source: nil
+             },
+             %{
+               name: "Sample.Deep",
+               file: "lib/sample.ex",
+               line: 17,
+               doc: nil,
+               span: nil,
+               source: nil
+             }
            ]
+  end
+
+  describe "moduledocs" do
+    test "a string is the moduledoc's text, spanning the attribute's line" do
+      source = ~S"""
+      defmodule A do
+        @moduledoc "Adds things."
+        def f, do: :f
+      end
+      """
+
+      assert module(source, "A") == %{
+               name: "A",
+               file: "lib/a.ex",
+               line: 1,
+               doc: %{text: "Adds things.", hidden: false},
+               span: %{start_line: 2, end_line: 2},
+               source: ~S(  @moduledoc "Adds things.")
+             }
+    end
+
+    test "a heredoc spans through its closing line, its text dedented" do
+      source = ~S'''
+      defmodule A do
+        @moduledoc """
+        Adds *things*.
+
+        And more.
+        """
+
+        def f, do: :f
+      end
+      '''
+
+      assert %{doc: doc, span: span, source: text} = module(source, "A")
+      assert doc == %{text: "Adds *things*.\n\nAnd more.\n", hidden: false}
+      assert span == %{start_line: 2, end_line: 6}
+
+      assert text ==
+               Enum.join(
+                 [~S(  @moduledoc """), "  Adds *things*.", "", "  And more.", ~S(  """)],
+                 "\n"
+               )
+    end
+
+    test "a ~S or ~s sigil without interpolation gives its text" do
+      source = ~S'''
+      defmodule A do
+        @moduledoc ~S"""
+        Reads #{literally}.
+        """
+      end
+
+      defmodule B do
+        @moduledoc ~s(Plain words.)
+      end
+      '''
+
+      assert module(source, "A").doc == %{text: "Reads \#{literally}.\n", hidden: false}
+      assert module(source, "A").span == %{start_line: 2, end_line: 4}
+      assert module(source, "B").doc == %{text: "Plain words.", hidden: false}
+    end
+
+    test "@moduledoc false is hidden and has no text" do
+      source = ~S"""
+      defmodule A do
+        @moduledoc false
+      end
+      """
+
+      assert %{doc: %{text: nil, hidden: true}, span: %{start_line: 2, end_line: 2}} =
+               module(source, "A")
+    end
+
+    test "an interpolated string or any other expression has no text, and its lines are kept" do
+      source = ~S"""
+      defmodule A do
+        @moduledoc "Adds #{@what}."
+      end
+
+      defmodule B do
+        @moduledoc ~s(Adds #{@what}.)
+      end
+
+      defmodule C do
+        @moduledoc @text
+      end
+      """
+
+      for {name, line} <- [{"A", 2}, {"B", 6}, {"C", 10}] do
+        assert %{doc: %{text: nil, hidden: false}, span: span, source: text} =
+                 module(source, name)
+
+        assert span == %{start_line: line, end_line: line}
+        assert text =~ "@moduledoc"
+      end
+    end
+
+    test "a module without one has no doc, span or source" do
+      source = ~S"""
+      defmodule A do
+        def f, do: :f
+      end
+      """
+
+      assert %{doc: nil, span: nil, source: nil} = module(source, "A")
+    end
+
+    test "a nested module's moduledoc is its own, never its parent's" do
+      source = ~S"""
+      defmodule A do
+        defmodule Inner do
+          @moduledoc "Inner."
+        end
+
+        @moduledoc "Outer."
+      end
+
+      defmodule B do
+        defmodule Inner do
+          @moduledoc "Only the inner one."
+        end
+      end
+      """
+
+      assert module(source, "A").doc.text == "Outer."
+      assert module(source, "A").span == %{start_line: 6, end_line: 6}
+      assert module(source, "A.Inner").doc.text == "Inner."
+      assert module(source, "B").doc == nil
+      assert module(source, "B.Inner").doc.text == "Only the inner one."
+    end
+
+    test "the first @moduledoc is the one read" do
+      source = ~S"""
+      defmodule A do
+        @moduledoc "First."
+        @moduledoc "Second."
+      end
+      """
+
+      assert module(source, "A").doc.text == "First."
+    end
+
+    test "a moduledoc is never part of the first definition's span" do
+      source = ~S"""
+      defmodule A do
+        @moduledoc "Adds things."
+        @doc "F."
+        def f, do: :f
+      end
+      """
+
+      {:ok, %{definitions: [f]}} = Extract.extract(source, "lib/a.ex")
+      assert {f.start_line, f.end_line} == {3, 4}
+    end
   end
 
   test "collects call sites keyed by the function name position, ranging over the callee only" do
@@ -1069,6 +1238,11 @@ defmodule Grasp.Index.ExtractTest do
       test = find(defs, "SampleApp.BranchesTest", :"test branches")
       assert {test.clauses, test.arms} == {[{8, 12}], [{10, 10}]}
     end
+  end
+
+  defp module(source, name) do
+    {:ok, %{modules: modules}} = Extract.extract(source, "lib/a.ex")
+    Enum.find(modules, &(&1.name == name))
   end
 
   defp find(defs, module, name), do: Enum.find(defs, &(&1.module == module and &1.name == name))

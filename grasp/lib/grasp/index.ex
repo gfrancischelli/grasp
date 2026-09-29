@@ -11,6 +11,11 @@ defmodule Grasp.Index do
   then ids containing the query, then ids whose characters contain the query as a
   subsequence, so `"walcre"` still finds `MyApp.Wallets.credit/3`.
 
+  Module records are keyed by name at load, beside the document's own list of them, and
+  each module's moduledoc summary is read once there, so a card or a sidebar row asking for
+  one never parses the text again. `fetch_record/2` answers a function id or a module name,
+  which is what a card's id is.
+
   Every index built carries a `generation` no other index built in the VM carries, so a
   holder of answers taken against one can tell whether it still has that index without
   comparing their contents.
@@ -25,12 +30,17 @@ defmodule Grasp.Index do
   # has to reach as far.
   @max_hops 4
 
+  # The longest summary `moduledoc_summary/2` answers, its ellipsis included.
+  @summary_length 300
+
   defstruct version: 1,
             generation: 0,
             generated_at: nil,
             project: %{},
             git: nil,
             modules: [],
+            modules_by_name: %{},
+            moduledoc_summaries: %{},
             entry_points: [],
             functions: %{},
             aliases: %{},
@@ -43,6 +53,7 @@ defmodule Grasp.Index do
             test_review: []
 
   @type function_record :: %{required(String.t()) => term()}
+  @type module_record :: %{required(String.t()) => term()}
   @type t :: %__MODULE__{
           version: pos_integer(),
           generation: non_neg_integer(),
@@ -50,6 +61,8 @@ defmodule Grasp.Index do
           project: map(),
           git: map() | nil,
           modules: [map()],
+          modules_by_name: %{String.t() => module_record()},
+          moduledoc_summaries: %{String.t() => String.t()},
           entry_points: [map()],
           functions: %{String.t() => function_record()},
           aliases: %{String.t() => String.t()},
@@ -135,6 +148,15 @@ defmodule Grasp.Index do
     entry_points_by_target =
       Enum.group_by(entry_points, &Map.get(aliases, &1["target"], &1["target"]))
 
+    modules = Enum.filter(List.wrap(document["modules"]), &is_map/1)
+
+    # A removed module record can share its name with a module the head defines, as a
+    # removed function can share an id: the defined one is written last and wins the key.
+    modules_by_name =
+      modules
+      |> Enum.sort_by(&(&1["removed"] == true), :desc)
+      |> Map.new(&{&1["name"], &1})
+
     index = %__MODULE__{
       version: 1,
       generation: :erlang.unique_integer([:positive, :monotonic]),
@@ -142,6 +164,8 @@ defmodule Grasp.Index do
       project: document["project"] || %{},
       git: document["git"],
       modules: document["modules"] || [],
+      modules_by_name: modules_by_name,
+      moduledoc_summaries: summaries(modules_by_name),
       entry_points: entry_points,
       functions: functions,
       aliases: aliases,
@@ -284,6 +308,77 @@ defmodule Grasp.Index do
   @doc "Module records as stored in the document."
   @spec modules(t()) :: [map()]
   def modules(%__MODULE__{} = index), do: index.modules
+
+  @doc "Fetches a module record by the module's name."
+  @spec fetch_module(t(), String.t()) :: {:ok, module_record()} | :error
+  def fetch_module(%__MODULE__{} = index, name), do: Map.fetch(index.modules_by_name, name)
+
+  @doc """
+  Fetches the record a card's id names: a function by its id, as `fetch_function/2` does, or
+  a module by its name. A function id always ends in `/arity` and a module name never does,
+  so the two never answer to the same id.
+  """
+  @spec fetch_record(t(), String.t()) :: {:ok, function_record() | module_record()} | :error
+  def fetch_record(%__MODULE__{} = index, id) do
+    case fetch_function(index, id) do
+      {:ok, record} -> {:ok, record}
+      :error -> fetch_module(index, id)
+    end
+  end
+
+  @doc "The module records whose moduledoc is `added`, `modified` or `removed`, sorted by name."
+  @spec changed_modules(t()) :: [module_record()]
+  def changed_modules(%__MODULE__{} = index) do
+    index.modules_by_name
+    |> Map.values()
+    |> Enum.filter(&(&1["change"] in ["added", "modified", "removed"]))
+    |> Enum.sort_by(& &1["name"])
+  end
+
+  @doc """
+  The first paragraph of a module's moduledoc as plain text, or `nil` for a module without
+  moduledoc text.
+
+  The paragraph runs up to the first blank line. Markdown's emphasis and code markers are
+  dropped and every run of whitespace, line breaks included, reads as one space; a summary
+  longer than #{@summary_length} characters is cut to that length, its last one an ellipsis.
+  """
+  @spec moduledoc_summary(t(), String.t()) :: String.t() | nil
+  def moduledoc_summary(%__MODULE__{} = index, name), do: Map.get(index.moduledoc_summaries, name)
+
+  defp summaries(modules_by_name) do
+    for {name, %{"doc" => %{"text" => text}}} <- modules_by_name,
+        is_binary(text),
+        summary = summary(text),
+        summary != "",
+        into: %{},
+        do: {name, summary}
+  end
+
+  # A code span keeps its text as written, `__MODULE__` included; outside one, `*` and an
+  # underscore that opens or closes a word are emphasis.
+  defp plain("`" <> _ = code), do: String.trim(code, "`")
+
+  defp plain(text),
+    do:
+      text
+      |> String.replace("*", "")
+      |> String.replace(~r/(?<![[:alnum:]])_+|_+(?![[:alnum:]])/u, "")
+
+  defp summary(text) do
+    summary =
+      text
+      |> String.split(~r/\n[ \t]*\n/, parts: 2)
+      |> hd()
+      |> then(&Regex.split(~r/`+[^`]*`+/, &1, include_captures: true))
+      |> Enum.map_join(&plain/1)
+      |> String.replace(~r/\s+/u, " ")
+      |> String.trim()
+
+    if String.length(summary) > @summary_length,
+      do: String.trim_trailing(String.slice(summary, 0, @summary_length - 1)) <> "…",
+      else: summary
+  end
 
   @doc """
   Entry-point records as stored in the document.

@@ -419,6 +419,29 @@ defmodule Grasp.Index.BuilderTest do
     assert "SampleApp.Formatter" in names
   end
 
+  test "writes each module as a record carrying its moduledoc", %{index: index} do
+    {:ok, supervisor} = Grasp.Index.fetch_module(index, "SampleApp.Supervisor")
+
+    assert %{
+             "id" => "SampleApp.Supervisor",
+             "kind" => "module",
+             "file" => "lib/sample_app/supervisor.ex",
+             "line" => 1,
+             "behaviours" => ["Supervisor"],
+             "span" => %{"start_line" => 2, "end_line" => 9},
+             "doc" => %{"hidden" => false, "text" => text}
+           } = supervisor
+
+    assert text =~ "written *by hand*"
+    assert String.starts_with?(supervisor["source"], ~S(  @moduledoc """))
+    assert String.ends_with?(supervisor["source"], ~S(  """))
+
+    {:ok, nested} = Grasp.Index.fetch_module(index, "SampleApp.Greeter.Nested")
+    assert nested["doc"]["text"] == "A nested module calling back into its parent."
+
+    refute Enum.any?(Grasp.Index.modules(index), &Map.has_key?(&1, "change"))
+  end
+
   test "records entry points", %{index: index} do
     entries = Grasp.Index.entry_points(index)
     by_kind = Enum.group_by(entries, & &1["kind"])

@@ -1,5 +1,12 @@
 defmodule SampleApp.Supervisor do
-  @moduledoc "A supervisor whose init/1 is written by hand (not started by the fixture)."
+  @moduledoc """
+  A supervisor whose `init/1` is written *by hand*, with no children to start.
+
+  The fixture never starts it:
+
+    * `start_link/1` hands its options to `Supervisor.start_link/3`;
+    * `init/1` answers `:one_for_one` over an empty list.
+  """
   use Supervisor
 
   @doc "Starts the supervisor."

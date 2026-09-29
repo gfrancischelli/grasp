@@ -188,6 +188,35 @@ defmodule Grasp.Index.BaseRefTest do
     refute Enum.any?(by_id, fn {_id, record} -> record.file == "test/fixtures/x.ex" end)
   end
 
+  test "the builder classifies modules by their moduledocs against the base's files" do
+    root = repository!()
+    write!(root, "lib/doc.ex", ~s(defmodule Doc do\n  @moduledoc "Base."\nend\n))
+    write!(root, "lib/gone.ex", ~s(defmodule Gone do\n  @moduledoc "Gone."\nend\n))
+    write!(root, "lib/same.ex", ~s(defmodule Same do\n  @moduledoc "Same."\nend\n))
+    git!(root, ["add", "."])
+    git!(root, ["commit", "-q", "-m", "base"])
+    git!(root, ["tag", "modules-base"])
+
+    write!(root, "lib/doc.ex", ~s(defmodule Doc do\n  @moduledoc "Head."\nend\n))
+    File.rm!(Path.join(root, "lib/gone.ex"))
+
+    {:ok, base} = BaseRef.resolve(root, "modules-base")
+
+    modules =
+      Enum.flat_map(["lib/doc.ex", "lib/same.ex"], fn file ->
+        {:ok, %{modules: modules}} = Extract.extract(File.read!(Path.join(root, file)), file)
+        modules
+      end)
+
+    by_name = modules |> Builder.classify_modules(base, ["lib"]) |> Map.new(&{&1.name, &1})
+
+    assert %{change: "modified", base_doc: %{text: "Base."}} = by_name["Doc"]
+    assert %{change: "unchanged"} = by_name["Same"]
+    assert %{change: "removed", removed: true, file: "lib/gone.ex"} = by_name["Gone"]
+
+    assert Builder.classify_modules(modules, nil, ["lib"]) == modules
+  end
+
   test "lists both paths of a renamed file so the old one keeps its base source", context do
     git!(context.root, ["mv", "lib/a.ex", "lib/renamed.ex"])
 

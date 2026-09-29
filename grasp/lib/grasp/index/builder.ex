@@ -16,7 +16,8 @@ defmodule Grasp.Index.Builder do
   modules the compile just produced.
 
   With a `:base` git ref, `Grasp.Index.BaseRef` resolves the commit to compare against and
-  `Grasp.Index.Changes` marks every record added, modified, unchanged or removed. The ref
+  `Grasp.Index.Changes` marks every record added, modified, unchanged or removed, and every
+  module by its moduledoc the same way. The ref
   is resolved before the compile, so a ref no commit answers to fails in a second rather
   than after a full rebuild. Removed functions are written as records like any other, so a
   reader can see what a deleted function was, but they are not definitions this project
@@ -143,10 +144,12 @@ defmodule Grasp.Index.Builder do
         tests.project
       )
 
+    modules = classify_modules(extracted.modules ++ tests.modules, base, paths, traced)
+
     document =
       document(
         records,
-        extracted.modules ++ tests.modules,
+        modules,
         %{detected | entry_points: entries},
         project,
         git_info(root, base)
@@ -254,18 +257,39 @@ defmodule Grasp.Index.Builder do
 
   def classify(records, nil, _paths, _tests), do: records
 
-  def classify(records, base, paths, tests) do
+  def classify(records, base, paths, tests),
+    do: Changes.classify(records, compared(base, tests), paths ++ tests.paths)
+
+  @doc """
+  Classifies `modules` by their moduledocs against `base`, on the files `classify/4`
+  compares, with `Grasp.Index.Changes.classify_modules/3`; the base's modules with a
+  moduledoc that no module in `modules` is named after are appended as removed modules.
+
+  Without a base the modules are left as they came, and their JSON says nothing about a
+  change.
+  """
+  @spec classify_modules(
+          [Extract.module_info()],
+          BaseRef.resolved() | nil,
+          [String.t()],
+          %{paths: [String.t()], files: [String.t()]}
+        ) :: [Extract.module_info() | Changes.classified_module()]
+  def classify_modules(modules, base, paths, tests \\ %{paths: [], files: []})
+
+  def classify_modules(modules, nil, _paths, _tests), do: modules
+
+  def classify_modules(modules, base, paths, tests),
+    do: Changes.classify_modules(modules, compared(base, tests), paths ++ tests.paths)
+
+  defp compared(base, tests) do
     prefixes = Enum.map(tests.paths, &(String.trim_trailing(&1, "/") <> "/"))
     traced = MapSet.new(tests.files)
 
-    compared =
-      base
-      |> compared_sources()
-      |> Map.filter(fn {file, _source} ->
-        not String.starts_with?(file, prefixes) or MapSet.member?(traced, file)
-      end)
-
-    Changes.classify(records, compared, paths ++ tests.paths)
+    base
+    |> compared_sources()
+    |> Map.filter(fn {file, _source} ->
+      not String.starts_with?(file, prefixes) or MapSet.member?(traced, file)
+    end)
   end
 
   @doc """
@@ -297,16 +321,55 @@ defmodule Grasp.Index.Builder do
     }
   end
 
-  @doc "The JSON shape of one module, carrying the behaviours detection found for it."
-  @spec module_json(Extract.module_info(), %{String.t() => [String.t()]}) :: map()
+  @doc """
+  The JSON shape of one module record, carrying the behaviours detection found for it.
+
+  A module record answers to the keys a function record does: `"id"` is its name and
+  `"kind"` is `"module"`. `"doc"` is its moduledoc as `{"text", "hidden"}`, or `nil` for a
+  module without one, and a module with one also writes the attribute's `"span"` and
+  `"source"`. A module classified against a base writes `"change"`, `"base_source"`,
+  `"base_doc"` and `"removed"`; an unclassified one writes none of them.
+  """
+  @spec module_json(
+          Extract.module_info() | Changes.classified_module(),
+          %{String.t() => [String.t()]}
+        ) :: map()
   def module_json(module, behaviours) do
     %{
+      "id" => module.name,
+      "kind" => "module",
       "name" => module.name,
       "file" => module.file,
       "line" => module.line,
-      "behaviours" => Map.get(behaviours, module.name, [])
+      "behaviours" => Map.get(behaviours, module.name, []),
+      "doc" => doc_json(Map.get(module, :doc))
     }
+    |> put_moduledoc_lines(module)
+    |> put_module_change(module)
   end
+
+  defp doc_json(nil), do: nil
+  defp doc_json(doc), do: %{"text" => doc.text, "hidden" => doc.hidden}
+
+  defp put_moduledoc_lines(json, %{span: %{start_line: start_line, end_line: end_line}} = module),
+    do:
+      Map.merge(json, %{
+        "span" => %{"start_line" => start_line, "end_line" => end_line},
+        "source" => module.source
+      })
+
+  defp put_moduledoc_lines(json, _module), do: json
+
+  defp put_module_change(json, %{change: change} = module),
+    do:
+      Map.merge(json, %{
+        "change" => change,
+        "base_source" => module.base_source,
+        "base_doc" => doc_json(module.base_doc),
+        "removed" => module.removed
+      })
+
+  defp put_module_change(json, _module), do: json
 
   @doc """
   The JSON shape of one function record, classified or not.
