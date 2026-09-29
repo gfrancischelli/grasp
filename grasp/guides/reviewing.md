@@ -107,6 +107,7 @@ every call it makes clickable.
   one edge from each of them. It counts and lists the application's callers first; the
   test suite's setups and helpers that call the function sit under a **Test helpers**
   heading after them, and the tests that call it are listed with the other tests (below).
+  A press anywhere else on the canvas closes it.
 - **`file:line`** links into your editor when `editor` is configured. A removed function's
   `file:line` is the base commit's, so it is printed rather than linked.
 - **Badges.** A card wears a badge for the entry point it is, and in a review against a base

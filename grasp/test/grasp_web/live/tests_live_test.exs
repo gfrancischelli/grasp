@@ -303,6 +303,17 @@ defmodule GraspWeb.TestsLiveTest do
       assert has_element?(view, "#card-3[data-function-id='SampleApp.TallyTest.init_with/1']")
     end
 
+    test "closes its menu when the canvas asks", %{view: view} do
+      render_click(view, "open_root", %{"id" => @greet})
+      view |> element("#card-1 .card__tests") |> render_click()
+      assert has_element?(view, "#card-1 .card__callers ul")
+
+      render_click(view, "close_callers", %{})
+
+      refute has_element?(view, "#card-1 .card__callers ul")
+      assert has_element?(view, "#card-1 .card__callers-toggle[aria-expanded='false']")
+    end
+
     test "opens a farther test through the helper between them", %{view: view} do
       render_click(view, "open_root", %{"id" => "SampleApp.Counter.init/1"})
       view |> element("#card-1 .card__tests") |> render_click()

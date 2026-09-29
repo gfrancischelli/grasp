@@ -542,6 +542,9 @@
     },
     pointerDown(e) {
       if (e.button !== 0) return;
+      if (this.el.querySelector(".card__callers ul") && !e.target.closest(".card__callers, .card__tests")) {
+        this.pushEvent("close_callers", {});
+      }
       this.suppressClick = false;
       if (this.spaceHeld) return this.beginPan(e);
       if (e.shiftKey && e.target.closest(".card")) return e.preventDefault();

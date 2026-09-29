@@ -628,6 +628,14 @@ const Canvas = {
 
   pointerDown(e) {
     if (e.button !== 0) return
+    // An open callers menu closes on a press anywhere else. Its own toggles are left to
+    // toggle it, or the close would land first and the toggle reopen it.
+    if (
+      this.el.querySelector(".card__callers ul") &&
+      !e.target.closest(".card__callers, .card__tests")
+    ) {
+      this.pushEvent("close_callers", {})
+    }
     // A previous gesture that ended outside the canvas never got its trailing click, and a
     // stale suppression would eat this one.
     this.suppressClick = false
