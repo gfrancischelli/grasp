@@ -15,6 +15,14 @@ defmodule Grasp.Index.Extract do
   don't nest when rendered. A range can span lines: a receiver written on its own line
   (`Enum\n.map(list, f)`) starts the range one line above the name the compiler reports.
 
+  Every module also carries its **moduledoc**: the first `@moduledoc` among the module body's
+  own statements, a nested module's being that module's alone. A literal string, a heredoc or
+  a `~S`/`~s` sigil without interpolation gives its text, `@moduledoc false` reads as hidden,
+  and any other expression is a moduledoc whose text no parser can know. Its `span` is the
+  attribute's lines, a heredoc's closing line included, and its `source` those lines of the
+  file, sliced as a definition's are. A moduledoc is never part of a definition's span: it is
+  not one of the attributes a definition attaches.
+
   A `~H` sigil in a definition body contributes call sites too: `Grasp.Index.Heex` scans the
   template for component tags and yields the body of every interpolation, this module parses
   those bodies, and the sites the two produce join the ones the Elixir AST produced. The
@@ -181,7 +189,21 @@ defmodule Grasp.Index.Extract do
           arms: [line_range()]
         }
 
-  @type module_info :: %{name: String.t(), file: String.t(), line: pos_integer()}
+  # A module's `@moduledoc`: `text` is the string's value when the attribute is a literal
+  # string, a heredoc or a `~S`/`~s` sigil without interpolation; `hidden` is `true` for
+  # `@moduledoc false`. Any other expression is a moduledoc with neither.
+  @type moduledoc :: %{text: String.t() | nil, hidden: boolean()}
+
+  # `doc` is `nil` for a module without a `@moduledoc`, and `span` and `source` then are too;
+  # otherwise they are the attribute's lines, a heredoc's closing line included.
+  @type module_info :: %{
+          name: String.t(),
+          file: String.t(),
+          line: pos_integer(),
+          doc: moduledoc() | nil,
+          span: %{start_line: pos_integer(), end_line: pos_integer()} | nil,
+          source: String.t() | nil
+        }
 
   @type embed :: %{
           module: String.t(),
@@ -283,13 +305,51 @@ defmodule Grasp.Index.Extract do
 
       name ->
         parts = String.split(name, ".")
-        acc = %{acc | modules: [%{name: name, file: acc.file, line: meta[:line]} | acc.modules]}
-        body |> do_block_exprs() |> collect_definitions(name, parts, acc)
+        exprs = do_block_exprs(body)
+
+        module =
+          Map.merge(%{name: name, file: acc.file, line: meta[:line]}, moduledoc(exprs, acc))
+
+        acc = %{acc | modules: [module | acc.modules]}
+        collect_definitions(exprs, name, parts, acc)
     end
   end
 
   defp walk({:__block__, _, exprs}, stack, acc), do: Enum.reduce(exprs, acc, &walk(&1, stack, &2))
   defp walk(_other, _stack, acc), do: acc
+
+  # The first `@moduledoc` among the module body's own statements; a nested module's is
+  # one of that module's statements, never its parent's.
+  defp moduledoc(exprs, acc) do
+    case Enum.find(exprs, &match?({:@, _, [{:moduledoc, _, [_value]}]}, &1)) do
+      nil ->
+        %{doc: nil, span: nil, source: nil}
+
+      {:@, _, [{:moduledoc, _, [value]}]} = node ->
+        %{start: [line: start_line, column: _], end: [line: end_line, column: _]} =
+          Sourceror.get_range(node)
+
+        source =
+          acc.lines |> Enum.slice(start_line - 1, end_line - start_line + 1) |> Enum.join("\n")
+
+        %{
+          doc: moduledoc_value(value),
+          span: %{start_line: start_line, end_line: end_line},
+          source: source
+        }
+    end
+  end
+
+  defp moduledoc_value({:__block__, _, [false]}), do: %{text: nil, hidden: true}
+
+  defp moduledoc_value({:__block__, _, [text]}) when is_binary(text),
+    do: %{text: text, hidden: false}
+
+  defp moduledoc_value({sigil, _, [{:<<>>, _, [text]}, _modifiers]})
+       when sigil in [:sigil_S, :sigil_s] and is_binary(text),
+       do: %{text: text, hidden: false}
+
+  defp moduledoc_value(_expression), do: %{text: nil, hidden: false}
 
   defp module_name({:__aliases__, _, [:"Elixir" | parts]}, _stack), do: join_alias(parts, [])
 

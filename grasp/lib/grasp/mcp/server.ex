@@ -16,6 +16,7 @@ defmodule Grasp.MCP.Server do
 
   component(Tools.SearchFunctions)
   component(Tools.GetFunction)
+  component(Tools.GetModule)
   component(Tools.GetCallers)
   component(Tools.GetCallees)
   component(Tools.FindPaths)

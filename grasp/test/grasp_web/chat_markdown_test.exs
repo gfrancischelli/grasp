@@ -96,6 +96,31 @@ defmodule GraspWeb.ChatMarkdownTest do
     refute html =~ "button"
   end
 
+  test "a module name the index holds, written as code, becomes a card button" do
+    html = render("Built on `SampleApp.Counter`.", ["SampleApp.Counter"])
+
+    assert html =~
+             ~s(<button type="button" class="fn" data-fn="SampleApp.Counter">SampleApp.Counter</button>)
+  end
+
+  test "a module name the index does not hold stays code, and one in prose stays prose" do
+    assert render("Built on `SampleApp.Nowhere`.") =~ "<code>SampleApp.Nowhere</code>"
+
+    html = render("Built on SampleApp.Counter.", ["SampleApp.Counter"])
+    refute html =~ "data-fn"
+  end
+
+  test "known/1 answers the functions and the modules an index holds" do
+    {:ok, index} = Grasp.Index.load(Path.expand("../fixtures/index.json", __DIR__))
+    known? = ChatMarkdown.known(index)
+
+    assert known?.(@greeter)
+    assert known?.("SampleApp.Greeter.greet/1")
+    assert known?.("SampleApp.Counter")
+    refute known?.("SampleApp.Nowhere")
+    refute ChatMarkdown.known(nil).(@greeter)
+  end
+
   test "a bare function id in prose becomes a card button" do
     html = render("The caller is #{@greeter} and it delegates.")
 
@@ -200,6 +225,16 @@ defmodule GraspWeb.ChatMarkdownTest do
 
       :ets.insert(@cache, {key, "served from the cache"})
       assert ChatMarkdown.render(text, known?) == {:safe, "served from the cache"}
+    end
+
+    test "an answer whose module names resolve differently is rendered again" do
+      text = "An answer about `SampleApp.Counter` no. #{System.unique_integer([:positive])}."
+
+      {:safe, linked} = ChatMarkdown.render(text, &(&1 == "SampleApp.Counter"))
+      {:safe, plain} = ChatMarkdown.render(text, fn _id -> false end)
+
+      assert linked =~ "data-fn"
+      refute plain =~ "data-fn"
     end
 
     test "an answer whose ids resolve differently is rendered again" do

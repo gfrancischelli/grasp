@@ -33,6 +33,26 @@ defmodule GraspWeb.IndexReloadTest do
     assert has_element?(view, "#card-1[data-function-id='#{@shout}']:not(.stub)")
   end
 
+  test "a module card whose module leaves the index reads as a stale card, not a dependency", %{
+    conn: conn
+  } do
+    name = "t-#{System.unique_integer([:positive])}"
+    {:ok, view, _html} = live(conn, "/s/#{name}")
+    Session.open_root(name, "SampleApp.Counter")
+    assert has_element?(view, "#card-1.card--module[data-function-id='SampleApp.Counter']")
+
+    :ok = IndexStore.load(without_counter_module())
+
+    assert has_element?(
+             view,
+             "#card-1.stub .stub__text",
+             "No longer in the index — renamed or removed since it was written."
+           )
+
+    :ok = IndexStore.load(@fixture)
+    assert has_element?(view, "#card-1.card--module[data-function-id='SampleApp.Counter']")
+  end
+
   test "an index that gains changes opens the Changes group under a running viewer", %{
     conn: conn
   } do
@@ -62,6 +82,14 @@ defmodule GraspWeb.IndexReloadTest do
     write(fn document ->
       Map.update!(document, "functions", fn records ->
         Enum.reject(records, &(&1["id"] == @shout))
+      end)
+    end)
+  end
+
+  defp without_counter_module do
+    write(fn document ->
+      Map.update!(document, "modules", fn modules ->
+        Enum.reject(modules, &(&1["name"] == "SampleApp.Counter"))
       end)
     end)
   end

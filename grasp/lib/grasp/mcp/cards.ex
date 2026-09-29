@@ -12,6 +12,10 @@ defmodule Grasp.MCP.Cards do
   the caller's spelling — the canonical id only decides which call it is. A highlight
   resolves the same way: `%{"call" => target}` is stored as the raw target of the call it
   matched, because that is what the rendered card carries in `data-target`.
+
+  A card's `function_id` may also be a module's name, which opens that module's card: its
+  moduledoc. A module card calls nothing and is called by nothing, so it opens at the left
+  edge and no card hangs under it; its highlight shades lines of the moduledoc, never a call.
   """
 
   alias Grasp.Index
@@ -37,8 +41,9 @@ defmodule Grasp.MCP.Cards do
   @doc """
   Validates and links `cards`, in order, into the spec `Grasp.Session.set_cards/2` takes.
 
-  Every `function_id` must be in the index and every `parent_key` must name an earlier
-  card. Unknown functions are collected into one message so an agent fixes them in a
+  Every `function_id` must be a function or a module in the index and every `parent_key`
+  must name an earlier card that is not a module card; a module card takes no `parent_key`.
+  Unknown functions and modules are collected into one message so an agent fixes them in a
   single round trip rather than one per call.
 
   A `group` is a title rather than an id: cards carrying the same title land in one group,
@@ -47,24 +52,35 @@ defmodule Grasp.MCP.Cards do
   """
   @spec prepare(Index.t(), [input()]) :: {:ok, [Forest.spec()]} | {:error, String.t()}
   def prepare(%Index{} = index, cards) when is_list(cards) do
-    case Enum.filter(cards, &(Index.fetch_function(index, &1.function_id) == :error)) do
+    case Enum.filter(cards, &(Index.fetch_record(index, &1.function_id) == :error)) do
       [] -> link(index, cards)
-      unknown -> {:error, "unknown functions: " <> Enum.map_join(unknown, ", ", & &1.function_id)}
+      unknown -> {:error, unknown(unknown)}
     end
   end
 
+  defp unknown(cards) do
+    {modules, functions} =
+      cards |> Enum.map(& &1.function_id) |> Enum.split_with(&Index.module_id?/1)
+
+    [{"unknown functions: ", functions}, {"unknown functions or modules: ", modules}]
+    |> Enum.reject(fn {_label, ids} -> ids == [] end)
+    |> Enum.map_join("; ", fn {label, ids} -> label <> Enum.join(ids, ", ") end)
+    |> Kernel.<>(if modules == [], do: "", else: " — a function id ends in /arity")
+  end
+
   @doc """
-  Checks `highlight` against the function it marks.
+  Checks `highlight` against the function or module card it marks.
 
   A call must be one the function makes, visible or hidden, and is stored as that call's
-  raw target. A line range must lie inside the function's span. Nothing, or an empty
-  highlight, marks nothing.
+  raw target; a module card makes none. A line range must lie inside the record's span,
+  which for a module is its moduledoc's lines. Nothing, or an empty highlight, marks
+  nothing.
   """
   @spec validate_highlight(Index.t(), String.t(), highlight_input()) ::
           {:ok, Forest.highlight()} | {:error, String.t()}
   def validate_highlight(%Index{} = index, function_id, highlight) do
-    case Index.fetch_function(index, function_id) do
-      :error -> {:error, "unknown function: #{function_id}"}
+    case Grasp.MCP.Tools.fetch_record(index, function_id) do
+      {:error, _message} = error -> error
       {:ok, record} -> highlight(index, record, get(highlight, :call), get(highlight, :lines))
     end
   end
@@ -79,8 +95,8 @@ defmodule Grasp.MCP.Cards do
   def opened_by(%Index{} = index, parent_id, child_id),
     do: Links.call_target(index, parent_id, child_id) || child_id
 
-  # `opened` maps each key seen so far to the function its card shows, which is both the
-  # check that a `parent_key` names an earlier card and the record `opened_by` is read from.
+  # `opened` maps each key seen so far to the id its card shows, which is both the check
+  # that a `parent_key` names an earlier card and the record `opened_by` is read from.
   defp link(index, cards) do
     cards
     |> Enum.reduce_while({[], %{}}, fn card, {specs, opened} ->
@@ -98,9 +114,10 @@ defmodule Grasp.MCP.Cards do
   defp spec(index, opened, card) do
     parent_key = get(card, :parent_key)
     # Safe because prepare/2 has already answered for every function_id in the list.
-    {:ok, record} = Index.fetch_function(index, card.function_id)
+    {:ok, record} = Index.fetch_record(index, card.function_id)
 
     with {:ok, parent_id} <- parent(opened, parent_key),
+         :ok <- hangs(record, parent_id),
          {:ok, highlight} <- validate_highlight(index, record["id"], get(card, :highlight)) do
       {:ok,
        %{
@@ -112,6 +129,23 @@ defmodule Grasp.MCP.Cards do
          highlight: highlight
        }}
     end
+  end
+
+  @doc """
+  Whether a card showing `record` may hang under the card showing `parent_id`, `nil` for no
+  parent: neither of the two may be a module card, which opens at the left edge and holds
+  no call for a card to be opened from.
+  """
+  @spec hangs(map(), String.t() | nil) :: :ok | {:error, String.t()}
+  def hangs(_record, nil), do: :ok
+
+  def hangs(%{"kind" => "module", "name" => name}, _parent_id),
+    do: {:error, "#{name} is a module, whose card opens at the left edge; give it no parent"}
+
+  def hangs(_record, parent_id) do
+    if Index.module_id?(parent_id),
+      do: {:error, "#{parent_id} is a module, whose card calls nothing; no card hangs under it"},
+      else: :ok
   end
 
   defp parent(_opened, nil), do: {:ok, nil}
@@ -139,8 +173,19 @@ defmodule Grasp.MCP.Cards do
 
   defp highlight(_index, record, nil, [first, last])
        when is_integer(first) and is_integer(last) do
-    %{"start_line" => start_line, "end_line" => end_line} = record["span"]
+    case record["span"] do
+      %{"start_line" => start_line, "end_line" => end_line} ->
+        in_span(record, first, last, start_line, end_line)
 
+      _no_span ->
+        {:error, "#{record["id"]} has no lines to shade"}
+    end
+  end
+
+  defp highlight(_index, record, nil, _lines),
+    do: {:error, "#{record["id"]}: a line highlight takes two line numbers, first and last"}
+
+  defp in_span(record, first, last, start_line, end_line) do
     if start_line <= first and first <= last and last <= end_line do
       {:ok, %{"lines" => [first, last]}}
     else
@@ -148,9 +193,6 @@ defmodule Grasp.MCP.Cards do
        "lines #{first}-#{last} fall outside #{record["id"]}, which spans #{start_line}-#{end_line}"}
     end
   end
-
-  defp highlight(_index, record, nil, _lines),
-    do: {:error, "#{record["id"]}: a line highlight takes two line numbers, first and last"}
 
   defp calls(record),
     do: Enum.filter(List.wrap(record["calls"]) ++ List.wrap(record["hidden_calls"]), &is_map/1)

@@ -140,15 +140,68 @@ defmodule Grasp.MCP.Tools do
   The record for the function id `id`, or the message a tool answers an unknown id with.
 
   Any arity a definition with default arguments answers to resolves to that definition, so
-  `record["id"]` is the canonical id the graph and the cards are keyed by.
+  `record["id"]` is the canonical id the graph and the cards are keyed by. A module name is
+  refused with a message saying so and pointing at `get_module`, since a tool reading a
+  function has no answer for a module and "unknown function" would read as a typo.
   """
   @spec fetch_function(Grasp.Index.t(), String.t()) :: {:ok, map()} | {:error, String.t()}
   def fetch_function(%Grasp.Index{} = index, id) do
     case Grasp.Index.fetch_function(index, id) do
-      {:ok, record} -> {:ok, record}
-      :error -> {:error, "unknown function: #{id}"}
+      {:ok, record} ->
+        {:ok, record}
+
+      :error ->
+        if Grasp.Index.module_id?(id) and Grasp.Index.fetch_module(index, id) != :error,
+          do: {:error, module_refused(id)},
+          else: {:error, "unknown function: #{id}"}
     end
   end
+
+  @doc """
+  The record a card or a thread names by `id`: a function by its id, as `fetch_function/2`
+  answers it, or a module by its name, which `Grasp.Index.module_id?/1` tells apart.
+
+  An id ending in `/arity` the index does not hold is an unknown function. Any other id the
+  index does not hold as a module may be a function written without its arity, so the
+  message names both forms.
+  """
+  @spec fetch_record(Grasp.Index.t(), String.t()) :: {:ok, map()} | {:error, String.t()}
+  def fetch_record(%Grasp.Index{} = index, id) do
+    cond do
+      not Grasp.Index.module_id?(id) -> fetch_function(index, id)
+      match?({:ok, _record}, Grasp.Index.fetch_module(index, id)) -> fetch_module(index, id)
+      true -> {:error, unknown_record(id)}
+    end
+  end
+
+  @doc """
+  The message for an id without an arity that names no module the index holds: it names
+  both forms an id takes, since the likeliest slip is a function written without `/arity`.
+  """
+  @spec unknown_record(String.t()) :: String.t()
+  def unknown_record(id),
+    do:
+      "unknown function or module: #{id} — a function id ends in /arity, " <>
+        "as in `Module.fun/1`, and a module id is the module's name"
+
+  @doc "The module record named `name`, or the message a tool answers an unknown module with."
+  @spec fetch_module(Grasp.Index.t(), String.t()) :: {:ok, map()} | {:error, String.t()}
+  def fetch_module(%Grasp.Index{} = index, name) do
+    case Grasp.Index.fetch_module(index, name) do
+      {:ok, record} -> {:ok, record}
+      :error -> {:error, "unknown module: #{name}"}
+    end
+  end
+
+  @doc """
+  The message a tool answers when `name`, a module, is given where only a function will do:
+  a module card holds its moduledoc and nothing it calls or is called by.
+  """
+  @spec module_refused(String.t()) :: String.t()
+  def module_refused(name),
+    do:
+      "#{name} is a module, not a function; read its moduledoc with get_module, " <>
+        "and name a function as `Module.fun/arity`"
 
   @doc """
   A run of `Grasp.Runs` as a tool answers it: its `id`, `kind`, `description`, `argv`,

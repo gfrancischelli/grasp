@@ -13,7 +13,7 @@ defmodule GraspWeb.MCPTest do
 
     assert names ==
              ~w(add_comment close_card coverage find_paths focus_card get_callees get_callers
-                get_function get_session group_cards highlight_card list_changes list_comments
+                get_function get_module get_session group_cards highlight_card list_changes list_comments
                 list_entry_points list_modules list_sessions open_card publish_comments
                 reload_index rename_group reply_comment resolve_comment run_coverage
                 run_status run_tests search_functions set_cards set_view test_review tests_for

@@ -562,11 +562,11 @@
           "kind": "remote",
           "range": {
             "end": [
-              7,
+              14,
               50
             ],
             "start": [
-              7,
+              14,
               29
             ]
           },
@@ -576,8 +576,8 @@
       "change": "unchanged",
       "clauses": [
         [
-          7,
-          7
+          14,
+          14
         ]
       ],
       "file": "lib/sample_app/supervisor.ex",
@@ -590,8 +590,8 @@
       "route_sites": [],
       "source": "  @doc \"Starts the supervisor.\"\n  @spec start_link(keyword()) :: Supervisor.on_start()\n  def start_link(opts), do: Supervisor.start_link(__MODULE__, :ok, opts)",
       "span": {
-        "end_line": 7,
-        "start_line": 5
+        "end_line": 14,
+        "start_line": 12
       }
     },
     {
@@ -606,11 +606,11 @@
           "kind": "remote",
           "range": {
             "end": [
-              10,
+              17,
               37
             ],
             "start": [
-              10,
+              17,
               22
             ]
           },
@@ -620,8 +620,8 @@
       "change": "unchanged",
       "clauses": [
         [
-          10,
-          10
+          17,
+          17
         ]
       ],
       "file": "lib/sample_app/supervisor.ex",
@@ -634,8 +634,8 @@
       "route_sites": [],
       "source": "  @impl true\n  def init(:ok), do: Supervisor.init([], strategy: :one_for_one)",
       "span": {
-        "end_line": 10,
-        "start_line": 9
+        "end_line": 17,
+        "start_line": 16
       }
     },
     {
@@ -2047,138 +2047,331 @@
       "behaviours": [
         "Application"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "Application module (not started by the fixture)."
+      },
       "file": "lib/sample_app/application.ex",
+      "id": "SampleApp.Application",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.Application"
+      "name": "SampleApp.Application",
+      "source": "  @moduledoc \"Application module (not started by the fixture).\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [],
+      "doc": {
+        "hidden": false,
+        "text": "A function whose definition carries a decorator attribute."
+      },
       "file": "lib/sample_app/audited.ex",
+      "id": "SampleApp.Audited",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.Audited"
+      "name": "SampleApp.Audited",
+      "source": "  @moduledoc \"A function whose definition carries a decorator attribute.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "GenServer"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "A GenServer defining two callbacks; the rest are use GenServer defaults."
+      },
       "file": "lib/sample_app/counter.ex",
+      "id": "SampleApp.Counter",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.Counter"
+      "name": "SampleApp.Counter",
+      "source": "  @moduledoc \"A GenServer defining two callbacks; the rest are use GenServer defaults.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [],
+      "doc": {
+        "hidden": false,
+        "text": "String decorations used by the greeter."
+      },
       "file": "lib/sample_app/formatter.ex",
+      "id": "SampleApp.Formatter",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.Formatter"
+      "name": "SampleApp.Formatter",
+      "source": "  @moduledoc \"String decorations used by the greeter.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [],
+      "doc": {
+        "hidden": false,
+        "text": "Greets people, exercising aliases, imports, defaults, captures and nesting."
+      },
       "file": "lib/sample_app/greeter.ex",
+      "id": "SampleApp.Greeter",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.Greeter"
+      "name": "SampleApp.Greeter",
+      "source": "  @moduledoc \"Greets people, exercising aliases, imports, defaults, captures and nesting.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [],
+      "doc": {
+        "hidden": false,
+        "text": "A nested module calling back into its parent."
+      },
       "file": "lib/sample_app/greeter.ex",
+      "id": "SampleApp.Greeter.Nested",
+      "kind": "module",
       "line": 17,
-      "name": "SampleApp.Greeter.Nested"
+      "name": "SampleApp.Greeter.Nested",
+      "source": "    @moduledoc \"A nested module calling back into its parent.\"",
+      "span": {
+        "end_line": 18,
+        "start_line": 18
+      }
     },
     {
       "behaviours": [
         "Supervisor"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "A supervisor whose `init/1` is written *by hand*, with no children to start.\n\nThe fixture never starts it:\n\n  * `start_link/1` hands its options to `Supervisor.start_link/3`;\n  * `init/1` answers `:one_for_one` over an empty list.\n"
+      },
       "file": "lib/sample_app/supervisor.ex",
+      "id": "SampleApp.Supervisor",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.Supervisor"
+      "name": "SampleApp.Supervisor",
+      "source": "  @moduledoc \"\"\"\n  A supervisor whose `init/1` is written *by hand*, with no children to start.\n\n  The fixture never starts it:\n\n    * `start_link/1` hands its options to `Supervisor.start_link/3`;\n    * `init/1` answers `:one_for_one` over an empty list.\n  \"\"\"",
+      "span": {
+        "end_line": 9,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Oban.Worker"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "An Oban worker."
+      },
       "file": "lib/sample_app/workers/mailer.ex",
+      "id": "SampleApp.Workers.Mailer",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.Workers.Mailer"
+      "name": "SampleApp.Workers.Mailer",
+      "source": "  @moduledoc \"An Oban worker.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Phoenix.VerifiedRoutes",
         "Plug"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "A router reached through a forward, so its routes carry the mount prefix."
+      },
       "file": "lib/sample_app_web/api_router.ex",
+      "id": "SampleAppWeb.ApiRouter",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.ApiRouter"
+      "name": "SampleAppWeb.ApiRouter",
+      "source": "  @moduledoc \"A router reached through a forward, so its routes carry the mount prefix.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Phoenix.Endpoint",
         "Plug"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "Minimal endpoint so the router compiles."
+      },
       "file": "lib/sample_app_web/endpoint.ex",
+      "id": "SampleAppWeb.Endpoint",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.Endpoint"
+      "name": "SampleAppWeb.Endpoint",
+      "source": "  @moduledoc \"Minimal endpoint so the router compiles.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Plug"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "Controller actions that call into the greeter."
+      },
       "file": "lib/sample_app_web/greet_controller.ex",
+      "id": "SampleAppWeb.GreetController",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.GreetController"
+      "name": "SampleAppWeb.GreetController",
+      "source": "  @moduledoc \"Controller actions that call into the greeter.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [],
+      "doc": {
+        "hidden": false,
+        "text": "The HTML module `SampleAppWeb.GreetController` renders through."
+      },
       "file": "lib/sample_app_web/greet_html.ex",
+      "id": "SampleAppWeb.GreetHTML",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.GreetHTML"
+      "name": "SampleAppWeb.GreetHTML",
+      "source": "  @moduledoc \"The HTML module `SampleAppWeb.GreetController` renders through.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Phoenix.LiveComponent"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "A LiveComponent; `use Phoenix.LiveComponent` also injects `__live__/0`."
+      },
       "file": "lib/sample_app_web/greeting_component.ex",
+      "id": "SampleAppWeb.GreetingComponent",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.GreetingComponent"
+      "name": "SampleAppWeb.GreetingComponent",
+      "source": "  @moduledoc \"A LiveComponent; `use Phoenix.LiveComponent` also injects `__live__/0`.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Phoenix.LiveView"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "A LiveView with three callbacks."
+      },
       "file": "lib/sample_app_web/hello_live.ex",
+      "id": "SampleAppWeb.HelloLive",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.HelloLive"
+      "name": "SampleAppWeb.HelloLive",
+      "source": "  @moduledoc \"A LiveView with three callbacks.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Plug"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "A plain plug."
+      },
       "file": "lib/sample_app_web/request_id.ex",
+      "id": "SampleAppWeb.RequestId",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.RequestId"
+      "name": "SampleAppWeb.RequestId",
+      "source": "  @moduledoc \"A plain plug.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [
         "Phoenix.VerifiedRoutes",
         "Plug"
       ],
+      "doc": {
+        "hidden": false,
+        "text": "Routes exercised by the entry-point detector."
+      },
       "file": "lib/sample_app_web/router.ex",
+      "id": "SampleAppWeb.Router",
+      "kind": "module",
       "line": 1,
-      "name": "SampleAppWeb.Router"
+      "name": "SampleAppWeb.Router",
+      "source": "  @moduledoc \"Routes exercised by the entry-point detector.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [],
+      "doc": {
+        "hidden": false,
+        "text": "The case template the sample app's request tests use."
+      },
       "file": "test/support/sample_case.ex",
+      "id": "SampleApp.SampleCase",
+      "kind": "module",
       "line": 1,
-      "name": "SampleApp.SampleCase"
+      "name": "SampleApp.SampleCase",
+      "source": "  @moduledoc \"The case template the sample app's request tests use.\"",
+      "span": {
+        "end_line": 2,
+        "start_line": 2
+      }
     },
     {
       "behaviours": [],
+      "doc": null,
       "file": "test/sample_app/tally_test.exs",
+      "id": "SampleApp.TallyTest",
+      "kind": "module",
       "line": 1,
       "name": "SampleApp.TallyTest"
     },
     {
       "behaviours": [],
+      "doc": null,
       "file": "test/sample_app_web/routes_test.exs",
+      "id": "SampleAppWeb.RoutesTest",
+      "kind": "module",
       "line": 1,
       "name": "SampleAppWeb.RoutesTest"
     }

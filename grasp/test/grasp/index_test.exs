@@ -127,6 +127,43 @@ defmodule Grasp.IndexTest do
     assert Index.callees(index, "MyApp.Wallets.credit/2") == ["MyApp.Ledger.post/2"]
   end
 
+  test "module_id?/1 tells a module name from a function id" do
+    assert Index.module_id?("MyApp.Wallets")
+    refute Index.module_id?("MyApp.Wallets.credit/3")
+    refute Index.module_id?(~s|MyApp.WalletsTest."test credits a wallet"/1|)
+  end
+
+  test "search/4 with modules: true ranks functions before modules of the same score" do
+    module = %{
+      "id" => "MyApp.Wallets",
+      "kind" => "module",
+      "name" => "MyApp.Wallets",
+      "file" => "lib/my_app/wallets.ex",
+      "line" => 1
+    }
+
+    {:ok, index} = Index.from_document(Map.put(document(), "modules", [module]))
+
+    assert [%{"kind" => "module", "id" => "MyApp.Wallets"} | rest] =
+             Index.search(index, "MyApp.Wallets", 20, modules: true)
+
+    assert ids(rest) == ["MyApp.Wallets.debit/3", "MyApp.Wallets.credit/3"]
+
+    assert ids(Index.search(index, "wallets", 20, modules: true)) == [
+             "MyApp.Wallets.debit/3",
+             "MyApp.Wallets.credit/3",
+             "MyApp.Wallets"
+           ]
+
+    assert ids(Index.search(index, "myapp.wallets", 20, modules: true)) == [
+             "MyApp.Wallets",
+             "MyApp.Wallets.debit/3",
+             "MyApp.Wallets.credit/3"
+           ]
+
+    refute "MyApp.Wallets" in ids(Index.search(index, "wallets"))
+  end
+
   test "search/3 ranks exact, then substring, then subsequence matches", %{index: index} do
     assert ids(Index.search(index, "MyApp.Wallets.debit/3")) == ["MyApp.Wallets.debit/3"]
     assert ids(Index.search(index, "credit")) == ["MyApp.Wallets.credit/3"]
@@ -191,10 +228,13 @@ defmodule Grasp.IndexTest do
 
     assert Index.modules(loaded) == [
              %{
+               "id" => "MyApp.Wallets",
+               "kind" => "module",
                "name" => "MyApp.Wallets",
                "file" => "lib/my_app/wallets.ex",
                "line" => 1,
-               "behaviours" => []
+               "behaviours" => [],
+               "doc" => nil
              }
            ]
 
@@ -954,6 +994,186 @@ defmodule Grasp.IndexTest do
 
     assert is_integer(one.generation)
     assert one.generation != two.generation
+  end
+
+  describe "module records" do
+    test "fetch_module/2 answers a module record by name, and :error for an unknown one" do
+      index = module_index([module_record("A", "Adds things.")])
+
+      assert {:ok, %{"id" => "A", "kind" => "module", "doc" => %{"text" => "Adds things."}}} =
+               Index.fetch_module(index, "A")
+
+      assert Index.fetch_module(index, "B") == :error
+    end
+
+    test "fetch_record/2 answers a function by id, a module by name, and nothing else" do
+      index = module_index([module_record("MyApp.Wallets", "Wallets.")])
+
+      assert {:ok, %{"id" => "MyApp.Wallets.credit/3"}} =
+               Index.fetch_record(index, "MyApp.Wallets.credit/3")
+
+      assert {:ok, %{"id" => "MyApp.Wallets.credit/3"}} =
+               Index.fetch_record(index, "MyApp.Wallets.credit/2")
+
+      assert {:ok, %{"id" => "MyApp.Wallets", "kind" => "module"}} =
+               Index.fetch_record(index, "MyApp.Wallets")
+
+      assert Index.fetch_record(index, "MyApp.Nothing") == :error
+    end
+
+    test "a removed module record never shadows a module the head defines" do
+      removed =
+        Map.merge(module_record("A", "Base."), %{"removed" => true, "change" => "removed"})
+
+      live = module_record("A", "Head.")
+      index = module_index([live, removed])
+
+      assert {:ok, %{"doc" => %{"text" => "Head."}}} = Index.fetch_module(index, "A")
+      assert Index.modules(index) == [live]
+    end
+
+    test "modules/1 leaves removed module records out, and the readers by name still reach them" do
+      live = module_record("A", "Kept.")
+
+      removed =
+        Map.merge(module_record("B", "Gone."), %{"removed" => true, "change" => "removed"})
+
+      index = module_index([live, removed])
+
+      assert Index.modules(index) == [live]
+      assert Index.fetch_module(index, "B") == {:ok, removed}
+      assert Index.fetch_record(index, "B") == {:ok, removed}
+      assert Index.changed_modules(index) == [removed]
+    end
+
+    test "modules/1 leaves out an entry that is not a module record" do
+      live = module_record("A", "Kept.")
+      index = module_index([live, "not a module", nil])
+
+      assert Index.modules(index) == [live]
+    end
+
+    test "changed_modules/1 answers the added, modified and removed modules, sorted by name" do
+      index =
+        module_index([
+          Map.put(module_record("D", "D."), "change", "modified"),
+          Map.put(module_record("C", "C."), "change", "unchanged"),
+          Map.put(module_record("B", "B."), "change", "added"),
+          module_record("E", "E."),
+          Map.merge(module_record("A", "A."), %{"change" => "removed", "removed" => true})
+        ])
+
+      assert Enum.map(Index.changed_modules(index), & &1["name"]) == ["A", "B", "D"]
+    end
+
+    test "moduledoc_summary/2 answers the first paragraph as plain text on one line" do
+      text = """
+      Credits and debits *wallets*, with **care**, through
+      `Ledger.post/2` and _the_ `__MODULE__` of snake_case_names.
+
+      A second paragraph that is never read.
+      """
+
+      index = module_index([module_record("A", text)])
+
+      assert Index.moduledoc_summary(index, "A") ==
+               "Credits and debits wallets, with care, through Ledger.post/2 and the " <>
+                 "__MODULE__ of snake_case_names."
+    end
+
+    test "moduledoc_summary/2 reads a heading and a link as their text" do
+      heading = module_index([module_record("A", "## Wallets\n\nThe rest.")])
+      assert Index.moduledoc_summary(heading, "A") == "Wallets"
+
+      text = "Posts to [the ledger](https://example.com/ledger) and [`Ledger`](Ledger.html)."
+      linked = module_index([module_record("B", text)])
+      assert Index.moduledoc_summary(linked, "B") == "Posts to the ledger and Ledger."
+    end
+
+    test "moduledoc_summary/2 cuts a long paragraph to 300 characters, the last an ellipsis" do
+      words = String.duplicate("word ", 100)
+      index = module_index([module_record("A", words)])
+      summary = Index.moduledoc_summary(index, "A")
+
+      assert summary == String.slice(words, 0, 299) <> "…"
+      assert String.length(summary) == 300
+
+      spaced = String.duplicate("a", 298) <> " bbbb"
+      cut = Index.moduledoc_summary(module_index([module_record("C", spaced)]), "C")
+      assert cut == String.duplicate("a", 298) <> "…"
+
+      exact = String.duplicate("a", 300)
+      assert Index.moduledoc_summary(module_index([module_record("B", exact)]), "B") == exact
+    end
+
+    test "moduledoc_summary/2 is nil for a module without moduledoc text" do
+      hidden = Map.put(module_record("A", nil), "doc", %{"text" => nil, "hidden" => true})
+      none = Map.put(module_record("B", nil), "doc", nil)
+      index = module_index([hidden, none])
+
+      assert Index.moduledoc_summary(index, "A") == nil
+      assert Index.moduledoc_summary(index, "B") == nil
+      assert Index.moduledoc_summary(index, "C") == nil
+    end
+
+    test "a module entry holding only name, file, line and behaviours loads as a module record" do
+      bare = %{"name" => "A", "file" => "lib/a.ex", "line" => 1, "behaviours" => ["Plug"]}
+      index = module_index([bare, %{"name" => "B", "file" => "lib/b.ex", "line" => 1}])
+
+      expected = Map.merge(bare, %{"id" => "A", "kind" => "module", "doc" => nil})
+
+      assert Index.fetch_record(index, "A") == {:ok, expected}
+      assert Index.fetch_module(index, "A") == {:ok, expected}
+
+      assert {:ok, %{"id" => "B", "kind" => "module", "behaviours" => []}} =
+               Index.fetch_record(index, "B")
+
+      assert Enum.map(Index.modules(index), & &1["id"]) == ["A", "B"]
+      assert Index.moduledoc_summary(index, "A") == nil
+      assert Index.changed_modules(index) == []
+
+      assert [%{"id" => "A", "kind" => "module"}] =
+               Index.search(index, "A", 20, modules: true) |> Enum.filter(&(&1["name"] == "A"))
+
+      assert Enum.all?(Index.search(index, "a", 20, modules: true), &is_binary(&1["id"]))
+    end
+
+    test "a module entry without a name is left out" do
+      index = module_index([%{"file" => "lib/a.ex", "line" => 1}, module_record("B", "B.")])
+
+      assert Enum.map(Index.modules(index), & &1["name"]) == ["B"]
+      assert Enum.all?(Index.search(index, "b", 20, modules: true), &is_binary(&1["id"]))
+    end
+
+    test "the fixture's modules are records with their moduledocs" do
+      {:ok, index} = Index.load(Path.expand("../fixtures/index.json", __DIR__))
+
+      assert {:ok, supervisor} = Index.fetch_record(index, "SampleApp.Supervisor")
+      assert supervisor["span"] == %{"start_line" => 2, "end_line" => 9}
+      assert supervisor["doc"]["text"] =~ "\n\n"
+
+      assert Index.moduledoc_summary(index, "SampleApp.Supervisor") ==
+               "A supervisor whose init/1 is written by hand, with no children to start."
+    end
+  end
+
+  defp module_index(modules) do
+    {:ok, index} = Index.from_document(Map.put(document(), "modules", modules))
+    index
+  end
+
+  defp module_record(name, text) do
+    %{
+      "id" => name,
+      "kind" => "module",
+      "name" => name,
+      "file" => "lib/a.ex",
+      "line" => 1,
+      "behaviours" => [],
+      "doc" => %{"text" => text, "hidden" => false},
+      "span" => %{"start_line" => 2, "end_line" => 2},
+      "source" => ~s(  @moduledoc "#{text}")
+    }
   end
 
   defp reach_index(records) do

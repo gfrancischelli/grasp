@@ -302,7 +302,15 @@ touched is unchanged.
                "test_paths": ["test"] }, // test_paths only when the tests were indexed
   "git": { "head": "sha", "branch": "...", "base_ref": "main", "base_sha": "sha" }, // null outside git
   "modules": [
-    { "name": "MyApp.Wallets", "file": "lib/my_app/wallets.ex", "line": 1, "behaviours": ["GenServer"] }
+    { "id": "MyApp.Wallets", "kind": "module", "name": "MyApp.Wallets",
+      "file": "lib/my_app/wallets.ex", "line": 1, "behaviours": ["GenServer"],
+      // the module's @moduledoc: text null for `@moduledoc false` (hidden) or an expression;
+      // doc is null, and span and source absent, for a module without one
+      "doc": { "text": "Credits and debits.", "hidden": false },
+      "span": { "start_line": 2, "end_line": 4 }, "source": "@moduledoc \"\"\"\n...",
+      // against a base ref, compared on the moduledoc's source; see the module docs design
+      "change": "modified", "base_source": "...", "base_doc": { "text": "...", "hidden": false },
+      "removed": false }
   ],
   "functions": [
     {
@@ -382,13 +390,15 @@ means two different things in the two places: a record of kind `template` *is* a
 a call of kind `template` *reaches* one.
 
 `Grasp.Index` (shared reader): `load/1` into a plain struct, `fetch_function/2`,
-`callers/2` (reverse index built at load), `callees/2`, `search/3` (substring and
-subsequence scoring over `Mod.fun/arity`), `entry_points/1`, `entry_points_for/2` (the
-entries a given function is the target of, for the card's badge), `changed_functions/1`,
-`modules/1`. The struct is immutable and large — roughly 10 MB of JSON for a 500-file
-project — so the viewer stores the loaded index in `:persistent_term`. That keeps the
-term off-heap, so every LiveView process reads it without copying; re-loading an index
-replaces the term.
+`callers/2` (reverse index built at load), `callees/2`, `search/4` (substring and
+subsequence scoring over `Mod.fun/arity`, and with `modules: true` over module names too),
+`entry_points/1`, `entry_points_for/2` (the entries a given function is the target of, for
+the card's badge), `changed_functions/1`, `modules/1` (the live modules), and the module
+readers `fetch_module/2`, `fetch_record/2`, `module_id?/1`, `changed_modules/1` and
+`moduledoc_summary/2` (see [the module docs design](2026-09-29-grasp-moduledocs-design.md)).
+The struct is immutable and large — roughly 10 MB of JSON for a 500-file project — so the
+viewer stores the loaded index in `:persistent_term`. That keeps the term off-heap, so every
+LiveView process reads it without copying; re-loading an index replaces the term.
 
 ### Known gaps (milestone 1)
 
@@ -789,11 +799,13 @@ round its modules with its own padding, and a module frame closes round its card
 (`MODULE_PAD`) and a lighter border. Its label is the module name, kept one size on screen at
 any zoom like a flow title. The hook draws both frame and label into the frames layer it
 already owns; the label takes the pointer so that dragging it carries every card of the
-cluster, through `move_cards`, the way a flow title carries its group, and a click on it does
-nothing. Because a card cannot leave its module, a card dragged away stretches the module
-frame with it, exactly as a card dragged out of a flow stretches the flow's frame; two module
-frames may come to overlap by dragging, and placement is what keeps them apart. A drop is
-still decided by the flow frames alone: a module frame changes no membership.
+cluster, through `move_cards`, the way a flow title carries its group, and a click on it,
+a press let go without moving, opens the module's card (see
+[the module docs design](2026-09-29-grasp-moduledocs-design.md)). Because a card cannot leave
+its module, a card dragged away stretches the module frame with it, exactly as a card dragged
+out of a flow stretches the flow's frame; two module frames may come to overlap by dragging,
+and placement is what keeps them apart. A drop is still decided by the flow frames alone: a
+module frame changes no membership.
 
 While clusters are drawn, a card's header shows only `fun/arity`: the frame carries the
 module. A card is as wide as the wider of its title and its body, over a floor, so dropping
@@ -853,6 +865,11 @@ out under whichever setting is current.
   function call at a glance. Clicking it opens the action's card like any call.
 - Footer: "Also calls" for hidden calls, then the outdated comment threads (see
   [Comments](#comments)); the anchored ones sit under their lines in the body.
+- A card whose id is a module's name is a module card: it shows the module's moduledoc
+  rather than a function, and its header and body are described in
+  [the module docs design](2026-09-29-grasp-moduledocs-design.md). In a function card's
+  title the module part opens that card, and carries the moduledoc's first paragraph as its
+  tooltip.
 
 ### Comments
 
@@ -982,9 +999,11 @@ a box.
 
 A JS hook opens a `<dialog>` on Cmd+K, Ctrl+K or `/`, the last of which a field the
 reader is typing in keeps. The input's debounced `phx-change`
-drives `Grasp.Index.search/3`; arrow keys move the selection client-side, Enter opens as a
-new root, Shift+Enter as a child of the focused card. Results show id, def/defp, change
-badge and file.
+drives `Grasp.Index.search/4` over functions and modules; arrow keys move the selection
+client-side, Enter opens as a new root, Shift+Enter as a child of the focused card. Results
+show id, def/defp, change badge and file; a module result wears a `module` badge, ranks after
+the functions of an equal score, and opens as a root either way (see
+[the module docs design](2026-09-29-grasp-moduledocs-design.md)).
 
 ### Assets
 
@@ -1286,7 +1305,9 @@ first reference. Results are JSON text content, so any MCP client can read them.
   the entry points that lead to it, `get_callers(id)`, `get_callees(id)` (a test's Mox
   doubles answered apart, under `doubles`),
   `find_paths(to, from?, max_depth, limit)`, `list_entry_points(kind?, query?, limit)`,
-  `list_modules(query?, limit)`, `list_sessions()`.
+  `list_modules(query?, limit)`, `list_sessions()`, and `get_module(name)`, a module's
+  moduledoc and its change against the base (see
+  [the module docs design](2026-09-29-grasp-moduledocs-design.md), MCP).
 - `find_paths` walks the call graph (visible and hidden calls) breadth first, shortest
   paths first, and returns at most `limit` distinct paths of at most `max_depth` hops
   (default 6, cap 8). With `from` omitted it walks callers backwards from `to` until it
@@ -1341,10 +1362,13 @@ first reference. Results are JSON text content, so any MCP client can read them.
 - PR mode adds two tools. `list_changes()` answers `total`, the `base_ref` the index was
   built against (`null` without one) and the changed functions sorted by id, each with its
   `id`, `change`, `file`, `line` and `module` — the first call of a pull-request review,
-  from which each id is traced to its entry points with `find_paths`. `set_view(name,
-  card_id, view)` shows a card as its `"source"` or its `"diff"` and answers the graph like
-  every other session tool; only a modified function has two sides, so a diff of anything
-  else is a tool error naming the function. `set_view` also takes `context` — `"hunks"`,
+  from which each id is traced to its entry points with `find_paths` — and `moduledocs`,
+  the modules whose moduledoc the branch changed, each with its `module` and `change`;
+  `total` counts the functions. `set_view(name, card_id, view)` shows a card as its
+  `"source"` or its `"diff"` and answers the graph like every other session tool; only a
+  modified function has two sides, so a diff of anything else is a tool error naming the
+  function. A module card also takes `"doc"`, its rendered moduledoc, and takes only the
+  views it offers. `set_view` also takes `context` — `"hunks"`,
   `"full"` or `"auto"` — deciding whether the diff shows every line or only the changed
   hunks with context (see [Highlighting and diffs](#highlighting-and-diffs)).
 - Comments add four tools, each taking a required `session`, the session whose threads it
@@ -1868,6 +1892,13 @@ request switches the working tree" is closed.
      transcript offers `Plan tests for the changes` and `Plan tests for <focused function>`,
      and the MCP prompt `plan_tests` hands it to any client, the server declaring the
      `prompts` capability (see [the tests design](2026-09-28-grasp-tests-design.md)).
+   - Milestone 11: module docs — the index reads each module's `@moduledoc` from source into
+     its module record and classifies it against the base; a module card, opened from a
+     function card's title, a cluster's label or the palette, renders the moduledoc as
+     sanitized Markdown, its lines and its diff; the module part of a title carries the
+     moduledoc's first paragraph as its tooltip; the Changes group leads a module's rows with
+     a changed moduledoc; and the MCP tool `get_module` and `list_changes`' `moduledocs`
+     answer the same (see [the module docs design](2026-09-29-grasp-moduledocs-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
    (see [Part 4](#part-4--in-app-grasp)).

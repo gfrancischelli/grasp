@@ -79,7 +79,7 @@ defmodule GraspWeb.PaletteTest do
   end
 
   test "palette_move clamps at both ends of the results", %{view: view} do
-    search(view, "greet")
+    search(view, "greet/")
 
     render_hook(view, "palette_move", %{"delta" => -1})
     assert has_element?(view, "#palette-results li[data-id='#{@greet}'][aria-selected='true']")

@@ -202,6 +202,224 @@ defmodule Grasp.Index.ChangesTest do
              Changes.classify(template_records(file, @template), %{}, ["lib"])
   end
 
+  describe "classify_modules/3" do
+    @base_modules ~S'''
+    defmodule Kept do
+      @moduledoc "Kept as it stands."
+    end
+
+    defmodule Edited do
+      @moduledoc """
+      Edited, as the base had it.
+      """
+    end
+
+    defmodule Undocumented do
+      @moduledoc "Documented at the base."
+    end
+
+    defmodule Documented do
+    end
+
+    defmodule Gone do
+      @moduledoc "Gone from the head."
+    end
+
+    defmodule GoneQuietly do
+    end
+    '''
+
+    @head_modules ~S'''
+    defmodule Kept do
+      @moduledoc "Kept as it stands."
+    end
+
+    defmodule Edited do
+      @moduledoc """
+      Edited on the branch.
+      """
+    end
+
+    defmodule Undocumented do
+    end
+
+    defmodule Documented do
+      @moduledoc false
+    end
+
+    defmodule Fresh do
+      @moduledoc "A module the branch added."
+    end
+
+    defmodule FreshQuietly do
+    end
+    '''
+
+    test "classifies each moduledoc against the base module of its name" do
+      by_name = by_name(classify_modules(@head_modules, %{"lib/m.ex" => @base_modules}))
+
+      assert %{change: "unchanged", base_source: nil, base_doc: nil, removed: false} =
+               by_name["Kept"]
+
+      assert %{change: "modified", removed: false} = edited = by_name["Edited"]
+      assert edited.base_source =~ "Edited, as the base had it."
+      assert edited.source =~ "Edited on the branch."
+      assert edited.base_doc == %{text: "Edited, as the base had it.\n", hidden: false}
+
+      assert %{change: "removed", removed: false, doc: nil} =
+               undocumented = by_name["Undocumented"]
+
+      assert undocumented.base_source == ~S(  @moduledoc "Documented at the base.")
+      assert undocumented.base_doc == %{text: "Documented at the base.", hidden: false}
+
+      assert %{change: "added", base_source: nil, base_doc: nil} = by_name["Documented"]
+      assert %{change: "added", base_source: nil} = by_name["Fresh"]
+      assert %{change: "unchanged"} = by_name["FreshQuietly"]
+    end
+
+    test "turns a documented module the head does not define into a removed module" do
+      classified = classify_modules(@head_modules, %{"lib/m.ex" => @base_modules})
+
+      assert [%{name: "Gone"} = gone] = Enum.filter(classified, & &1.removed)
+      assert List.last(classified) == gone
+
+      assert gone == %{
+               name: "Gone",
+               file: "lib/m.ex",
+               line: 18,
+               doc: %{text: "Gone from the head.", hidden: false},
+               span: %{start_line: 19, end_line: 19},
+               source: ~S(  @moduledoc "Gone from the head."),
+               change: "removed",
+               base_source: ~S(  @moduledoc "Gone from the head."),
+               base_doc: %{text: "Gone from the head.", hidden: false},
+               removed: true
+             }
+
+      refute Enum.any?(classified, &(&1.name == "GoneQuietly"))
+    end
+
+    test "@moduledoc false is a moduledoc: added over none, modified over text" do
+      base = ~S"""
+      defmodule Hidden do
+      end
+
+      defmodule Silenced do
+        @moduledoc "Spoke at the base."
+      end
+      """
+
+      head = ~S"""
+      defmodule Hidden do
+        @moduledoc false
+      end
+
+      defmodule Silenced do
+        @moduledoc false
+      end
+      """
+
+      by_name = by_name(classify_modules(head, %{"lib/m.ex" => base}))
+
+      assert %{change: "added", doc: %{text: nil, hidden: true}} = by_name["Hidden"]
+
+      assert %{
+               change: "modified",
+               doc: %{text: nil, hidden: true},
+               base_doc: %{text: "Spoke at the base.", hidden: false}
+             } = by_name["Silenced"]
+    end
+
+    test "a module that moved to another file with the same moduledoc is unchanged" do
+      base = ~S"""
+      defmodule Moving do
+        @moduledoc "Moves."
+      end
+      """
+
+      head = ~S"""
+      defmodule Moving do
+        @moduledoc "Moves."
+      end
+      """
+
+      {:ok, %{modules: modules}} = Extract.extract(head, "lib/b.ex")
+
+      classified =
+        Changes.classify_modules(modules, %{"lib/a.ex" => base, "lib/b.ex" => ""}, ["lib"])
+
+      assert [%{name: "Moving", file: "lib/b.ex", change: "unchanged", removed: false}] =
+               classified
+    end
+
+    test "a module in a file the diff did not touch is unchanged" do
+      assert [%{change: "unchanged", base_source: nil}] =
+               classify_modules(~S(defmodule U do @moduledoc "U." end), %{}, "lib/u.ex")
+    end
+
+    test "every documented module of a file the branch added is added" do
+      assert [%{change: "added"}] =
+               classify_modules(
+                 ~S(defmodule U do @moduledoc "U." end),
+                 %{"lib/u.ex" => ""},
+                 "lib/u.ex"
+               )
+    end
+
+    test "a base source outside the paths invents no removed module" do
+      classified =
+        Changes.classify_modules([], %{"other/m.ex" => @base_modules}, ["lib"])
+
+      assert classified == []
+    end
+
+    test "writes a classified module's record in the shape a function record has" do
+      by_name = by_name(classify_modules(@head_modules, %{"lib/m.ex" => @base_modules}))
+
+      assert Builder.module_json(by_name["Edited"], %{"Edited" => ["GenServer"]}) == %{
+               "id" => "Edited",
+               "kind" => "module",
+               "name" => "Edited",
+               "file" => "lib/m.ex",
+               "line" => 5,
+               "behaviours" => ["GenServer"],
+               "doc" => %{"text" => "Edited on the branch.\n", "hidden" => false},
+               "span" => %{"start_line" => 6, "end_line" => 8},
+               "source" =>
+                 Enum.join([~S(  @moduledoc """), "  Edited on the branch.", ~S(  """)], "\n"),
+               "change" => "modified",
+               "base_source" =>
+                 Enum.join(
+                   [~S(  @moduledoc """), "  Edited, as the base had it.", ~S(  """)],
+                   "\n"
+                 ),
+               "base_doc" => %{"text" => "Edited, as the base had it.\n", "hidden" => false},
+               "removed" => false
+             }
+    end
+
+    test "writes an unclassified module without change facts, and one without a moduledoc without lines" do
+      {:ok, %{modules: [module]}} = Extract.extract("defmodule A do\nend\n", "lib/a.ex")
+
+      assert Builder.module_json(module, %{}) == %{
+               "id" => "A",
+               "kind" => "module",
+               "name" => "A",
+               "file" => "lib/a.ex",
+               "line" => 1,
+               "behaviours" => [],
+               "doc" => nil
+             }
+    end
+  end
+
+  defp classify_modules(source, compared, file \\ "lib/m.ex") do
+    {:ok, %{modules: modules}} = Extract.extract(source, file)
+    Changes.classify_modules(modules, compared, ["lib"])
+  end
+
+  defp by_name(modules), do: Map.new(modules, &{&1.name, &1})
+
   defp template_records(file, source) do
     definition = %{
       module: "AWeb.PageHTML",

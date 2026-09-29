@@ -15,6 +15,15 @@ defmodule GraspWeb.CardComponents do
   `setup` or `setup_all`. The node's `data-module` is read from the record, so a test
   clusters with its module whatever its name holds.
 
+  A card whose id names a module is a module card: its header wears `module`, the module's
+  behaviours and the moduledoc's change, and its body is the moduledoc rendered as sanitized
+  Markdown (`GraspWeb.ChatMarkdown`), the attribute's source, or its diff against the base,
+  as `Grasp.ModuleCard.views/1` offers them. A moduledoc the branch took off a module it keeps is
+  diffed as its base lines, every one deleted, which is where its base-side threads hang. It
+  holds no calls, so it draws no edges. The module part of a function card's title is a
+  button opening that card, the module's summary its tooltip. Both kinds of card draw their
+  lines, threads and footer of threads through the same components.
+
   A function card that tests reach wears `n tests` in its header, and its callers menu lists
   those tests after the callers, nearest first with the hops between; the badge opens the
   menu. The callers the menu counts are the application's: the setups and helpers of the
@@ -53,6 +62,7 @@ defmodule GraspWeb.CardComponents do
   alias Grasp.Diff
   alias Grasp.Diff.Hunks
   alias Grasp.Index
+  alias Grasp.ModuleCard
   alias Grasp.Session.Forest
   alias GraspWeb.TestReach
 
@@ -98,6 +108,10 @@ defmodule GraspWeb.CardComponents do
   attr :expanded_threads, :any, doc: "ids of the resolved threads shown in full", default: nil
   attr :expanded_folds, :any, doc: "`{card id, first line}` of every fold opened", default: nil
 
+  attr :near, :integer,
+    doc: "the card this one is opened from, which the canvas places it beside",
+    default: nil
+
   # The node is the card's place on the stage and the card is what is drawn there, so a
   # re-render of the card's contents leaves the position alone and a drag moves the node
   # without touching anything LiveView owns inside it. A card nothing has placed yet renders
@@ -106,11 +120,12 @@ defmodule GraspWeb.CardComponents do
     card = Forest.card(assigns.forest, assigns.card_id)
     {x, y} = card.position || {0, 0}
 
-    # A record names its module, which a test's id could only be parsed for; a stub has no
-    # record, and a function id with no module part stands for its own module, clustering
-    # alone.
+    # A record names its module, which a test's id could only be parsed for; a module card
+    # is its module; a stub has no record, and a function id with no module part stands for
+    # its own module, clustering alone.
     module =
-      case Index.fetch_function(assigns.index, card.function_id) do
+      case Index.fetch_record(assigns.index, card.function_id) do
+        {:ok, %{"kind" => "module", "name" => name}} when is_binary(name) -> name
         {:ok, %{"module" => module}} when is_binary(module) -> module
         _none -> cluster_module_of(card.function_id) || card.function_id
       end
@@ -126,6 +141,7 @@ defmodule GraspWeb.CardComponents do
       data-group={@card.group || ""}
       data-module={@module}
       data-unplaced={@card.position == nil}
+      data-near={@card.position == nil && @near}
       style={"--x: #{@x}px; --y: #{@y}px"}
     >
       <.card
@@ -179,7 +195,8 @@ defmodule GraspWeb.CardComponents do
   attr :expanded_folds, :any, doc: "`{card id, first line}` of every fold opened", default: nil
 
   def card(assigns) do
-    case Index.fetch_function(assigns.index, assigns.card.function_id) do
+    case Index.fetch_record(assigns.index, assigns.card.function_id) do
+      {:ok, %{"kind" => "module"} = record} -> module_card(assign(assigns, record: record))
       {:ok, record} -> function_card(assign(assigns, record: record))
       :error -> stub_card(assigns)
     end
@@ -331,33 +348,7 @@ defmodule GraspWeb.CardComponents do
       coverage: if(is_map(coverage), do: coverage)
     ]
 
-    # A thread names a line, not a rendered one: the code under it moves, so where each one
-    # belongs is decided against the record about to be drawn. Anything the anchor can no
-    # longer find keeps its place in the footer instead of being dropped. A thread written
-    # over a range keeps its length rather than its numbers: the anchor re-places its first
-    # line and the rest is counted out from there, up to the record's own last line.
-    {anchored, lost} =
-      comments
-      |> Map.get(record["id"], [])
-      |> Enum.map(&{&1, Anchor.place(&1, record)})
-      |> Enum.split_with(fn {_thread, placement} -> is_tuple(placement) end)
-
-    anchored =
-      Enum.map(anchored, fn {thread, {side, line}} ->
-        span = Range.size(Comments.range(thread)) - 1
-        last = last_line(record, side)
-        %{thread: thread, side: side, range: line..min(line + span, last)//1}
-      end)
-
-    # Only an open thread tints its lines: a resolved one is a settled argument, and the card
-    # says so by collapsing it rather than by colouring the code again.
-    commented =
-      for %{thread: thread, side: side, range: range} <- anchored,
-          not thread.resolved,
-          number <- range,
-          into: MapSet.new(),
-          do: {side, number}
-
+    {anchored, lost, commented} = anchor_threads(comments, record)
     highlight_opts = Keyword.put(highlight_opts, :commented, commented)
 
     lines =
@@ -365,32 +356,7 @@ defmodule GraspWeb.CardComponents do
         do: Grasp.Highlight.diff_lines(record, highlight_opts),
         else: Grasp.Highlight.lines(record, highlight_opts)
 
-    # A placement the view does not draw would otherwise take the thread off the card
-    # altogether — a comment on a deleted line is anchored on the base side, which the source
-    # view has no line for — so it joins the footer until the view that draws it is back.
-    # A thread hangs off the last line of its range the view actually draws, so the code it
-    # is about reads before the conversation about it.
-    drawn = MapSet.new(lines, &{&1.side, &1.line})
-
-    anchored =
-      Enum.map(anchored, fn placement ->
-        at =
-          placement.range
-          |> Enum.reverse()
-          |> Enum.find(&MapSet.member?(drawn, {placement.side, &1}))
-
-        Map.put(placement, :at, at)
-      end)
-
-    {shown, hidden} = Enum.split_with(anchored, &(&1.at != nil))
-
-    placed = Enum.group_by(shown, &{&1.side, &1.at}, & &1.thread)
-
-    aside =
-      lost
-      |> Enum.map(fn {thread, _placement} -> {:outdated, thread} end)
-      |> Enum.concat(Enum.map(hidden, &{:hidden, &1.thread}))
-      |> Enum.sort_by(fn {_why, thread} -> thread.id end)
+    {shown, placed, aside} = place_threads(anchored, lost, lines)
 
     # A failure is the result's, not a thread: its panels are taken with the result, and each
     # hangs under the line the test's own frame names, which a fold keeps open as a thread
@@ -451,6 +417,7 @@ defmodule GraspWeb.CardComponents do
         review: Enum.find(Index.test_review(index), %{}, &(&1.id == record["id"])),
         entries: Index.entry_points_for(index, record["id"]),
         title: title,
+        module_link: module_link(index, record, title),
         signature: signature(record),
         signature_html: !title.badge && Grasp.Highlight.signature(record),
         assertions: if(title.badge == "test", do: Grasp.Highlight.assertions(record), else: []),
@@ -514,7 +481,18 @@ defmodule GraspWeb.CardComponents do
           {count_label(length(@tests), "test")}{if @failing > 0, do: " · #{@failing} failing"}
         </button>
         <h2 class="card__title">
-          <span class="card__module">{@title.module}{@title.separator}</span><span class="card__fn">{@title.name}</span>
+          <button
+            :if={@module_link}
+            type="button"
+            class="card__module"
+            phx-click="open_module"
+            phx-value-module={@title.module}
+            phx-value-card={@card.id}
+            title={@module_link}
+          >{@title.module}{@title.separator}</button><span
+            :if={!@module_link}
+            class="card__module"
+          >{@title.module}{@title.separator}</span><span class="card__fn">{@title.name}</span>
           <span :if={!@title.badge} class="card__kind">{@record["kind"]}</span>
         </h2>
         <span :if={@stats} class="card__stats">+{@stats.added} −{@stats.removed}</span>
@@ -670,56 +648,24 @@ defmodule GraspWeb.CardComponents do
           data-end-line={lines.last}
         >{html}</pre>
       </div>
-      <%!-- The lines are rendered one at a time so a thread can sit between two of them.
-      Whitespace between the children here is ordinary white-space, which the body does not
-      preserve — only the lines themselves are preformatted. --%>
-      <div
-        id={"body-#{@card.id}"}
-        class="card__body lumis"
-        style={"--gutter: #{@gutter}ch"}
-        phx-hook="Gutter"
-      >
-        <%= for line <- @lines do %>
-          <%= if line[:fold] do %>
-            <button
-              class="line line--fold"
-              phx-click="expand_fold"
-              phx-value-card={@card.id}
-              phx-value-from={line.from}
-            >
-              ⋯ {line.count} unchanged lines
-            </button>
-          <% else %>
-            {raw(line.html)}<.failure_panel
-              :for={failure <- failures_at(@failures_under, line)}
-              failure={failure}
-            /><.thread
-              :for={thread <- Map.get(@placed, {line.side, line.line}, [])}
-              thread={thread}
-              card_id={@card.id}
-              expanded={MapSet.member?(@expanded_threads, thread.id)}
-              composing={@composing}
-            /><.composer
-              :if={composing_at?(@composing, @card.id, line.side, line.line)}
-              composing={@composing}
-              card_id={@card.id}
-            />
-          <% end %>
-        <% end %>
-      </div>
+      <.card_lines
+        card_id={@card.id}
+        lines={@lines}
+        placed={@placed}
+        gutter={@gutter}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+        failures_under={@failures_under}
+      />
       <footer :if={@failures_aside != []} class="card__failures">
         <.failure_panel :for={failure <- @failures_aside} failure={failure} />
       </footer>
-      <footer :if={@aside != []} class="card__outdated">
-        <.thread
-          :for={{why, thread} <- @aside}
-          thread={thread}
-          card_id={@card.id}
-          expanded={MapSet.member?(@expanded_threads, thread.id)}
-          composing={@composing}
-          aside={why}
-        />
-      </footer>
+      <.threads_aside
+        card_id={@card.id}
+        aside={@aside}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+      />
       <footer :if={@record["hidden_calls"] != []} class="card__also">
         <span class="card__also-label">Also calls</span>
         <button
@@ -737,6 +683,325 @@ defmodule GraspWeb.CardComponents do
       </footer>
     </article>
     """
+  end
+
+  # The module part of a title opens that module's card, and names what the module is for on
+  # its tooltip. A test's slot may hold its `describe` instead, which is no module at all, and
+  # a module the index does not hold has no card to open.
+  defp module_link(index, record, title) do
+    module = record["module"]
+
+    with true <- is_binary(module) and title.module == module,
+         {:ok, _module} <- Index.fetch_module(index, module) do
+      Index.moduledoc_summary(index, module) || module
+    else
+      _no_module -> nil
+    end
+  end
+
+  # A module card is keyed and drawn as a function card is, from the same record fields, so
+  # its source and its diff are the lines a function card draws and take the same comments.
+  # It holds no calls, so it has no call sites, draws no edges and opens nothing below it.
+  defp module_card(assigns) do
+    %{index: index, card: card, record: record, comments: comments} = assigns
+
+    views = ModuleCard.views(record)
+    view = ModuleCard.view(card.view, views)
+    doc = record["doc"]
+    diffable? = Diff.diffable?(record)
+    {anchored, lost, commented} = anchor_threads(comments, record)
+
+    # A removed moduledoc's diff is its base lines against nothing, each deleted and numbered
+    # from 1 as the old side is, so its threads anchor as a deleted line's do.
+    drawn =
+      if ModuleCard.removed_moduledoc?(record),
+        do:
+          Map.merge(record, %{
+            "calls" => [],
+            "source" => "",
+            "span" => %{"start_line" => 1, "end_line" => 1}
+          }),
+        else: Map.put(record, "calls", [])
+
+    highlight_opts = [
+      card_id: card.id,
+      open_calls: %{},
+      highlight: card.highlight,
+      commented: commented
+    ]
+
+    lines =
+      case view do
+        :doc -> []
+        :source -> Grasp.Highlight.lines(drawn, highlight_opts)
+        :diff -> Grasp.Highlight.diff_lines(drawn, highlight_opts)
+      end
+
+    # The rendered text has no lines to hang a thread on, so in the doc view every thread
+    # the card holds is listed in its footer.
+    {_shown, placed, aside} = place_threads(anchored, lost, lines)
+
+    known? = GraspWeb.ChatMarkdown.known(index)
+    base_doc = record["base_doc"]
+
+    assigns =
+      assign(assigns,
+        focused?: assigns.forest.focus == card.id,
+        views: views,
+        view: view,
+        lines: lines,
+        placed: placed,
+        aside: aside,
+        expanded_threads: assigns.expanded_threads || MapSet.new(),
+        change: record["change"] || "unchanged",
+        stats: diffable? && Diff.stats(record["base_source"], record["source"]),
+        behaviours: Enum.filter(List.wrap(record["behaviours"]), &is_binary/1),
+        doc_state: doc_state(doc),
+        doc_html: view == :doc && doc_html(doc, known?),
+        # A moduledoc the branch took off a module it keeps is read from the base, since the
+        # text the review is about is the text that went.
+        base_doc_html:
+          view == :doc and doc_state(doc) == :none and is_map(base_doc) and
+            doc_html(base_doc, known?),
+        gutter: is_map(drawn["span"]) && gutter_columns(drawn),
+        editor_href:
+          !record["removed"] &&
+            editor_url(assigns.editor, index.project["root"], record["file"], record["line"])
+      )
+
+    ~H"""
+    <article
+      id={"card-#{@card.id}"}
+      class={[
+        "card",
+        "card--module",
+        @focused? && "card--focused",
+        @selected && "card--selected",
+        @record["removed"] && "card--removed",
+        !@record["removed"] && @record["change"] == "added" && "card--added"
+      ]}
+      data-function-id={@record["id"]}
+      data-focused={to_string(@focused?)}
+      data-selected={to_string(@selected)}
+      data-view={to_string(@view)}
+    >
+      <header class="card__header" phx-click="focus_card" phx-value-card={@card.id}>
+        <.change_badge change={@change} />
+        <span class="badge badge--module">module</span>
+        <span :for={behaviour <- @behaviours} class="badge badge--behaviour">{behaviour}</span>
+        <h2 class="card__title">
+          <span class="card__fn">{@record["name"]}</span>
+        </h2>
+        <span :if={@stats} class="card__stats">+{@stats.added} −{@stats.removed}</span>
+        <div class="card__tools">
+          <a :if={@editor_href} class="card__file" href={@editor_href}>
+            {@record["file"]}:{@record["line"]}
+          </a>
+          <span :if={!@editor_href} class="card__file">{@record["file"]}:{@record["line"]}</span>
+          <span :if={length(@views) > 1} class="card__views" role="group" aria-label="View">
+            <button
+              :for={view <- @views}
+              type="button"
+              class="card__view"
+              phx-click="set_view"
+              phx-value-card={@card.id}
+              phx-value-view={view}
+              aria-pressed={to_string(view == @view)}
+            >
+              {view}
+            </button>
+          </span>
+          <button
+            class="card__close"
+            phx-click="close_card"
+            phx-value-card={@card.id}
+            title="Close (x) · Shift+x closes the chain"
+          >
+            ×
+          </button>
+        </div>
+      </header>
+      <p class="card__signature" title={@record["name"]}>{@record["name"]}</p>
+      <div :if={@view == :doc} class="card__doc">
+        <%= case @doc_state do %>
+          <% :text -> %>
+            {@doc_html}
+          <% :hidden -> %>
+            <p class="card__doc-note">Hidden from the docs (<code>@moduledoc false</code>)</p>
+          <% _none -> %>
+            <p class="card__doc-note">No <code>@moduledoc</code></p>
+            <div :if={@base_doc_html} class="card__doc-base" data-change="removed">
+              {@base_doc_html}
+            </div>
+        <% end %>
+      </div>
+      <.card_lines
+        :if={@view != :doc}
+        card_id={@card.id}
+        lines={@lines}
+        placed={@placed}
+        gutter={@gutter}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+      />
+      <.threads_aside
+        card_id={@card.id}
+        aside={@aside}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+      />
+    </article>
+    """
+  end
+
+  attr :card_id, :integer, required: true
+  attr :lines, :list, required: true, doc: "the rendered lines, folds among them"
+  attr :placed, :map, required: true, doc: "the threads under each `{side, line}`"
+  attr :gutter, :integer, required: true, doc: "the columns the line numbers take"
+  attr :expanded_threads, MapSet, required: true
+  attr :composing, :map, default: nil
+
+  attr :failures_under, :map,
+    default: %{},
+    doc: "the failure panels under each line of the current source"
+
+  # The lines are rendered one at a time so a thread can sit between two of them.
+  # Whitespace between the children here is ordinary white-space, which the body does not
+  # preserve — only the lines themselves are preformatted.
+  defp card_lines(assigns) do
+    ~H"""
+    <div
+      id={"body-#{@card_id}"}
+      class="card__body lumis"
+      style={"--gutter: #{@gutter}ch"}
+      phx-hook="Gutter"
+    >
+      <%= for line <- @lines do %>
+        <%= if line[:fold] do %>
+          <button
+            class="line line--fold"
+            phx-click="expand_fold"
+            phx-value-card={@card_id}
+            phx-value-from={line.from}
+          >
+            ⋯ {line.count} unchanged lines
+          </button>
+        <% else %>
+          {raw(line.html)}<.failure_panel
+            :for={failure <- failures_at(@failures_under, line)}
+            failure={failure}
+          /><.thread
+            :for={thread <- Map.get(@placed, {line.side, line.line}, [])}
+            thread={thread}
+            card_id={@card_id}
+            expanded={MapSet.member?(@expanded_threads, thread.id)}
+            composing={@composing}
+          /><.composer
+            :if={composing_at?(@composing, @card_id, line.side, line.line)}
+            composing={@composing}
+            card_id={@card_id}
+          />
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+
+  attr :card_id, :integer, required: true
+
+  attr :aside, :list,
+    required: true,
+    doc: "`{why, thread}` for each thread the view draws no line for"
+
+  attr :expanded_threads, MapSet, required: true
+  attr :composing, :map, default: nil
+
+  defp threads_aside(assigns) do
+    ~H"""
+    <footer :if={@aside != []} class="card__outdated">
+      <.thread
+        :for={{why, thread} <- @aside}
+        thread={thread}
+        card_id={@card_id}
+        expanded={MapSet.member?(@expanded_threads, thread.id)}
+        composing={@composing}
+        aside={why}
+      />
+    </footer>
+    """
+  end
+
+  defp doc_state(%{"text" => text}) when is_binary(text), do: :text
+  defp doc_state(%{"hidden" => true}), do: :hidden
+  defp doc_state(%{}), do: :expression
+  defp doc_state(nil), do: :none
+
+  defp doc_html(%{"text" => text}, known?) when is_binary(text),
+    do: GraspWeb.ChatMarkdown.render(text, known?)
+
+  defp doc_html(_doc, _known?), do: nil
+
+  # A thread names a line, not a rendered one: the code under it moves, so where each one
+  # belongs is decided against the record about to be drawn. Anything the anchor can no
+  # longer find keeps its place in the footer instead of being dropped. A thread written
+  # over a range keeps its length rather than its numbers: the anchor re-places its first
+  # line and the rest is counted out from there, up to the record's own last line.
+  #
+  # Only an open thread tints its lines: a resolved one is a settled argument, and the card
+  # says so by collapsing it rather than by colouring the code again.
+  defp anchor_threads(comments, record) do
+    {anchored, lost} =
+      comments
+      |> Map.get(record["id"], [])
+      |> Enum.map(&{&1, Anchor.place(&1, record)})
+      |> Enum.split_with(fn {_thread, placement} -> is_tuple(placement) end)
+
+    anchored =
+      Enum.map(anchored, fn {thread, {side, line}} ->
+        span = Range.size(Comments.range(thread)) - 1
+        last = last_line(record, side)
+        %{thread: thread, side: side, range: line..min(line + span, last)//1}
+      end)
+
+    commented =
+      for %{thread: thread, side: side, range: range} <- anchored,
+          not thread.resolved,
+          number <- range,
+          into: MapSet.new(),
+          do: {side, number}
+
+    {anchored, lost, commented}
+  end
+
+  # A placement the view does not draw would otherwise take the thread off the card
+  # altogether — a comment on a deleted line is anchored on the base side, which the source
+  # view has no line for — so it joins the footer until the view that draws it is back.
+  # A thread hangs off the last line of its range the view actually draws, so the code it
+  # is about reads before the conversation about it.
+  defp place_threads(anchored, lost, lines) do
+    drawn = MapSet.new(lines, &{&1.side, &1.line})
+
+    anchored =
+      Enum.map(anchored, fn placement ->
+        at =
+          placement.range
+          |> Enum.reverse()
+          |> Enum.find(&MapSet.member?(drawn, {placement.side, &1}))
+
+        Map.put(placement, :at, at)
+      end)
+
+    {shown, hidden} = Enum.split_with(anchored, &(&1.at != nil))
+
+    placed = Enum.group_by(shown, &{&1.side, &1.at}, & &1.thread)
+
+    aside =
+      lost
+      |> Enum.map(fn {thread, _placement} -> {:outdated, thread} end)
+      |> Enum.concat(Enum.map(hidden, &{:hidden, &1.thread}))
+      |> Enum.sort_by(fn {_why, thread} -> thread.id end)
+
+    {shown, placed, aside}
   end
 
   # A double listed here says so, as its site in the body does, so its edge is drawn dashed.
@@ -1044,11 +1309,13 @@ defmodule GraspWeb.CardComponents do
   end
 
   # A card opened before the index was rewritten may show a function the project no longer
-  # defines; its module still being indexed is what separates that from a dependency.
+  # defines; its module still being indexed is what separates that from a dependency. A module
+  # card is only ever opened on a module the index held, so its stub is always stale.
   defp indexed_module?(%Index{} = index, function_id) do
-    case module_of(function_id) do
-      nil -> false
-      module -> Enum.any?(Index.modules(index), &(&1["name"] == module))
+    cond do
+      Index.module_id?(function_id) -> true
+      module = module_of(function_id) -> Enum.any?(Index.modules(index), &(&1["name"] == module))
+      true -> false
     end
   end
 
@@ -1058,8 +1325,6 @@ defmodule GraspWeb.CardComponents do
       nil -> nil
     end
   end
-
-  defp module_of(_function_id), do: nil
 
   # Clustering reads the module part of every id a card can hold, where `module_of/1` reads
   # only the Elixir aliases hexdocs and the index are keyed by: `:erlang.split_binary/2`

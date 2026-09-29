@@ -20,16 +20,19 @@ defmodule Grasp.MCP.Comments do
   alias Grasp.Comments.Anchor
 
   @doc """
-  `thread` as a JSON map, placed against the function record `index` holds for it.
+  `thread` as a JSON map, placed against the record `index` holds for it: a function's, or
+  a module's for a thread on a module card, which `Grasp.Index.fetch_record/2` tells apart
+  by the id.
 
-  Beyond the thread's own fields it carries `"file"` (the record's, `nil` when the function
-  has left the index), `"status"` — `"anchored"`, `"outdated"` for a line that is no longer
-  there, `"orphan"` for a function that is gone — `"anchored_line"`, the line the thread
-  now sits on, `nil` unless it is anchored, and `"github_url"`, where the thread reads on
-  the pull request, `nil` while it has not been published. `"end_line"` is the last line of
-  a thread written over a range and `nil` for one written on a single line; it is counted
-  from `"line"` rather than from `"anchored_line"`, so a moved range is `"anchored_line"`
-  through `"anchored_line" + "end_line" - "line"`.
+  Beyond the thread's own fields it carries `"file"` (the record's, `nil` when the index
+  holds no function or module under the thread's id), `"status"` — `"anchored"`,
+  `"outdated"` for a thread whose line the record does not have at the thread's text,
+  `"orphan"` for a function or module the index does not hold — `"anchored_line"`, the line
+  the thread sits on in the record, `nil` unless it is anchored, and `"github_url"`, where
+  the thread reads on the pull request, `nil` while it has not been published. `"end_line"`
+  is the last line of a thread written over a range and `nil` for one written on a single
+  line; it is counted from `"line"` rather than from `"anchored_line"`, so a moved range is
+  `"anchored_line"` through `"anchored_line" + "end_line" - "line"`.
   """
   @spec thread_map(Comments.thread(), Grasp.Index.t()) :: map()
   def thread_map(thread, %Grasp.Index{} = index) do
@@ -66,7 +69,9 @@ defmodule Grasp.MCP.Comments do
 
   The `"new"` side is numbered by the record's span, as the cards and `get_function` number
   it; the `"old"` side is numbered from 1 over the base version, which only a function the
-  branch modified has. The error message names the function and the range it does have.
+  branch modified has, or a module whose moduledoc the branch modified or removed. A module
+  record with no moduledoc lines has no `"new"` side. The error message names the record and
+  the range it does have.
   """
   @spec check_line(map(), Comments.side(), integer()) :: :ok | {:error, String.t()}
   def check_line(record, "new", line) do
@@ -76,6 +81,7 @@ defmodule Grasp.MCP.Comments do
     case record["span"] do
       %{"start_line" => first, "end_line" => last} -> in_range(record, line, first, last)
       %{"start_line" => first} -> in_range(record, line, first, first)
+      _no_span -> {:error, no_lines(record)}
     end
   end
 
@@ -86,13 +92,21 @@ defmodule Grasp.MCP.Comments do
     end
   end
 
+  defp no_lines(%{"kind" => "module", "id" => id} = record) do
+    if is_binary(record["base_source"]),
+      do: ~s(#{id} has no moduledoc lines on the branch; use side "old" for the base's),
+      else: "#{id} has no moduledoc lines to comment on"
+  end
+
+  defp no_lines(record), do: "#{record["id"]} has no lines to comment on"
+
   defp in_range(_record, line, first, last) when line >= first and line <= last, do: :ok
 
   defp in_range(record, line, first, last),
     do: {:error, "line #{line} is outside #{record["id"]} (lines #{first}..#{last})"}
 
   defp record(index, function_id) do
-    case Grasp.Index.fetch_function(index, function_id) do
+    case Grasp.Index.fetch_record(index, function_id) do
       {:ok, record} -> record
       :error -> nil
     end

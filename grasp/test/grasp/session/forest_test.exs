@@ -965,6 +965,24 @@ defmodule Grasp.Session.ForestTest do
       assert loaded.next_id == forest.next_id
     end
 
+    test "a module card is saved and restored, and goes once its module leaves the index" do
+      {forest, counter} = Forest.open_root(Forest.new(), "SampleApp.Counter")
+      {forest, greet} = Forest.open_root(forest, "SampleApp.Greeter.greet/2")
+      {forest, _gone} = Forest.open_root(forest, "SampleApp.Gone")
+      forest = Forest.set_view(forest, counter, :doc)
+      {:ok, index} = Grasp.Index.load(@fixture)
+
+      document = forest |> Forest.dump() |> Jason.encode!() |> Jason.decode!()
+
+      assert {:ok, kept} = Forest.load(document, nil)
+      assert Forest.card(kept, counter).function_id == "SampleApp.Counter"
+      assert Forest.card(kept, counter).view == :doc
+
+      assert {:ok, loaded} = Forest.load(document, index)
+      assert Enum.sort(Map.keys(loaded.cards)) == [counter, greet]
+      assert Forest.find(loaded, "SampleApp.Counter") == counter
+    end
+
     test "a graph that focuses nothing comes back focusing nothing" do
       {forest, _greeter} = Forest.open_root(Forest.new(), "SampleApp.Greeter.greet/2")
       {forest, wrap} = Forest.open_root(forest, "SampleApp.Formatter.wrap/1")

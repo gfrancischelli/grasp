@@ -11,6 +11,10 @@ defmodule Grasp.MCP.Tools.SetCards do
   point at one thing inside it — a call it makes, or a range of its lines. Cards sharing a
   `group` title are framed together under it, which is how several flows are told apart on
   one canvas. Nothing changes unless every card is good.
+
+  A module's name in place of a function id lays out that module's card, which shows its
+  moduledoc. A module card calls nothing and nothing calls it, so it takes no `parent_key`
+  and starts at the left edge.
   """
 
   use Anubis.Server.Component, type: :tool
@@ -38,7 +42,7 @@ defmodule Grasp.MCP.Tools.SetCards do
       field(:function_id, :string,
         required: true,
         description:
-          "The function the card shows, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
+          "The function the card shows, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`. A module's name, as in `SampleApp.Greeter`, shows its module card, which takes no `parent_key`"
       )
 
       field(:parent_key, :string,

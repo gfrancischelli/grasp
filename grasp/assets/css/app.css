@@ -239,6 +239,10 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .card--added { border-color: color-mix(in srgb, var(--diff-ins-fg) 35%, var(--border)); }
 .card__title { margin: 0; font-size: 15px; font-weight: 600; }
 .card__module { color: var(--fg-muted); font-weight: 400; }
+/* The module part of a title opens the module's card, and reads as the name it is until the
+   pointer is over it. */
+button.card__module { padding: 0; }
+button.card__module:hover { color: var(--accent); text-decoration: underline dotted; }
 .card__kind { margin-inline-start: var(--space-s); color: var(--fg-muted); font-weight: 400; font-size: 12px; }
 .card__tools { display: flex; align-items: center; gap: var(--space-s); color: var(--fg-muted); font-size: 12px; }
 .card__file { color: var(--fg-muted); text-decoration: none; }
@@ -395,6 +399,25 @@ body:not(.grasp-coverage) .gap-label { display: none; }
 .card__open-failure:hover { text-decoration: underline; }
 
 .stub .card__header { border-bottom: 0; }
+/* A module card reads its moduledoc as prose rather than as code, in the blocks the Markdown
+   brings, with a named card linked as a code span that opens it. */
+.badge--module, .badge--behaviour { background: color-mix(in oklch, var(--fg-muted) 14%, transparent); color: var(--fg-muted); }
+.card__views { display: inline-flex; gap: 2px; }
+.card__views .card__view[aria-pressed="true"] { color: var(--accent); }
+.card__doc { padding: var(--space-xs) var(--space-m) var(--space-s); max-width: 72ch; line-height: 1.5; }
+.card__doc > :first-child { margin-block-start: 0; }
+.card__doc > :last-child { margin-block-end: 0; }
+.card__doc p { margin: var(--space-s) 0; }
+.card__doc ul, .card__doc ol { margin: var(--space-s) 0; padding-inline-start: var(--space-l); }
+.card__doc h1, .card__doc h2, .card__doc h3, .card__doc h4, .card__doc h5, .card__doc h6 { margin: var(--space-m) 0 var(--space-s); font-size: 14px; }
+.card__doc code { font-family: var(--mono); font-size: 12px; background: var(--bg-sunken); border-radius: 4px; padding: 0 0.3em; }
+.card__doc blockquote { margin: var(--space-s) 0; padding-inline-start: var(--space-s); border-inline-start: 2px solid var(--border); color: var(--fg-muted); }
+.card__doc table { border-collapse: collapse; display: block; overflow-x: auto; margin: var(--space-s) 0; }
+.card__doc th, .card__doc td { border: 1px solid var(--border); padding: 2px var(--space-xs); text-align: start; }
+.card__doc .fn { display: inline; width: auto; font-family: var(--mono); font-size: 12px; background: var(--bg-sunken); border-radius: 4px; padding: 0 0.3em; color: inherit; cursor: pointer; border-bottom: 1px dashed var(--accent); }
+.card__doc .fn:hover { background: var(--accent-soft); color: var(--accent); }
+.card__doc-note { color: var(--fg-muted); }
+.card__doc-base { padding-inline-start: var(--space-s); border-inline-start: 2px solid var(--diff-del-fg); color: var(--fg-muted); }
 .stub__text, .stub__docs { margin: 0 var(--space-m) var(--space-s); display: block; color: var(--fg-muted); }
 .stub__docs { color: var(--accent); }
 
@@ -404,7 +427,7 @@ body:not(.grasp-coverage) .gap-label { display: none; }
    signatures are held at a legible size however far out it is zoomed. The counter-scaling
    divides by --zoom, which the canvas hook writes on #stage beside the transform, so each of
    these rules has to match inside the stage to see it. */
-body.grasp-signatures #stage .card__body, body.grasp-signatures #stage .card__also, body.grasp-signatures #stage .stub__text, body.grasp-signatures #stage .stub__docs { display: none; }
+body.grasp-signatures #stage .card__body, body.grasp-signatures #stage .card__doc, body.grasp-signatures #stage .card__also, body.grasp-signatures #stage .stub__text, body.grasp-signatures #stage .stub__docs { display: none; }
 body.grasp-signatures #stage .thread, body.grasp-signatures #stage .composer, body.grasp-signatures #stage .card__outdated, body.grasp-signatures #stage .card__failures { display: none; }
 body.grasp-signatures #stage .card__signature { display: block; font-size: calc(var(--far-size) / var(--zoom, 1)); padding: calc(var(--space-s) / var(--zoom, 1)) calc(var(--space-m) / var(--zoom, 1)); }
 /* In this mode only the header and the signature ask for width, so the card's ceiling and

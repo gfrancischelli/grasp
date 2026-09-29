@@ -12,7 +12,8 @@ defmodule GraspWeb.Palette do
   A result the branch added, modified or removed carries the same change badge the card and
   the sidebar wear, so searching in PR mode says which hits are part of the review, and a
   test or a setup callback wears the badge its card does, so a hit on a test's name reads as
-  the test it is.
+  the test it is. A module is answered by its name beside the functions and wears the
+  `module` badge its card does; choosing one opens its module card.
   """
 
   use GraspWeb, :html
@@ -44,7 +45,7 @@ defmodule GraspWeb.Palette do
           type="text"
           name="q"
           value={@query}
-          placeholder="Type a function name… (Enter opens, Shift+Enter opens under the focused card)"
+          placeholder="Type a function or module name… (Enter opens, Shift+Enter opens under the focused card)"
           phx-debounce="80"
         />
       </form>
@@ -64,7 +65,10 @@ defmodule GraspWeb.Palette do
             <span class="palette__id">{fun["id"]}</span>
             <.change_badge change={fun["change"]} />
             <.test_badge kind={fun["kind"]} />
-            <span class="palette__meta">{fun["kind"]} · {fun["file"]}</span>
+            <span :if={fun["kind"] == "module"} class="badge badge--module">module</span>
+            <span class="palette__meta">
+              {if fun["kind"] == "module", do: fun["file"], else: "#{fun["kind"]} · #{fun["file"]}"}
+            </span>
           </button>
         </li>
       </ul>
