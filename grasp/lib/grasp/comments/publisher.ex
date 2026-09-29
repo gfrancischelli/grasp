@@ -157,11 +157,7 @@ defmodule Grasp.Comments.Publisher do
     end
   end
 
-  # A function id ends in its arity and a module name never does, which is how a thread on a
-  # module card is told apart once its record is gone.
-  defp gone(id) do
-    if Regex.match?(~r|/\d+$|, id), do: "function", else: "module"
-  end
+  defp gone(id), do: if(Index.module_id?(id), do: "module", else: "function")
 
   defp post(thread, report, record, root, pull_request, ranges) do
     path = record["file"]

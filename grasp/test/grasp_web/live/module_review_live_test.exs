@@ -7,6 +7,7 @@ defmodule GraspWeb.ModuleReviewLiveTest do
 
   @fixture Path.expand("../../fixtures/index.json", __DIR__)
   @shout "SampleApp.Formatter.shout/1"
+  @hello "SampleApp.Greeter.Nested.hello/0"
 
   setup %{conn: conn} do
     :ok = IndexStore.load(with_changed_moduledocs())
@@ -70,8 +71,19 @@ defmodule GraspWeb.ModuleReviewLiveTest do
     end
 
     test "a moduledoc is never an untested change, nor paired with tests", %{view: view} do
+      assert has_element?(view, "#group-untested .group__heading", "SampleApp.Greeter.Nested")
+      assert has_element?(view, "#group-untested .entry[phx-value-id='#{@hello}']")
+
+      assert has_element?(
+               view,
+               "#entries [data-kind='untested'] .group__title .group__count",
+               "1"
+             )
+
+      refute has_element?(view, "#group-untested .entry[phx-value-id='SampleApp.Greeter.Nested']")
+      refute has_element?(view, "#group-untested .entry[phx-value-id='SampleAppWeb.RequestId']")
       refute has_element?(view, "#group-untested .group__heading", "SampleAppWeb.RequestId")
-      refute has_element?(view, "#group-changes .entry[phx-value-module] [data-untested]")
+      refute has_element?(view, "#group-changes .entry--moduledoc [data-untested]")
 
       refute has_element?(
                view,
@@ -184,6 +196,8 @@ defmodule GraspWeb.ModuleReviewLiveTest do
 
       result = "#palette-results li:first-child[data-id='SampleApp.Counter']"
       assert has_element?(view, result <> " .badge--module", "module")
+      assert has_element?(view, result <> " .palette__meta", "lib/sample_app/counter.ex")
+      refute has_element?(view, result <> " .palette__meta", "module")
       assert has_element?(view, "#palette-results li[data-id='SampleApp.Counter.init/1']")
 
       render_hook(view, "palette_choose", %{"child" => false})
@@ -217,6 +231,13 @@ defmodule GraspWeb.ModuleReviewLiveTest do
             "change" => "modified",
             "base_source" => ~s(  @moduledoc "Decorations."),
             "base_doc" => %{"text" => "Decorations.", "hidden" => false}
+          })
+
+        %{"name" => "SampleApp.Greeter.Nested"} = module ->
+          Map.merge(module, %{
+            "change" => "modified",
+            "base_source" => ~s(    @moduledoc "Nested."),
+            "base_doc" => %{"text" => "Nested.", "hidden" => false}
           })
 
         %{"name" => "SampleAppWeb.RequestId"} = module ->

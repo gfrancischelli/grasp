@@ -41,6 +41,7 @@ defmodule Grasp.Index do
             modules: [],
             modules_by_name: %{},
             moduledoc_summaries: %{},
+            changed_modules: [],
             entry_points: [],
             functions: %{},
             aliases: %{},
@@ -63,6 +64,7 @@ defmodule Grasp.Index do
           modules: [map()],
           modules_by_name: %{String.t() => module_record()},
           moduledoc_summaries: %{String.t() => String.t()},
+          changed_modules: [module_record()],
           entry_points: [map()],
           functions: %{String.t() => function_record()},
           aliases: %{String.t() => String.t()},
@@ -166,6 +168,11 @@ defmodule Grasp.Index do
       modules: Enum.reject(modules, &(&1["removed"] == true)),
       modules_by_name: modules_by_name,
       moduledoc_summaries: summaries(modules_by_name),
+      changed_modules:
+        modules_by_name
+        |> Map.values()
+        |> Enum.filter(&(&1["change"] in ["added", "modified", "removed"]))
+        |> Enum.sort_by(& &1["name"]),
       entry_points: entry_points,
       functions: functions,
       aliases: aliases,
@@ -320,25 +327,27 @@ defmodule Grasp.Index do
 
   @doc """
   Fetches the record a card's id names: a function by its id, as `fetch_function/2` does, or
-  a module by its name. A function id always ends in `/arity` and a module name never does,
-  so the two never answer to the same id.
+  a module by its name, which of the two `module_id?/1` tells.
   """
   @spec fetch_record(t(), String.t()) :: {:ok, function_record() | module_record()} | :error
   def fetch_record(%__MODULE__{} = index, id) do
-    case fetch_function(index, id) do
-      {:ok, record} -> {:ok, record}
-      :error -> fetch_module(index, id)
-    end
+    if module_id?(id), do: fetch_module(index, id), else: fetch_function(index, id)
   end
 
-  @doc "The module records whose moduledoc is `added`, `modified` or `removed`, sorted by name."
+  @doc """
+  The module records whose moduledoc is `added`, `modified` or `removed`, sorted by name. The
+  list is computed once, when the index is built from its document.
+  """
   @spec changed_modules(t()) :: [module_record()]
-  def changed_modules(%__MODULE__{} = index) do
-    index.modules_by_name
-    |> Map.values()
-    |> Enum.filter(&(&1["change"] in ["added", "modified", "removed"]))
-    |> Enum.sort_by(& &1["name"])
-  end
+  def changed_modules(%__MODULE__{} = index), do: index.changed_modules
+
+  @doc """
+  Whether `id` names a module rather than a function: a function id always ends in `/arity`
+  and a module name never does. A card's id and a thread's `function_id` are one or the
+  other, and this tells them apart whether or not the index still holds the record.
+  """
+  @spec module_id?(String.t()) :: boolean()
+  def module_id?(id) when is_binary(id), do: not Regex.match?(~r|/\d+$|, id)
 
   @doc """
   The first paragraph of a module's moduledoc as plain text, or `nil` for a module without

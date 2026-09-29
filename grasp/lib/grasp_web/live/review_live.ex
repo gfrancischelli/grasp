@@ -1038,10 +1038,11 @@ defmodule GraspWeb.ReviewLive do
 
   defp chat_suggestions(_agent, _index, _forest, _comments), do: []
 
-  # A plan of tests is for the code under test, so a test or a setup card is offered none.
+  # A plan of tests is for the code under test, so a test or a setup card is offered none,
+  # and neither is a module card, whose moduledoc no test runs.
   defp plan_tests(%Index{} = index, function_id) do
-    case Index.fetch_function(index, function_id) do
-      {:ok, %{"kind" => kind}} when kind in ["test", "setup"] -> []
+    case Index.fetch_record(index, function_id) do
+      {:ok, %{"kind" => kind}} when kind in ["test", "setup", "module"] -> []
       _application -> [TestPlan.request(function_id)]
     end
   end

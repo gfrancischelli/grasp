@@ -66,7 +66,9 @@ defmodule GraspWeb.Palette do
             <.change_badge change={fun["change"]} />
             <.test_badge kind={fun["kind"]} />
             <span :if={fun["kind"] == "module"} class="badge badge--module">module</span>
-            <span class="palette__meta">{fun["kind"]} · {fun["file"]}</span>
+            <span class="palette__meta">
+              {if fun["kind"] == "module", do: fun["file"], else: "#{fun["kind"]} · #{fun["file"]}"}
+            </span>
           </button>
         </li>
       </ul>

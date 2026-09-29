@@ -307,6 +307,16 @@ defmodule GraspWeb.ChatTest do
     end
   end
 
+  test "a focused module card is offered no plan of tests", %{view: view} do
+    view |> element("#toggle-chat") |> render_click()
+    view |> element("#chat") |> render_hook("open_module", %{"module" => "SampleApp.Counter"})
+
+    assert has_element?(view, "#card-1.card--module[data-focused='true']")
+    assert has_element?(view, ~s(#chat .chat__suggest button), "Explain SampleApp.Counter")
+    refute has_element?(view, ~s(#chat .chat__suggest button), "Plan tests for SampleApp.Counter")
+    assert has_element?(view, ~s(#chat .chat__suggest button), "Plan tests for the changes")
+  end
+
   defp suggestions(view) do
     view
     |> element("#chat .chat__suggest")

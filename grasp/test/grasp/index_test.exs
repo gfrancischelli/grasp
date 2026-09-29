@@ -127,6 +127,12 @@ defmodule Grasp.IndexTest do
     assert Index.callees(index, "MyApp.Wallets.credit/2") == ["MyApp.Ledger.post/2"]
   end
 
+  test "module_id?/1 tells a module name from a function id" do
+    assert Index.module_id?("MyApp.Wallets")
+    refute Index.module_id?("MyApp.Wallets.credit/3")
+    refute Index.module_id?(~s|MyApp.WalletsTest."test credits a wallet"/1|)
+  end
+
   test "search/4 with modules: true ranks functions before modules of the same score" do
     module = %{
       "id" => "MyApp.Wallets",

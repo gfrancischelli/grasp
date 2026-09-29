@@ -77,9 +77,6 @@ defmodule GraspWeb.Sidebar do
   # test's compiled name is written quoted and may hold a dot or a slash.
   @function_id ~r/^([A-Z][\w.]*)\.((?:"(?:[^"\\]|\\.)*"|[^.\/]+)\/\d+)$/
 
-  # The id of a module card, which a thread on a module the index lost is left with.
-  @module_name ~r/^[A-Z][\w.]*$/
-
   # Ordered from the outside in: what calls into the system, then what the runtime calls,
   # then the plumbing. Each entry is {data-kind, title, kinds it collects}.
   @groups [
@@ -619,7 +616,7 @@ defmodule GraspWeb.Sidebar do
     do: match?({:ok, _record}, Index.fetch_record(index, function_id))
 
   defp lost_row(id) do
-    if Regex.match?(@module_name, id),
+    if Index.module_id?(id),
       do: {id, "@moduledoc"},
       else: {module_of(id), name_of(id)}
   end
