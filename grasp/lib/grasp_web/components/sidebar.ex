@@ -26,9 +26,11 @@ defmodule GraspWeb.Sidebar do
 
   A review against a base ref leads with what the branch did: a Changes group above the
   entry points, listing every added, modified and removed function under its module with
-  the badge naming which it is. It is the table of contents of a pull request, so it opens
-  on arrival whenever there is one, and is absent from a review with nothing to show — no
-  base ref, or a branch that changed nothing.
+  the badge naming which it is; a moduledoc the branch added, modified or removed leads its
+  module's rows as `@moduledoc`, opening the module card, on its diff when the moduledoc is
+  modified. It is the table of contents of a pull request, so it opens on arrival whenever
+  there is one, and is absent from a review with nothing to show — no base ref, or a branch
+  that changed nothing.
 
   Under each changed application function the Changes group lists, indented, the changed
   tests that reach it, so code and tests changed together read as pairs; a changed function
@@ -47,7 +49,8 @@ defmodule GraspWeb.Sidebar do
   read, under the modules they were written on. A thread is a question waiting on someone, so it
   leads; the row carries the function, the line and the opening words of the body, and
   clicking it draws the card and lights the line up. A thread on a function the index no
-  longer holds has nothing to draw, so it is listed muted and clicking it does nothing.
+  longer holds has nothing to draw, so it is listed muted and clicking it does nothing. A
+  thread on a module card is listed under that module as `@moduledoc`.
 
   Above the groups is the session menu: the name of the session being read, and under it
   every session the viewer is running or has saved. A row navigates to that canvas, the ×
@@ -73,6 +76,9 @@ defmodule GraspWeb.Sidebar do
   # The id of a function the index does not hold, which only its text can be read for. A
   # test's compiled name is written quoted and may hold a dot or a slash.
   @function_id ~r/^([A-Z][\w.]*)\.((?:"(?:[^"\\]|\\.)*"|[^.\/]+)\/\d+)$/
+
+  # The id of a module card, which a thread on a module the index lost is left with.
+  @module_name ~r/^[A-Z][\w.]*$/
 
   # Ordered from the outside in: what calls into the system, then what the runtime calls,
   # then the plumbing. Each entry is {data-kind, title, kinds it collects}.
@@ -127,8 +133,8 @@ defmodule GraspWeb.Sidebar do
       end
 
     entries =
-      case Index.changed_functions(index) do
-        [] -> entries
+      case {Index.changed_functions(index), Index.changed_modules(index)} do
+        {[], []} -> entries
         _changes -> MapSet.put(entries, "changes")
       end
 
@@ -237,6 +243,7 @@ defmodule GraspWeb.Sidebar do
   def entry_groups(assigns) do
     index = assigns.index
     changes = Index.changed_functions(index)
+    moduledocs = Index.changed_modules(index)
     untested = Index.untested_changes(index)
     threads = open_threads(assigns.comments)
     tests = Index.tests(index)
@@ -250,9 +257,9 @@ defmodule GraspWeb.Sidebar do
         tests: tests,
         test_count:
           tests |> Enum.flat_map(& &1.describes) |> Enum.map(&length(elem(&1, 1))) |> Enum.sum(),
-        changes: changes_by_module(changes),
+        changes: changes_with_moduledocs(changes, moduledocs),
         changed_tests?: Index.changed_test_ids(index) != [],
-        change_count: length(changes),
+        change_count: length(changes) + length(moduledocs),
         untested: changes_by_module(untested),
         untested_ids: MapSet.new(untested, & &1["id"]),
         untested_count: length(untested),
@@ -313,8 +320,18 @@ defmodule GraspWeb.Sidebar do
           >
             run changed tests
           </button>
-          <div :for={{module, records} <- @changes} class="group__module">
+          <div :for={{module, moduledoc, records} <- @changes} class="group__module">
             <h2 class="group__heading">{module}</h2>
+            <button
+              :if={moduledoc}
+              class="entry entry--moduledoc"
+              phx-click="open_module"
+              phx-value-module={module}
+              phx-value-view={moduledoc["change"] == "modified" && "diff"}
+              title={module}
+            >
+              <.change_badge change={moduledoc["change"]} />@moduledoc
+            </button>
             <%= for record <- records do %>
               <button
                 class="entry"
@@ -570,11 +587,13 @@ defmodule GraspWeb.Sidebar do
     threads
     |> Enum.map(fn thread ->
       # A thread on an indexed function is named by its record, which a test's id cannot
-      # be parsed for; one on a function the index lost has only its id to go on.
+      # be parsed for; one on a function the index lost has only its id to go on. A thread on
+      # a module card sits under the module, named by the attribute it was written on.
       {module, name} =
-        case Index.fetch_function(index, thread.function_id) do
+        case Index.fetch_record(index, thread.function_id) do
+          {:ok, %{"kind" => "module"} = record} -> {record["name"], "@moduledoc"}
           {:ok, record} -> {record["module"], title(record).name}
-          :error -> {module_of(thread.function_id), name_of(thread.function_id)}
+          :error -> lost_row(thread.function_id)
         end
 
       %{
@@ -597,7 +616,13 @@ defmodule GraspWeb.Sidebar do
   defp lines_label(thread), do: "L#{thread.line}–L#{thread.end_line}"
 
   defp indexed?(%Index{} = index, function_id),
-    do: match?({:ok, _record}, Index.fetch_function(index, function_id))
+    do: match?({:ok, _record}, Index.fetch_record(index, function_id))
+
+  defp lost_row(id) do
+    if Regex.match?(@module_name, id),
+      do: {id, "@moduledoc"},
+      else: {module_of(id), name_of(id)}
+  end
 
   # A row is one line of a sidebar narrow enough to cut a sentence short anyway, and the
   # opening words are what tells one thread from another; the body is read on the card.
@@ -621,6 +646,18 @@ defmodule GraspWeb.Sidebar do
   defp full_title(record) do
     %{module: module, separator: separator, name: name} = title(record)
     "#{module}#{separator}#{name}"
+  end
+
+  # A moduledoc the branch added, modified or removed leads its module's rows, and a module
+  # whose moduledoc is the branch's only difference there is headed for that one row.
+  defp changes_with_moduledocs(records, moduledocs) do
+    by_module = Map.new(changes_by_module(records))
+    docs = Map.new(moduledocs, &{&1["name"], &1})
+
+    (Map.keys(by_module) ++ Map.keys(docs))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&{&1, docs[&1], Map.get(by_module, &1, [])})
   end
 
   # Changed functions arrive sorted by id, which orders each module's rows the way the

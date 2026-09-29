@@ -66,9 +66,9 @@ defmodule GraspWeb.PaletteTest do
 
   test "palette_move walks the results and palette_choose opens the selected one", %{view: view} do
     render_hook(view, "palette_show", %{})
-    search(view, "e")
+    search(view, "e/")
 
-    for _ <- 1..3, do: render_hook(view, "palette_move", %{"delta" => 1})
+    for _ <- 1..5, do: render_hook(view, "palette_move", %{"delta" => 1})
     assert has_element?(view, "#palette-results li[data-id='#{@shout}'][aria-selected='true']")
 
     render_hook(view, "palette_choose", %{"child" => false})
@@ -79,7 +79,7 @@ defmodule GraspWeb.PaletteTest do
   end
 
   test "palette_move clamps at both ends of the results", %{view: view} do
-    search(view, "greet")
+    search(view, "greet/")
 
     render_hook(view, "palette_move", %{"delta" => -1})
     assert has_element?(view, "#palette-results li[data-id='#{@greet}'][aria-selected='true']")
@@ -95,8 +95,8 @@ defmodule GraspWeb.PaletteTest do
   end
 
   test "palette_choose without a child flag opens a root", %{view: view} do
-    search(view, "greet")
-    render_hook(view, "palette_choose", %{"q" => "greet"})
+    search(view, "greet/")
+    render_hook(view, "palette_choose", %{"q" => "greet/"})
 
     assert has_element?(view, "#node-1[data-depth='0'] #card-1[data-function-id='#{@greet}']")
   end

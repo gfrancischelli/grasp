@@ -208,6 +208,53 @@ defmodule Grasp.Comments.PublisherTest do
              }
     end
 
+    test "posts a thread on a module card's moduledoc as a function's is", %{
+      index: index,
+      log: log
+    } do
+      body = unique_body()
+      thread = open(%{function_id: "SampleApp.Greeter", line: 2, body: body})
+
+      assert {:ok, report} = Publisher.publish(index, session: "default")
+      assert %{kind: :line} = entry(report.published, thread.id)
+
+      call = api_call(log, body)
+      assert call =~ "line=2"
+      assert call =~ "path=lib/sample_app/greeter.ex"
+      assert {:ok, %{github: %{url: _url}}} = Comments.fetch(thread.id)
+    end
+
+    test "posts a base-side thread on a module on the file, under the module's name", %{
+      index: index,
+      log: log
+    } do
+      body = unique_body()
+      thread = open(%{function_id: "SampleApp.Counter", side: "old", line: 1, body: body})
+
+      assert {:ok, report} = Publisher.publish(index, session: "default")
+      assert %{kind: :file} = entry(report.published, thread.id)
+
+      call = api_call(log, body)
+      assert call =~ "path=lib/sample_app/counter.ex"
+      assert call =~ "body=`SampleApp.Counter` · deleted line 1"
+    end
+
+    test "reports a module the index no longer holds", %{index: %Index{} = index} do
+      thread = open(%{function_id: "SampleApp.Greeter", line: 2})
+
+      gone = %Index{
+        index
+        | modules_by_name: Map.delete(index.modules_by_name, "SampleApp.Greeter")
+      }
+
+      assert {:ok, report} = Publisher.publish(gone, session: "default")
+
+      assert entry(report.failed, thread.id) == %{
+               comment_id: thread.id,
+               error: "module is no longer in the index"
+             }
+    end
+
     test "answers the failure when the checkout has no pull request", %{index: index} do
       assert {:error, message} = Publisher.publish(index, session: "default", pull_request: 404)
       assert message =~ "no pull requests"

@@ -127,6 +127,32 @@ defmodule Grasp.IndexTest do
     assert Index.callees(index, "MyApp.Wallets.credit/2") == ["MyApp.Ledger.post/2"]
   end
 
+  test "search/4 with modules: true ranks modules by name beside functions" do
+    module = %{
+      "id" => "MyApp.Wallets",
+      "kind" => "module",
+      "name" => "MyApp.Wallets",
+      "file" => "lib/my_app/wallets.ex",
+      "line" => 1
+    }
+
+    {:ok, index} = Index.from_document(Map.put(document(), "modules", [module]))
+
+    assert [%{"kind" => "module", "id" => "MyApp.Wallets"} | rest] =
+             Index.search(index, "MyApp.Wallets", 20, modules: true)
+
+    assert ids(rest) == ["MyApp.Wallets.debit/3", "MyApp.Wallets.credit/3"]
+
+    assert ids(Index.search(index, "wallets", 20, modules: true)) == [
+             "MyApp.Wallets",
+             "MyApp.Wallets.debit/3",
+             "MyApp.Wallets.credit/3"
+           ]
+
+    assert ids(Index.search(index, "mywal", 20, modules: true)) |> hd() == "MyApp.Wallets"
+    refute "MyApp.Wallets" in ids(Index.search(index, "wallets"))
+  end
+
   test "search/3 ranks exact, then substring, then subsequence matches", %{index: index} do
     assert ids(Index.search(index, "MyApp.Wallets.debit/3")) == ["MyApp.Wallets.debit/3"]
     assert ids(Index.search(index, "credit")) == ["MyApp.Wallets.credit/3"]

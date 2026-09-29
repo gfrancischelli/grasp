@@ -248,33 +248,8 @@ defmodule GraspWeb.ReviewLive do
   # already open is focused where it stands. `view` opens the card on that view, which is how
   # a row naming a modified moduledoc opens it on its diff.
   def handle_event("open_module", %{"module" => module} = params, socket)
-      when is_binary(module) do
-    with %Index{} = index <- socket.assigns.index,
-         {:ok, %{"kind" => "module", "name" => name}} <- Index.fetch_module(index, module) do
-      socket = socket |> clear_selection() |> close_overlays()
-      session = socket.assigns.name
-      open? = Forest.find(socket.assigns.forest, name) != nil
-      forest = Session.open_root(session, name)
-      id = Forest.find(forest, name)
-
-      forest =
-        case module_view_param(params["view"]) do
-          nil -> forest
-          view -> Session.set_view(session, id, view)
-        end
-
-      from = int(params["card"])
-
-      socket =
-        if not open? and is_integer(from) and Forest.card(forest, from) != nil,
-          do: update(socket, :opened_near, &Map.put(&1, id, from)),
-          else: socket
-
-      {:noreply, put_forest(socket, forest)}
-    else
-      _no_module -> {:noreply, socket}
-    end
-  end
+      when is_binary(module),
+      do: open_module(socket, module, params["view"], int(params["card"]))
 
   def handle_event("open_call", %{"card" => card, "target" => target}, socket)
       when is_binary(target),
@@ -740,7 +715,7 @@ defmodule GraspWeb.ReviewLive do
     results =
       case socket.assigns.index do
         nil -> []
-        index -> Index.search(index, query, 20)
+        index -> Index.search(index, query, 20, modules: true)
       end
 
     {:noreply,
@@ -845,18 +820,22 @@ defmodule GraspWeb.ReviewLive do
   # The sidebar's row names a thread rather than a card, so the card it belongs on is opened
   # first and the line the thread anchors to is lit up on it. An old-side or outdated anchor
   # has no line in the card's own numbering to light, and a thread whose function has left
-  # the index has no card at all, so both stop at what they can do.
+  # the index has no card at all, so both stop at what they can do. A module card opens on
+  # the view that draws the thread's line, since its doc view draws none.
   def handle_event("open_comment", %{"id" => id}, socket) do
     with thread_id when is_integer(thread_id) <- int(id),
          {:ok, thread} <- Grasp.Comments.fetch(thread_id, socket.assigns.name),
          %Index{} = index <- socket.assigns.index,
-         {:ok, record} <- Index.fetch_function(index, thread.function_id) do
+         {:ok, record} <- Index.fetch_record(index, thread.function_id) do
       socket = clear_selection(socket)
       name = socket.assigns.name
       forest = Session.open_root(name, record["id"])
+      card_id = Forest.find(forest, record["id"])
+      placement = Grasp.Comments.Anchor.place(thread, record)
+      forest = show_thread_line(forest, name, card_id, record, placement)
 
       forest =
-        case {Grasp.Comments.Anchor.place(thread, record), Forest.find(forest, record["id"])} do
+        case {placement, card_id} do
           {{:new, line}, card_id} when is_integer(card_id) ->
             Session.set_highlight(name, card_id, %{"lines" => [line, line]})
 
@@ -1070,7 +1049,10 @@ defmodule GraspWeb.ReviewLive do
   defp plan_tests(nil, _function_id), do: []
 
   defp pull_request?(%Index{git: %{"base_ref" => base_ref}}) when is_binary(base_ref), do: true
-  defp pull_request?(%Index{} = index), do: Index.changed_functions(index) != []
+
+  defp pull_request?(%Index{} = index),
+    do: Index.changed_functions(index) != [] or Index.changed_modules(index) != []
+
   defp pull_request?(nil), do: false
 
   defp focused_function(%Forest{focus: focus} = forest) when is_integer(focus) do
@@ -1148,6 +1130,11 @@ defmodule GraspWeb.ReviewLive do
   # A line of the record the card is drawing, on the side the gesture named. A card whose
   # function has left the index has no line to write on at all.
   defp commentable?(nil, _side, _line), do: false
+
+  # A module whose moduledoc the branch removed has only base lines; its span is gone with
+  # the attribute, so nothing on the new side can take a comment.
+  defp commentable?(record, "new", _line) when not is_map_key(record, "span"), do: false
+  defp commentable?(%{"span" => nil}, "new", _line), do: false
 
   defp commentable?(record, side, line) when is_integer(line) and line > 0,
     do: Grasp.MCP.Comments.check_line(record, side, line) == :ok
@@ -1343,11 +1330,66 @@ defmodule GraspWeb.ReviewLive do
     end
   end
 
+  defp open_module(socket, module, view, from) do
+    with %Index{} = index <- socket.assigns.index,
+         {:ok, %{"kind" => "module", "name" => name}} <- Index.fetch_module(index, module) do
+      socket = socket |> clear_selection() |> close_overlays()
+      session = socket.assigns.name
+      open? = Forest.find(socket.assigns.forest, name) != nil
+      forest = Session.open_root(session, name)
+      id = Forest.find(forest, name)
+
+      forest =
+        case module_view_param(view) do
+          nil -> forest
+          view -> Session.set_view(session, id, view)
+        end
+
+      socket =
+        if not open? and is_integer(from) and Forest.card(forest, from) != nil,
+          do: update(socket, :opened_near, &Map.put(&1, id, from)),
+          else: socket
+
+      {:noreply, put_forest(socket, forest)}
+    else
+      _no_module -> {:noreply, socket}
+    end
+  end
+
+  defp show_thread_line(forest, name, card_id, %{"kind" => "module"} = record, placement)
+       when is_integer(card_id) do
+    view =
+      case placement do
+        {:new, _line} -> :source
+        {:old, _line} -> :diff
+        _no_line -> nil
+      end
+
+    if view in CardComponents.module_views(record),
+      do: Session.set_view(name, card_id, view),
+      else: forest
+  end
+
+  defp show_thread_line(forest, _name, _card_id, _record, _placement), do: forest
+
   # The form submit carries the query rather than a child flag, so a missing key is a plain
   # root open; the hook sends the boolean and the result buttons the string.
   defp child?(params), do: params["child"] in [true, "true"]
 
+  # A module belongs to no call, so a module result opens as a root whichever way it was
+  # chosen, beside the focused card.
   defp open_from_palette(socket, id, child?) do
+    case socket.assigns.index && Index.fetch_record(socket.assigns.index, id) do
+      {:ok, %{"kind" => "module"}} ->
+        {:noreply, socket} = open_module(socket, id, nil, socket.assigns.forest.focus)
+        {:noreply, reset_palette(socket)}
+
+      _function ->
+        open_function_from_palette(socket, id, child?)
+    end
+  end
+
+  defp open_function_from_palette(socket, id, child?) do
     socket = clear_selection(socket)
     name = socket.assigns.name
     id = canonical(socket, id)

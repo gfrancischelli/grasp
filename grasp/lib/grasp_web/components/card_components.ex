@@ -18,9 +18,11 @@ defmodule GraspWeb.CardComponents do
   A card whose id names a module is a module card: its header wears `module`, the module's
   behaviours and the moduledoc's change, and its body is the moduledoc rendered as sanitized
   Markdown (`GraspWeb.ChatMarkdown`), the attribute's source, or its diff against the base,
-  as `module_views/1` offers them. It holds no calls, so it draws no edges. The module part
-  of a function card's title is a button opening that card, the module's summary its
-  tooltip.
+  as `module_views/1` offers them. A moduledoc the branch took off a module it keeps is
+  diffed as its base lines, every one deleted, which is where its base-side threads hang. It
+  holds no calls, so it draws no edges. The module part of a function card's title is a
+  button opening that card, the module's summary its tooltip. Both kinds of card draw their
+  lines, threads and footer of threads through the same components.
 
   A function card that tests reach wears `n tests` in its header, and its callers menu lists
   those tests after the callers, nearest first with the hops between; the badge opens the
@@ -645,56 +647,24 @@ defmodule GraspWeb.CardComponents do
           data-end-line={lines.last}
         >{html}</pre>
       </div>
-      <%!-- The lines are rendered one at a time so a thread can sit between two of them.
-      Whitespace between the children here is ordinary white-space, which the body does not
-      preserve — only the lines themselves are preformatted. --%>
-      <div
-        id={"body-#{@card.id}"}
-        class="card__body lumis"
-        style={"--gutter: #{@gutter}ch"}
-        phx-hook="Gutter"
-      >
-        <%= for line <- @lines do %>
-          <%= if line[:fold] do %>
-            <button
-              class="line line--fold"
-              phx-click="expand_fold"
-              phx-value-card={@card.id}
-              phx-value-from={line.from}
-            >
-              ⋯ {line.count} unchanged lines
-            </button>
-          <% else %>
-            {raw(line.html)}<.failure_panel
-              :for={failure <- failures_at(@failures_under, line)}
-              failure={failure}
-            /><.thread
-              :for={thread <- Map.get(@placed, {line.side, line.line}, [])}
-              thread={thread}
-              card_id={@card.id}
-              expanded={MapSet.member?(@expanded_threads, thread.id)}
-              composing={@composing}
-            /><.composer
-              :if={composing_at?(@composing, @card.id, line.side, line.line)}
-              composing={@composing}
-              card_id={@card.id}
-            />
-          <% end %>
-        <% end %>
-      </div>
+      <.card_lines
+        card_id={@card.id}
+        lines={@lines}
+        placed={@placed}
+        gutter={@gutter}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+        failures_under={@failures_under}
+      />
       <footer :if={@failures_aside != []} class="card__failures">
         <.failure_panel :for={failure <- @failures_aside} failure={failure} />
       </footer>
-      <footer :if={@aside != []} class="card__outdated">
-        <.thread
-          :for={{why, thread} <- @aside}
-          thread={thread}
-          card_id={@card.id}
-          expanded={MapSet.member?(@expanded_threads, thread.id)}
-          composing={@composing}
-          aside={why}
-        />
-      </footer>
+      <.threads_aside
+        card_id={@card.id}
+        aside={@aside}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+      />
       <footer :if={@record["hidden_calls"] != []} class="card__also">
         <span class="card__also-label">Also calls</span>
         <button
@@ -732,8 +702,9 @@ defmodule GraspWeb.CardComponents do
   The views a module card offers for `record`, in the order its toggle lists them: `:doc`
   for a module whose moduledoc is text, `@moduledoc false` or absent, since the view says
   which of the three it is; `:source` for any moduledoc the record has lines of; `:diff` when
-  the moduledoc is modified. A moduledoc that is not a literal has no text to render and is
-  read as source.
+  the moduledoc is modified, and when the branch took it off a module it keeps, where the
+  diff is the base lines, every one deleted. A moduledoc that is not a literal has no text to
+  render and is read as source.
   """
   @spec module_views(map()) :: [:doc | :source | :diff]
   def module_views(record) do
@@ -748,7 +719,16 @@ defmodule GraspWeb.CardComponents do
         true -> [:source]
       end
 
-    if Diff.diffable?(record), do: views ++ [:diff], else: views
+    if Diff.diffable?(record) or removed_moduledoc?(record),
+      do: views ++ [:diff],
+      else: views
+  end
+
+  # A module the branch keeps but whose moduledoc it removed has no lines of its own, only
+  # the base's.
+  defp removed_moduledoc?(record) do
+    record["change"] == "removed" and record["removed"] != true and
+      is_binary(record["base_source"]) and not is_binary(record["source"])
   end
 
   @doc """
@@ -769,7 +749,18 @@ defmodule GraspWeb.CardComponents do
     doc = record["doc"]
     diffable? = Diff.diffable?(record)
     {anchored, lost, commented} = anchor_threads(comments, record)
-    drawn = Map.put(record, "calls", [])
+
+    # A removed moduledoc's diff is its base lines against nothing, each deleted and numbered
+    # from 1 as the old side is, so its threads anchor as a deleted line's do.
+    drawn =
+      if removed_moduledoc?(record),
+        do:
+          Map.merge(record, %{
+            "calls" => [],
+            "source" => "",
+            "span" => %{"start_line" => 1, "end_line" => 1}
+          }),
+        else: Map.put(record, "calls", [])
 
     highlight_opts = [
       card_id: card.id,
@@ -811,7 +802,7 @@ defmodule GraspWeb.CardComponents do
         base_doc_html:
           view == :doc and doc_state(doc) == :none and is_map(base_doc) and
             doc_html(base_doc, known?),
-        gutter: record["span"] && gutter_columns(record),
+        gutter: is_map(drawn["span"]) && gutter_columns(drawn),
         editor_href:
           !record["removed"] &&
             editor_url(assigns.editor, index.project["root"], record["file"], record["line"])
@@ -883,38 +874,99 @@ defmodule GraspWeb.CardComponents do
             </div>
         <% end %>
       </div>
-      <div
+      <.card_lines
         :if={@view != :doc}
-        id={"body-#{@card.id}"}
-        class="card__body lumis"
-        style={"--gutter: #{@gutter}ch"}
-        phx-hook="Gutter"
-      >
-        <%= for line <- @lines do %>
-          {raw(line.html)}<.thread
+        card_id={@card.id}
+        lines={@lines}
+        placed={@placed}
+        gutter={@gutter}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+      />
+      <.threads_aside
+        card_id={@card.id}
+        aside={@aside}
+        expanded_threads={@expanded_threads}
+        composing={@composing}
+      />
+    </article>
+    """
+  end
+
+  attr :card_id, :integer, required: true
+  attr :lines, :list, required: true, doc: "the rendered lines, folds among them"
+  attr :placed, :map, required: true, doc: "the threads under each `{side, line}`"
+  attr :gutter, :integer, required: true, doc: "the columns the line numbers take"
+  attr :expanded_threads, MapSet, required: true
+  attr :composing, :map, default: nil
+
+  attr :failures_under, :map,
+    default: %{},
+    doc: "the failure panels under each line of the current source"
+
+  # The lines are rendered one at a time so a thread can sit between two of them.
+  # Whitespace between the children here is ordinary white-space, which the body does not
+  # preserve — only the lines themselves are preformatted.
+  defp card_lines(assigns) do
+    ~H"""
+    <div
+      id={"body-#{@card_id}"}
+      class="card__body lumis"
+      style={"--gutter: #{@gutter}ch"}
+      phx-hook="Gutter"
+    >
+      <%= for line <- @lines do %>
+        <%= if line[:fold] do %>
+          <button
+            class="line line--fold"
+            phx-click="expand_fold"
+            phx-value-card={@card_id}
+            phx-value-from={line.from}
+          >
+            ⋯ {line.count} unchanged lines
+          </button>
+        <% else %>
+          {raw(line.html)}<.failure_panel
+            :for={failure <- failures_at(@failures_under, line)}
+            failure={failure}
+          /><.thread
             :for={thread <- Map.get(@placed, {line.side, line.line}, [])}
             thread={thread}
-            card_id={@card.id}
+            card_id={@card_id}
             expanded={MapSet.member?(@expanded_threads, thread.id)}
             composing={@composing}
           /><.composer
-            :if={composing_at?(@composing, @card.id, line.side, line.line)}
+            :if={composing_at?(@composing, @card_id, line.side, line.line)}
             composing={@composing}
-            card_id={@card.id}
+            card_id={@card_id}
           />
         <% end %>
-      </div>
-      <footer :if={@aside != []} class="card__outdated">
-        <.thread
-          :for={{why, thread} <- @aside}
-          thread={thread}
-          card_id={@card.id}
-          expanded={MapSet.member?(@expanded_threads, thread.id)}
-          composing={@composing}
-          aside={why}
-        />
-      </footer>
-    </article>
+      <% end %>
+    </div>
+    """
+  end
+
+  attr :card_id, :integer, required: true
+
+  attr :aside, :list,
+    required: true,
+    doc: "`{why, thread}` for each thread the view draws no line for"
+
+  attr :expanded_threads, MapSet, required: true
+  attr :composing, :map, default: nil
+
+  defp threads_aside(assigns) do
+    ~H"""
+    <footer :if={@aside != []} class="card__outdated">
+      <.thread
+        :for={{why, thread} <- @aside}
+        thread={thread}
+        card_id={@card_id}
+        expanded={MapSet.member?(@expanded_threads, thread.id)}
+        composing={@composing}
+        aside={why}
+      />
+    </footer>
     """
   end
 

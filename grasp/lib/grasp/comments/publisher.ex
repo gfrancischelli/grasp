@@ -13,11 +13,12 @@ defmodule Grasp.Comments.Publisher do
   only on a line the diff covers, so the diff's hunks are read first and a thread whose line
   falls outside them — or one written on the base side, which has no line on the head commit
   — is posted as a file comment instead, opening with the function and line it was written
-  on so nothing about it is lost. A thread written over a range goes up as a multi-line
-  comment when the diff covers both of its ends, and on the file when it covers only one:
-  half a range is a comment about code its author did not mark. That is a degradation rather
-  than a failure: a remark posted on the file is still a remark the author reads, and
-  refusing to post it would leave the review half published.
+  on so nothing about it is lost. A thread on a module card is posted the same way, on the
+  lines of the module's moduledoc and under the module's name. A thread written over a range
+  goes up as a multi-line comment when the diff covers both of its ends, and on the file when
+  it covers only one: half a range is a comment about code its author did not mark. That is
+  a degradation rather than a failure: a remark posted on the file is still a remark the
+  author reads, and refusing to post it would leave the review half published.
 
   Nothing is rolled back. A comment GitHub refuses is reported under `failed` and the rest
   of the review still goes; a reply that fails after its comment landed is a warning, because
@@ -147,13 +148,19 @@ defmodule Grasp.Comments.Publisher do
        do: skip(report, thread.id, "already published")
 
   defp publish_thread(thread, report, index, root, pull_request, ranges) do
-    case Index.fetch_function(index, thread.function_id) do
+    case Index.fetch_record(index, thread.function_id) do
       :error ->
-        fail(report, thread.id, "function is no longer in the index")
+        fail(report, thread.id, "#{gone(thread.function_id)} is no longer in the index")
 
       {:ok, record} ->
         post(thread, report, record, root, pull_request, ranges)
     end
+  end
+
+  # A function id ends in its arity and a module name never does, which is how a thread on a
+  # module card is told apart once its record is gone.
+  defp gone(id) do
+    if Regex.match?(~r|/\d+$|, id), do: "function", else: "module"
   end
 
   defp post(thread, report, record, root, pull_request, ranges) do

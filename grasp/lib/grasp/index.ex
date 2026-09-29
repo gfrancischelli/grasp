@@ -726,25 +726,42 @@ defmodule Grasp.Index do
   A test or setup record is also matched by its module followed by its test's `describe` and
   name as written, so a test is found by the words of its name even where its id escapes
   them, and the better of the two scores ranks it.
+
+  With `modules: true` the module records are ranked in the same list by their names, scored
+  and ordered as a function's id is, each name once with the record `fetch_module/2` answers;
+  a result is a module when its `kind` is `"module"`.
   """
-  @spec search(t(), String.t(), pos_integer()) :: [function_record()]
-  def search(%__MODULE__{} = index, query, limit \\ 20) do
+  @spec search(t(), String.t(), pos_integer(), keyword()) :: [
+          function_record() | module_record()
+        ]
+  def search(%__MODULE__{} = index, query, limit \\ 20, opts \\ []) do
     query = query |> String.trim() |> String.downcase()
+
+    candidates =
+      for record <- Map.values(index.functions),
+          do: {search_texts(record), record["id"], record}
+
+    candidates =
+      if Keyword.get(opts, :modules, false),
+        do:
+          candidates ++
+            for(
+              {name, record} <- index.modules_by_name,
+              do: {[String.downcase(name)], name, record}
+            ),
+        else: candidates
 
     if query == "" do
       []
     else
-      index.functions
-      |> Map.values()
-      |> Enum.flat_map(fn record ->
-        case record |> search_texts() |> Enum.map(&score(&1, query)) |> Enum.max() do
+      candidates
+      |> Enum.flat_map(fn {texts, key, record} ->
+        case texts |> Enum.map(&score(&1, query)) |> Enum.max() do
           nil -> []
-          score -> [{score, record}]
+          score -> [{{-score, String.length(key), key}, record}]
         end
       end)
-      |> Enum.sort_by(fn {score, record} ->
-        {-score, String.length(record["id"]), record["id"]}
-      end)
+      |> Enum.sort_by(&elem(&1, 0))
       |> Enum.take(limit)
       |> Enum.map(&elem(&1, 1))
     end
