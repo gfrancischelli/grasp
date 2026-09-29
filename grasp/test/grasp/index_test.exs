@@ -228,10 +228,13 @@ defmodule Grasp.IndexTest do
 
     assert Index.modules(loaded) == [
              %{
+               "id" => "MyApp.Wallets",
+               "kind" => "module",
                "name" => "MyApp.Wallets",
                "file" => "lib/my_app/wallets.ex",
                "line" => 1,
-               "behaviours" => []
+               "behaviours" => [],
+               "doc" => nil
              }
            ]
 
@@ -1111,6 +1114,35 @@ defmodule Grasp.IndexTest do
       assert Index.moduledoc_summary(index, "A") == nil
       assert Index.moduledoc_summary(index, "B") == nil
       assert Index.moduledoc_summary(index, "C") == nil
+    end
+
+    test "a module entry holding only name, file, line and behaviours loads as a module record" do
+      bare = %{"name" => "A", "file" => "lib/a.ex", "line" => 1, "behaviours" => ["Plug"]}
+      index = module_index([bare, %{"name" => "B", "file" => "lib/b.ex", "line" => 1}])
+
+      expected = Map.merge(bare, %{"id" => "A", "kind" => "module", "doc" => nil})
+
+      assert Index.fetch_record(index, "A") == {:ok, expected}
+      assert Index.fetch_module(index, "A") == {:ok, expected}
+
+      assert {:ok, %{"id" => "B", "kind" => "module", "behaviours" => []}} =
+               Index.fetch_record(index, "B")
+
+      assert Enum.map(Index.modules(index), & &1["id"]) == ["A", "B"]
+      assert Index.moduledoc_summary(index, "A") == nil
+      assert Index.changed_modules(index) == []
+
+      assert [%{"id" => "A", "kind" => "module"}] =
+               Index.search(index, "A", 20, modules: true) |> Enum.filter(&(&1["name"] == "A"))
+
+      assert Enum.all?(Index.search(index, "a", 20, modules: true), &is_binary(&1["id"]))
+    end
+
+    test "a module entry without a name is left out" do
+      index = module_index([%{"file" => "lib/a.ex", "line" => 1}, module_record("B", "B.")])
+
+      assert Enum.map(Index.modules(index), & &1["name"]) == ["B"]
+      assert Enum.all?(Index.search(index, "b", 20, modules: true), &is_binary(&1["id"]))
     end
 
     test "the fixture's modules are records with their moduledocs" do

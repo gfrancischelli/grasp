@@ -14,7 +14,10 @@ defmodule Grasp.Index do
   Module records are keyed by name at load, beside the document's own list of them, and
   each module's moduledoc summary is read once there, so a card or a sidebar row asking for
   one never parses the text again. `fetch_record/2` answers a function id or a module name,
-  which is what a card's id is.
+  which is what a card's id is. Every module record answers `"id"` with its name and `"kind"`
+  with `"module"`, and `"doc"` with `nil` and `"behaviours"` with `[]` where the document
+  leaves them out, so an entry holding only a name, a file and a line reads as the record of
+  a module without a moduledoc; an entry with no name is left out.
 
   Every index built carries a `generation` no other index built in the VM carries, so a
   holder of answers taken against one can tell whether it still has that index without
@@ -150,7 +153,13 @@ defmodule Grasp.Index do
     entry_points_by_target =
       Enum.group_by(entry_points, &Map.get(aliases, &1["target"], &1["target"]))
 
-    modules = Enum.filter(List.wrap(document["modules"]), &is_map/1)
+    modules =
+      for %{"name" => name} = module <- List.wrap(document["modules"]),
+          is_binary(name),
+          do:
+            %{"doc" => nil, "behaviours" => []}
+            |> Map.merge(module)
+            |> Map.merge(%{"id" => name, "kind" => "module"})
 
     # A removed module record can share its name with a module the head defines, as a
     # removed function can share an id: the defined one is written last and wins the key.

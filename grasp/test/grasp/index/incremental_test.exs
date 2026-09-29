@@ -253,6 +253,34 @@ defmodule Grasp.Index.IncrementalTest do
       assert modules["SampleApp.Counter"] == counter_module(document)
     end
 
+    test "over module entries holding only name, file, line and behaviours, loads as records",
+         %{document: document, root: root, events: events} do
+      bare =
+        Map.update!(
+          document,
+          "modules",
+          &Enum.map(&1, fn module -> Map.take(module, ~w(name file line behaviours)) end)
+        )
+
+      {:ok, updated} = update(bare, root, [@greeter], events)
+
+      modules = Map.new(updated["modules"], &{&1["name"], &1})
+      assert %{"id" => "SampleApp.Greeter", "kind" => "module"} = modules["SampleApp.Greeter"]
+      assert modules["SampleApp.Greeter"]["doc"]["text"] =~ "Greets people"
+      assert modules["SampleApp.Counter"] == counter_module(bare)
+
+      {:ok, index} = Grasp.Index.from_document(updated)
+
+      for module <- Grasp.Index.modules(index) do
+        assert %{"kind" => "module"} = module
+        assert module["id"] == module["name"]
+        assert Map.has_key?(module, "doc")
+      end
+
+      assert {:ok, %{"id" => "SampleApp.Counter", "doc" => nil}} =
+               Grasp.Index.fetch_record(index, "SampleApp.Counter")
+    end
+
     test "keeps a call reaching a file it did not rebuild",
          %{document: document, root: root, events: events} do
       {:ok, updated} = update(document, root, [@greeter], events)
