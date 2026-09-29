@@ -9,7 +9,9 @@ defmodule Grasp.MCP.Tools.Coverage do
   a fresh answer carries lines and gaps. A line absent from both lists is one the coverage
   does not count. `generated_at` is when the coverage was written, `null` without a
   document. When the status is `none`, run `mix grasp.cover` in the project to write the
-  coverage, then ask again.
+  coverage, then ask again. After `mix grasp.cover` finishes, call `reload_index` before
+  asking: the coverage it wrote is otherwise read within a couple of seconds, and an answer
+  taken in between is the previous run's.
   """
 
   use Anubis.Server.Component, type: :tool

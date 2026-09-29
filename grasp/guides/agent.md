@@ -176,9 +176,10 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
   its stacktrace in a function the index holds. The statuses are read after the run has
   finished writing them, so a read the moment a run finishes answers the tests it recorded.
 - `list_modules` — modules with their file and the behaviours they implement.
-- `reload_index` — reload the index file and report what it now holds: the path, how many
-  functions, how many the branch changed, and the git refs. Call it as soon as
-  `mix grasp.index` finishes.
+- `reload_index` — reload the index file, and the coverage and test results beside it, and
+  report what they now hold: the path, how many functions, how many the branch changed, the
+  git refs, and when the loaded coverage was written. Call it as soon as `mix grasp.index`,
+  `mix grasp.cover` or `mix grasp.test` finishes.
 
 ### Arranging the cards
 

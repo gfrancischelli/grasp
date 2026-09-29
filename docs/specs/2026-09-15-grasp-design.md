@@ -1380,11 +1380,13 @@ first reference. Results are JSON text content, so any MCP client can read them.
   or unauthenticated `gh`, no pull request for the branch, or a project root that is not a
   directory on this machine is a tool error carrying `gh`'s own message where there is one. The tool works in
   both chat modes: it writes to the pull request, not to the working tree.
-- `reload_index()` makes the store read the watched index file now, instead of at its next
-  mtime poll, and answers the loaded index's summary: `path`, `functions`, `changed`,
-  `base_ref`, `branch` and `head` (the last three null without git). An agent that has just
-  rebuilt the index calls it before `list_changes`, so it never reads the file the rebuild
-  replaced. A file that does not load is a tool error carrying the store's reason.
+- `reload_index()` makes the stores read the watched index, coverage and results files now,
+  instead of at their next mtime poll, and answers the loaded index's summary: `path`,
+  `functions`, `changed`, `base_ref`, `branch` and `head` (the last three null without
+  git), and `coverage_generated_at` (null without coverage). An agent that has just rebuilt
+  the index, or run `mix grasp.cover` or `mix grasp.test`, calls it before reading, so it
+  never reads the file the command replaced; a coverage or results file that does not load
+  keeps what its store holds. A file that does not load is a tool error carrying the store's reason.
 - Tests add two read tools (see [the tests design](2026-09-28-grasp-tests-design.md),
   Tested by). `tests_for(function_id, max_hops?)` answers the function's `id` and the
   `tests` that reach it within `max_hops` call edges (1 to 8, default 4), nearest first,
