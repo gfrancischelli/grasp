@@ -77,8 +77,8 @@ the same way. Which cluster a card falls into follows from the function it holds
 else, so there is nothing to create and nothing to name.
 
 - **Drag a module's label** to carry every card of that cluster together, the way a frame's
-  title carries a whole group. The label opens nothing: it names the cluster, and a press
-  that does not move does nothing.
+  title carries a whole group. A click on the label, a press that does not move, opens the
+  module's card beside the cluster (see [Module cards](#module-cards)).
 - **The cards inside a cluster are yours to arrange.** Nothing snaps, sorts or stacks them —
   put them side by side, one under another or well apart, and the frame closes round wherever
   they stand, as a group's frame does.
@@ -135,6 +135,46 @@ A `.heex` template is a card like any other, its markup highlighted and its `fil
 linked into your editor. A component tag inside it — or inside a `~H` body — is a call site
 you click to open the component, and a controller's `render` opens the template it names, so
 a route reads through its action and its page into the contexts underneath.
+
+### Module cards
+
+A module's `@moduledoc` says what its functions are for, and a module card puts it on the
+canvas beside them. The card holds the moduledoc alone, not a list of the module's functions:
+the call chain and the palette are how you move through a module.
+
+- **Opening one.** Click the module part of a function card's title, or, while module
+  clusters are drawn and the title reads `fun/arity` alone, click the cluster's label. The
+  module card opens in the clear space nearest the card or cluster you opened it from; one
+  already open takes the focus instead. The palette finds a module by its name, marked
+  `module`, and opens its card the same way. A code span naming a module, in a moduledoc or in
+  a chat answer, opens it too.
+- **The tooltip.** Hover the module part of a function card's title to read the moduledoc's
+  first paragraph, as plain text and cut at 300 characters, without opening anything. A module
+  with no moduledoc text shows its name.
+- **The header** carries the module's name, a `module` badge, a badge per behaviour it
+  declares, its change badge, `file:line` and close. A module card calls nothing, so it has no
+  callers menu, no collapse and no edges; it sits inside its module's cluster.
+- **Views.** `doc` renders the moduledoc as Markdown, a code span naming a function or module
+  the index holds opening its card. `source` shows the attribute's lines, numbered and
+  highlighted. `diff`, in a review where the branch modified the moduledoc, compares it with
+  the base. The header offers whichever of these the moduledoc has, and the `d` key swaps the
+  focused card between its diff and its first view. The card opens on `doc`.
+- **What it reads** when there is no text to render: "Hidden from the docs (`@moduledoc
+  false`)" for a hidden module, "No `@moduledoc`" for a module without one, and only the
+  `source` view for a moduledoc built from an expression. A module the branch kept but whose
+  moduledoc it removed reads "No `@moduledoc`" with the removed text under it, and offers a
+  diff of the base lines, every one deleted. A module the branch removed is drawn from the
+  base, as a removed function is.
+- **Comments** go on the lines of the `source` or `diff` view as on a function card, and are
+  published to a pull request the same way. In the `doc` view the card's threads are listed in
+  its footer, since rendered text has no lines to hang them on. The sidebar lists a module
+  thread under its module as `@moduledoc`, and opens the card on the view that draws its line.
+
+In a review against a base ref, a moduledoc the branch added, modified or removed is the first
+row under its module in the Changes group, titled `@moduledoc` with its change badge. The row
+opens the module card, on its diff when the moduledoc is modified. A module whose only change
+is its moduledoc gets a heading for that one row. A moduledoc is never counted as an untested
+change and never paired with tests.
 
 ### Tests
 

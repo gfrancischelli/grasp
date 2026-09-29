@@ -36,7 +36,10 @@ export and what behaviours they declare:
 
 A callback is listed only when the index holds a definition for it, so the defaults
 `use GenServer` injects and a dependency's forwarded controllers stay out. Each module record
-also carries the behaviours it declares.
+also carries the behaviours it declares, and its `@moduledoc`, read from source: the text of
+a string, heredoc or `~S`/`~s` sigil, whether it is `@moduledoc false`, and the attribute's
+lines. In a build against a base ref the moduledoc is compared with the base's, as a
+function's source is.
 
 **Templates are records.** A file an `embed_templates` pattern matched is a record of its own,
 with the template path as its file and the whole file as its source, and the component tags

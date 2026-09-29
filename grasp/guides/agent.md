@@ -16,7 +16,8 @@ the run, and New conversation starts over.
 ### The panel
 
 An answer is rendered Markdown: its code fences are highlighted as the cards are, and every
-`Mod.fun/arity` the index holds is a button that opens that function's card. The words
+`Mod.fun/arity` the index holds is a button that opens that function's card, as is a module
+name the index holds written as code, which opens the module's card. The words
 arrive as the model writes them, and while a run is live a status line under the log
 carries three animated dots, the elapsed time and the number of tool calls this turn.
 Consecutive tool calls fold into one group — "Used 4 tools" — each row naming in plain words
@@ -88,7 +89,8 @@ config :grasp, agent_command: "/opt/homebrew/bin/claude", agent_model: "opus"
 "Plan tests for the changes" and "Plan tests for `Mod.fun/arity`" ask the agent for a plan of
 tests, laid out on the canvas for you to review before a test is written. The panel offers
 the first when the index holds a branch's changes — it records a base ref, or holds changed
-functions — and the second when a card is focused, unless that card is a test or a setup;
+functions or moduledocs — and the second when a card is focused, unless that card is a test,
+a setup or a module card;
 either sends exactly those words.
 
 The agent follows one recipe, in both modes. For the changes, the functions under test are
@@ -140,8 +142,17 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
   entry point it starts at.
 - `list_entry_points` — routes, LiveView and GenServer callbacks, Oban workers, each with the
   function it dispatches to.
-- `list_changes` — every function the branch added, modified or removed, with the base ref it
-  was compared against. The first call of a pull-request review.
+- `get_module` — one module's file, line and behaviours, and its moduledoc: the text (`doc`,
+  null without one), whether it is `@moduledoc false` (`hidden`), its `change` against the
+  base, and the base side's text (`base_doc`) when the branch modified or removed it. The
+  agent reads it before explaining a module's functions, and flags a moduledoc the branch
+  made untrue, one whose words its changed functions do not match. The function tools —
+  `get_function`, `get_callers`, `get_callees`, `tests_for`, `coverage`, `find_paths` —
+  answer a module's name with an error pointing here.
+- `list_changes` — every function the branch added, modified or removed, with the base ref the
+  index compares against, and under `moduledocs` every module whose moduledoc the branch added,
+  modified or removed, each with its `change`; `total` counts the functions. The first call of
+  a pull-request review.
 - `tests_for` — the tests that reach a function, nearest first, each with its name,
   `describe`, file and the number of calls between them; `max_hops` (1 to 8, default 4)
   bounds how far back it walks. A `setup` reaching the function counts for every test of its
@@ -194,12 +205,15 @@ someone else's domain cannot reach it even if its DNS points at `127.0.0.1`.
   under it. A card that names no group takes its parent's. Nothing changes unless every card
   is good.
 - `open_card` — add one card, called by another or standing on its own. A function already on
-  screen gains an edge instead of a second card.
+  screen gains an edge instead of a second card. A module's name opens that module's card,
+  which shows its moduledoc, always on its own: it takes no parent and nothing hangs under it,
+  in `set_cards` as here.
 - `close_card` — close one card and the edges touching it.
 - `focus_card` — scroll a card into view, to say "look here".
 - `highlight_card` — point at one call inside a card, or shade a range of its lines.
 - `set_view` — show a card as its `source` or as its `diff` against the base. Only a modified
-  function has a diff. `context` says how much of that diff is drawn — `hunks`, `full`, or
+  function has a diff. A module card also has `doc`, its rendered moduledoc, and takes only the
+  views its moduledoc offers. `context` says how much of that diff is drawn — `hunks`, `full`, or
   `auto` for hunks past 100 lines.
 - `group_cards` — frame cards already open, under a title and joining the group already
   carrying it, or under a frame with no title. A card belongs to one group, so naming it here
@@ -226,7 +240,9 @@ comment tools as it does for the card tools.
   agent. `side` is
   `new` for the branch's code and `old` for the base version of a modified function, which is
   how a comment lands on a line the branch deleted; `end_line` covers everything from `line`
-  to it, for a finding about a whole clause rather than about one line of it.
+  to it, for a finding about a whole clause rather than about one line of it. Given a module's
+  name, it writes on the lines of that module's moduledoc, the `old` side numbered from 1 over
+  the base moduledoc; `list_comments` takes a module's name as its filter too.
 - `reply_comment` — answer a thread, as the agent.
 - `resolve_comment` — close a thread once it is dealt with, or reopen one.
 - `publish_comments` — post the session's threads to a pull request as review comments, each

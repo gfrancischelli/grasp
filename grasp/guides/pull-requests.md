@@ -60,8 +60,11 @@ Grasp in — so a review outlives the tree it was written against.
 
 - **Changes** is the first group in the sidebar, open on arrival, listing every changed
   function under its module with an `added` / `modified` / `removed` badge. Clicking one
-  opens it as a card, from which the call chain opens as usual. The line under the project
-  name says what the review is against, `main…feature`.
+  opens it as a card, from which the call chain opens as usual. A moduledoc the branch
+  added, modified or removed leads its module's rows as `@moduledoc`, with its badge, and
+  opens the module card, on its diff when modified (see
+  [Reviewing](reviewing.md#module-cards)). The line under the project name says what the
+  review is against, `main…feature`.
 - **Untested changes** lists every function the branch added or modified that no test
   reaches within four calls, open on arrival whenever there is one, and the same functions
   are marked `untested` in Changes. Under each changed function, Changes lists the tests the
