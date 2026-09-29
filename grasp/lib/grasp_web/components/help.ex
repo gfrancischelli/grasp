@@ -67,6 +67,8 @@ defmodule GraspWeb.Help do
           <dd>What the suite ran, and the clauses it never entered.</dd>
           <dt><kbd>m</kbd></dt>
           <dd>Module frames round the cards.</dd>
+          <dt><kbd>t</kbd></dt>
+          <dd>The arrows from tests, setups and test helpers.</dd>
           <dt><kbd>f</kbd></dt>
           <dd>Fit every card on screen.</dd>
           <dt><kbd>⌘0</kbd></dt>

@@ -114,6 +114,8 @@ const Canvas = {
     // renders pressed.
     this.modules = true
     document.body.classList.toggle("grasp-modules", this.modules)
+    // So are the arrows leaving the test suite's cards.
+    this.testEdges = true
     this.frames = []
     this.lastReveal = null
     this.extent = {width: 0, height: 0}
@@ -156,6 +158,7 @@ const Canvas = {
     this.onZoomReset = () => this.resetZoom()
     this.onToggleSignatures = () => this.toggleSignatures()
     this.onToggleModules = () => this.toggleModules()
+    this.onToggleTestEdges = () => this.toggleTestEdges()
     this.onToggleCoverage = () => this.toggleCoverage()
     this.onZoomFit = () => this.fit()
     this.onSpaceRelease = () => this.releaseSpace()
@@ -172,6 +175,7 @@ const Canvas = {
     window.addEventListener("grasp:zoom-reset", this.onZoomReset)
     window.addEventListener("grasp:toggle-signatures", this.onToggleSignatures)
     window.addEventListener("grasp:toggle-modules", this.onToggleModules)
+    window.addEventListener("grasp:toggle-test-edges", this.onToggleTestEdges)
     window.addEventListener("grasp:toggle-coverage", this.onToggleCoverage)
     window.addEventListener("grasp:zoom-fit", this.onZoomFit)
     // A hold that ends while the page is in the background never delivers its keyup, which
@@ -256,6 +260,7 @@ const Canvas = {
     window.removeEventListener("grasp:zoom-reset", this.onZoomReset)
     window.removeEventListener("grasp:toggle-signatures", this.onToggleSignatures)
     window.removeEventListener("grasp:toggle-modules", this.onToggleModules)
+    window.removeEventListener("grasp:toggle-test-edges", this.onToggleTestEdges)
     window.removeEventListener("grasp:toggle-coverage", this.onToggleCoverage)
     window.removeEventListener("grasp:zoom-fit", this.onZoomFit)
     window.removeEventListener("blur", this.onSpaceRelease)
@@ -264,6 +269,7 @@ const Canvas = {
     document.body.classList.remove("grasp-dragging")
     document.body.classList.remove("grasp-signatures")
     document.body.classList.remove("grasp-modules")
+    document.body.classList.remove("grasp-hide-test-edges")
     document.body.classList.remove("grasp-coverage")
     this.resizeObserver.disconnect()
     this.cardObserver.disconnect()
@@ -386,7 +392,7 @@ const Canvas = {
       return
     }
     const control = e.target.closest(
-      "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-coverage",
+      "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-test-edges, #toggle-coverage",
     )
     if (!control) return
     // The zoom buttons and the signature toggle are the hook's alone, so nothing should reach
@@ -400,6 +406,7 @@ const Canvas = {
     else if (control.id === "zoom-level") this.resetZoom()
     else if (control.id === "toggle-signatures") this.toggleSignatures()
     else if (control.id === "toggle-modules") this.toggleModules()
+    else if (control.id === "toggle-test-edges") this.toggleTestEdges()
     else if (control.id === "toggle-coverage") this.toggleCoverage()
     else this.fit()
   },
@@ -430,6 +437,16 @@ const Canvas = {
     const button = document.getElementById("toggle-modules")
     if (button) button.setAttribute("aria-pressed", String(this.modules))
     this.draw()
+  },
+
+  // The arrows leaving a card of the test suite. The class lives on <body> and the button
+  // carries phx-update="ignore" for the reasons signature mode does. Only the paths are
+  // hidden: no card changes size, so nothing is measured again or redrawn.
+  toggleTestEdges() {
+    this.testEdges = !this.testEdges
+    document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges)
+    const button = document.getElementById("toggle-test-edges")
+    if (button) button.setAttribute("aria-pressed", String(this.testEdges))
   },
 
   // Coverage mode. The class lives on <body> and the button carries phx-update="ignore" for
@@ -1297,12 +1314,15 @@ const Canvas = {
       // draw a hop that is not a plain function call — an HTTP request, a queued job, a mock —
       // differently from one that is.
       const kind = site.dataset.kind
+      // An edge leaving a test, a setup or a test helper is one the reader can hide as a set.
+      const fromTest = card.closest(".node")?.dataset.testSide === "true"
       // The path is drawn in stage units, which the zoom scales; `vector-effect` is what keeps
       // its stroke 2 screen pixels instead of thinning to under half a one at MIN_SCALE.
       paths.push(
         `<path class="edge" vector-effect="non-scaling-stroke" data-from="${attr(from)}" data-to="${attr(to)}"` +
           (color === null ? "" : ` data-color="${color}" marker-end="url(#arrow-${color})"`) +
           (kind ? ` data-kind="${attr(kind)}"` : "") +
+          (fromTest ? ` data-test=""` : "") +
           ` d="${d}" />`,
       )
     }

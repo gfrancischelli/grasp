@@ -1674,6 +1674,18 @@ defmodule GraspWeb.ReviewLive do
           >
             modules
           </button>
+          <%!-- The arrows leaving the test suite's cards are the hook's too, drawn until the
+          reader hides them, so the button is rendered pressed and kept out of every patch. --%>
+          <button
+            type="button"
+            id="toggle-test-edges"
+            phx-update="ignore"
+            aria-pressed="true"
+            data-tip="Arrows from tests"
+            data-key="T"
+          >
+            test arrows
+          </button>
           <button
             type="button"
             id="reset-layout"

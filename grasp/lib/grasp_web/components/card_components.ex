@@ -123,14 +123,24 @@ defmodule GraspWeb.CardComponents do
     # A record names its module, which a test's id could only be parsed for; a module card
     # is its module; a stub has no record, and a function id with no module part stands for
     # its own module, clustering alone.
-    module =
+    record =
       case Index.fetch_record(assigns.index, card.function_id) do
-        {:ok, %{"kind" => "module", "name" => name}} when is_binary(name) -> name
-        {:ok, %{"module" => module}} when is_binary(module) -> module
+        {:ok, record} -> record
+        :error -> nil
+      end
+
+    module =
+      case record do
+        %{"kind" => "module", "name" => name} when is_binary(name) -> name
+        %{"module" => module} when is_binary(module) -> module
         _none -> cluster_module_of(card.function_id) || card.function_id
       end
 
-    assigns = assign(assigns, card: card, x: x, y: y, module: module)
+    # The canvas marks every edge leaving a card of the test suite, so the reader can hide
+    # the arrows a test draws into the code it exercises.
+    test_side? = record != nil and Index.test_side?(assigns.index, record)
+
+    assigns = assign(assigns, card: card, x: x, y: y, module: module, test_side?: test_side?)
 
     ~H"""
     <div
@@ -140,6 +150,7 @@ defmodule GraspWeb.CardComponents do
       data-depth={@depth}
       data-group={@card.group || ""}
       data-module={@module}
+      data-test-side={@test_side? && "true"}
       data-unplaced={@card.position == nil}
       data-near={@card.position == nil && @near}
       style={"--x: #{@x}px; --y: #{@y}px"}
