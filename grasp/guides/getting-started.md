@@ -159,6 +159,8 @@ its shortcut when you hover or tab to it.
   `mix grasp.cover` has written them. See [Coverage](coverage.md).
 - **modules** (`m`) — frame the cards of each module inside their flow, under the module's
   name. See [Reviewing](reviewing.md).
+- **test arrows** (`t`) — show or hide the arrows leaving tests, setups and test helpers,
+  which cross the canvas to every function a test exercises.
 - **reset layout** — lay every card out again.
 - **ask** (⌘I) — open the chat panel. See [The agent](agent.md).
 - **runs** — open the runs panel: the test or coverage run under way, or the last one,

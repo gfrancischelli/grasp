@@ -159,6 +159,8 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
 .connectors .edge[data-kind="route"],
 .connectors .edge[data-kind="enqueue"],
 .connectors .edge[data-kind="double"] { stroke-dasharray: 6 4; }
+/* The reader's toggle for the arrows a test draws into the code it exercises. */
+.grasp-hide-test-edges .connectors .edge[data-test] { display: none; }
 /* The frames the hook draws, under the cards: one rectangle per group, placed in stage
    units. The border is divided by the zoom so it stays a hairline however far out you are. */
 .frames { position: absolute; inset: 0; z-index: 0; pointer-events: none; }

@@ -488,6 +488,9 @@ body.grasp-dragging .module__title {
 .connectors .edge[data-kind=double] {
   stroke-dasharray: 6 4;
 }
+.grasp-hide-test-edges .connectors .edge[data-test] {
+  display: none;
+}
 .frames {
   position: absolute;
   inset: 0;

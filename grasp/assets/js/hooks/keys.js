@@ -76,6 +76,9 @@ const Keys = {
         // The module frames are the Canvas hook's, like signature mode. The bare letter alone:
         // ⌘M is the sidebar, and it has already returned above.
         window.dispatchEvent(new CustomEvent("grasp:toggle-modules"))
+      } else if (e.key.toLowerCase() === "t") {
+        // The arrows from the test suite's cards are the Canvas hook's, like the module frames.
+        window.dispatchEvent(new CustomEvent("grasp:toggle-test-edges"))
       } else if (e.key.toLowerCase() === "f") {
         // The fit is the Canvas hook's too: it measures the cards the browser has laid out,
         // which the server cannot see.

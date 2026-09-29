@@ -205,6 +205,36 @@ defmodule GraspWeb.TestsLiveTest do
     end
   end
 
+  describe "the arrows from tests" do
+    test "leave cards the node marks as the test suite's, and only those", %{view: view} do
+      render_click(view, "open_root", %{"id" => @reply})
+      render_click(view, "open_root", %{"id" => "SampleApp.TallyTest.init_with/1"})
+      render_click(view, "open_root", %{"id" => @setup})
+      render_click(view, "open_root", %{"id" => "SampleApp.Counter.init/1"})
+
+      assert has_element?(view, "#node-1[data-test-side='true']")
+      assert has_element?(view, "#node-2[data-test-side='true']")
+      assert has_element?(view, "#node-3[data-test-side='true']")
+      refute has_element?(view, "#node-4[data-test-side]")
+    end
+
+    test "have a toolbar toggle and a key, shown until the reader hides them", %{view: view} do
+      assert has_element?(
+               view,
+               "#toggle-test-edges[aria-pressed='true'][phx-update='ignore'][data-key='T']"
+             )
+
+      assert has_element?(view, "#help dt kbd", "t")
+    end
+
+    test "are hidden as a set by the stylesheet", %{conn: conn} do
+      css = conn |> get("/assets/grasp.css") |> response(200)
+
+      assert css =~
+               ~r/\.grasp-hide-test-edges \.connectors \.edge\[data-test\][^{]*\{[^}]*display: ?none/
+    end
+  end
+
   describe "a function card reached by tests" do
     @greet "SampleApp.Greeter.greet/2"
     @handle_call "SampleApp.Counter.handle_call/3"

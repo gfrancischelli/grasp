@@ -102,6 +102,8 @@
           window.dispatchEvent(new CustomEvent("grasp:toggle-coverage"));
         } else if (e.key.toLowerCase() === "m") {
           window.dispatchEvent(new CustomEvent("grasp:toggle-modules"));
+        } else if (e.key.toLowerCase() === "t") {
+          window.dispatchEvent(new CustomEvent("grasp:toggle-test-edges"));
         } else if (e.key.toLowerCase() === "f") {
           window.dispatchEvent(new CustomEvent("grasp:zoom-fit"));
         } else if (e.key === "Escape") {
@@ -142,6 +144,7 @@
       this.coverage = false;
       this.modules = true;
       document.body.classList.toggle("grasp-modules", this.modules);
+      this.testEdges = true;
       this.frames = [];
       this.lastReveal = null;
       this.extent = { width: 0, height: 0 };
@@ -170,6 +173,7 @@
       this.onZoomReset = () => this.resetZoom();
       this.onToggleSignatures = () => this.toggleSignatures();
       this.onToggleModules = () => this.toggleModules();
+      this.onToggleTestEdges = () => this.toggleTestEdges();
       this.onToggleCoverage = () => this.toggleCoverage();
       this.onZoomFit = () => this.fit();
       this.onSpaceRelease = () => this.releaseSpace();
@@ -186,6 +190,7 @@
       window.addEventListener("grasp:zoom-reset", this.onZoomReset);
       window.addEventListener("grasp:toggle-signatures", this.onToggleSignatures);
       window.addEventListener("grasp:toggle-modules", this.onToggleModules);
+      window.addEventListener("grasp:toggle-test-edges", this.onToggleTestEdges);
       window.addEventListener("grasp:toggle-coverage", this.onToggleCoverage);
       window.addEventListener("grasp:zoom-fit", this.onZoomFit);
       window.addEventListener("blur", this.onSpaceRelease);
@@ -247,6 +252,7 @@
       window.removeEventListener("grasp:zoom-reset", this.onZoomReset);
       window.removeEventListener("grasp:toggle-signatures", this.onToggleSignatures);
       window.removeEventListener("grasp:toggle-modules", this.onToggleModules);
+      window.removeEventListener("grasp:toggle-test-edges", this.onToggleTestEdges);
       window.removeEventListener("grasp:toggle-coverage", this.onToggleCoverage);
       window.removeEventListener("grasp:zoom-fit", this.onZoomFit);
       window.removeEventListener("blur", this.onSpaceRelease);
@@ -255,6 +261,7 @@
       document.body.classList.remove("grasp-dragging");
       document.body.classList.remove("grasp-signatures");
       document.body.classList.remove("grasp-modules");
+      document.body.classList.remove("grasp-hide-test-edges");
       document.body.classList.remove("grasp-coverage");
       this.resizeObserver.disconnect();
       this.cardObserver.disconnect();
@@ -350,7 +357,7 @@
         return;
       }
       const control = e.target.closest(
-        "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-coverage"
+        "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-test-edges, #toggle-coverage"
       );
       if (!control) return;
       e.stopPropagation();
@@ -361,6 +368,7 @@
       else if (control.id === "zoom-level") this.resetZoom();
       else if (control.id === "toggle-signatures") this.toggleSignatures();
       else if (control.id === "toggle-modules") this.toggleModules();
+      else if (control.id === "toggle-test-edges") this.toggleTestEdges();
       else if (control.id === "toggle-coverage") this.toggleCoverage();
       else this.fit();
     },
@@ -387,6 +395,15 @@
       const button = document.getElementById("toggle-modules");
       if (button) button.setAttribute("aria-pressed", String(this.modules));
       this.draw();
+    },
+    // The arrows leaving a card of the test suite. The class lives on <body> and the button
+    // carries phx-update="ignore" for the reasons signature mode does. Only the paths are
+    // hidden: no card changes size, so nothing is measured again or redrawn.
+    toggleTestEdges() {
+      this.testEdges = !this.testEdges;
+      document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges);
+      const button = document.getElementById("toggle-test-edges");
+      if (button) button.setAttribute("aria-pressed", String(this.testEdges));
     },
     // Coverage mode. The class lives on <body> and the button carries phx-update="ignore" for
     // the reasons signature mode does. A stale card's note shows only in the mode, so a card
@@ -1079,8 +1096,9 @@
         }
         const color = /^[0-7]$/.test(site.dataset.color || "") ? site.dataset.color : null;
         const kind = site.dataset.kind;
+        const fromTest = card.closest(".node")?.dataset.testSide === "true";
         paths.push(
-          `<path class="edge" vector-effect="non-scaling-stroke" data-from="${attr(from)}" data-to="${attr(to)}"` + (color === null ? "" : ` data-color="${color}" marker-end="url(#arrow-${color})"`) + (kind ? ` data-kind="${attr(kind)}"` : "") + ` d="${d}" />`
+          `<path class="edge" vector-effect="non-scaling-stroke" data-from="${attr(from)}" data-to="${attr(to)}"` + (color === null ? "" : ` data-color="${color}" marker-end="url(#arrow-${color})"`) + (kind ? ` data-kind="${attr(kind)}"` : "") + (fromTest ? ` data-test=""` : "") + ` d="${d}" />`
         );
       }
       this.svg.setAttribute("width", String(this.extent.width));
