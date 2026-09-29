@@ -20,17 +20,19 @@ defmodule Grasp.MCP.Comments do
   alias Grasp.Comments.Anchor
 
   @doc """
-  `thread` as a JSON map, placed against the function record `index` holds for it.
+  `thread` as a JSON map, placed against the record `index` holds for it: a function's, or
+  a module's for a thread on a module card, which `Grasp.Index.fetch_record/2` tells apart
+  by the id.
 
-  The record is a function's, or a module's for a thread on a module card, which
-  `Grasp.Index.fetch_record/2` tells apart by the id. Beyond the thread's own fields it
-  carries `"file"` (the record's, `nil` when the function or module has left the index),
-  `"status"` — `"anchored"`, `"outdated"` for a line that is no longer there, `"orphan"` for a function that is gone — `"anchored_line"`, the line the thread
-  now sits on, `nil` unless it is anchored, and `"github_url"`, where the thread reads on
-  the pull request, `nil` while it has not been published. `"end_line"` is the last line of
-  a thread written over a range and `nil` for one written on a single line; it is counted
-  from `"line"` rather than from `"anchored_line"`, so a moved range is `"anchored_line"`
-  through `"anchored_line" + "end_line" - "line"`.
+  Beyond the thread's own fields it carries `"file"` (the record's, `nil` when the index
+  holds no function or module under the thread's id), `"status"` — `"anchored"`,
+  `"outdated"` for a thread whose line the record does not have at the thread's text,
+  `"orphan"` for a function or module the index does not hold — `"anchored_line"`, the line
+  the thread sits on in the record, `nil` unless it is anchored, and `"github_url"`, where
+  the thread reads on the pull request, `nil` while it has not been published. `"end_line"`
+  is the last line of a thread written over a range and `nil` for one written on a single
+  line; it is counted from `"line"` rather than from `"anchored_line"`, so a moved range is
+  `"anchored_line"` through `"anchored_line" + "end_line" - "line"`.
   """
   @spec thread_map(Comments.thread(), Grasp.Index.t()) :: map()
   def thread_map(thread, %Grasp.Index{} = index) do

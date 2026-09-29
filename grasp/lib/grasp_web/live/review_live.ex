@@ -43,10 +43,20 @@ defmodule GraspWeb.ReviewLive do
   import GraspWeb.RunsPanel
   import GraspWeb.Sidebar
 
-  alias Grasp.{CoverageStore, Index, IndexStore, Links, ResultsStore, Runs, Session, TestPlan}
+  alias Grasp.{
+    CoverageStore,
+    Index,
+    IndexStore,
+    Links,
+    ModuleCard,
+    ResultsStore,
+    Runs,
+    Session,
+    TestPlan
+  }
+
   alias Grasp.Session.Disk
   alias Grasp.Session.Forest
-  alias GraspWeb.CardComponents
   alias GraspWeb.CardCoverage
   alias GraspWeb.CardResults
   alias GraspWeb.RunsPanel
@@ -1293,8 +1303,8 @@ defmodule GraspWeb.ReviewLive do
   # A module card's diff is swapped with the view it opens on, the first it offers, since
   # the moduledoc's text is what the card is read for.
   defp toggle_module_view(socket, card_id, record) do
-    views = CardComponents.module_views(record)
-    current = CardComponents.module_view(Forest.card(socket.assigns.forest, card_id).view, views)
+    views = ModuleCard.views(record)
+    current = ModuleCard.view(Forest.card(socket.assigns.forest, card_id).view, views)
 
     cond do
       :diff not in views -> {:noreply, socket}
@@ -1366,7 +1376,7 @@ defmodule GraspWeb.ReviewLive do
         _no_line -> nil
       end
 
-    if view in CardComponents.module_views(record),
+    if view in ModuleCard.views(record),
       do: Session.set_view(name, card_id, view),
       else: forest
   end

@@ -62,9 +62,10 @@ defmodule Grasp.MCP.Cards do
     {modules, functions} =
       cards |> Enum.map(& &1.function_id) |> Enum.split_with(&Index.module_id?/1)
 
-    [{"unknown functions: ", functions}, {"unknown modules: ", modules}]
+    [{"unknown functions: ", functions}, {"unknown functions or modules: ", modules}]
     |> Enum.reject(fn {_label, ids} -> ids == [] end)
     |> Enum.map_join("; ", fn {label, ids} -> label <> Enum.join(ids, ", ") end)
+    |> Kernel.<>(if modules == [], do: "", else: " — a function id ends in /arity")
   end
 
   @doc """

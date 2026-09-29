@@ -116,6 +116,7 @@ defmodule Grasp.MCP.ModuleToolsTest do
         })
 
       assert response.isError
+      assert [%{"text" => "SampleApp.Formatter does not call " <> @shout}] = response.content
 
       body =
         json!(
@@ -129,11 +130,14 @@ defmodule Grasp.MCP.ModuleToolsTest do
       assert card(body, 1)["highlight"] == %{"lines" => [2, 2]}
     end
 
-    test "an unknown module is an error", %{session: session} do
-      response = run(Tools.OpenCard, %{session: session, function_id: "SampleApp.Nope"})
+    test "an id naming neither a function nor a module names both forms", %{session: session} do
+      response =
+        run(Tools.OpenCard, %{session: session, function_id: "SampleApp.Formatter.shout"})
 
       assert response.isError
-      assert [%{"text" => "unknown module: SampleApp.Nope"}] = response.content
+      assert [%{"text" => text}] = response.content
+      assert text =~ "unknown function or module: SampleApp.Formatter.shout"
+      assert text =~ "a function id ends in /arity"
     end
   end
 
@@ -165,8 +169,9 @@ defmodule Grasp.MCP.ModuleToolsTest do
 
       assert response.isError
       assert [%{"text" => text}] = response.content
-      assert text =~ "SampleApp.Nope"
-      assert text =~ "Nope.f/0"
+      assert text =~ "unknown functions: Nope.f/0"
+      assert text =~ "unknown functions or modules: SampleApp.Nope"
+      assert text =~ "a function id ends in /arity"
     end
 
     test "no card hangs under a module card, and a module card hangs under none", %{
@@ -296,6 +301,23 @@ defmodule Grasp.MCP.ModuleToolsTest do
 
       assert %{"side" => "old", "status" => "anchored", "snippet" => snippet} = added
       assert snippet == ~s(@moduledoc "An Oban worker.")
+    end
+  end
+
+  describe "an id without an arity that names no module" do
+    test "is answered with both forms by the comment tools", %{session: session} do
+      response =
+        run(Tools.AddComment, %{
+          session: session,
+          function_id: "SampleApp.Formatter.shout",
+          line: 8,
+          body: "Missing arity."
+        })
+
+      assert response.isError
+      assert [%{"text" => text}] = response.content
+      assert text =~ "unknown function or module: SampleApp.Formatter.shout"
+      assert text =~ "a function id ends in /arity"
     end
   end
 

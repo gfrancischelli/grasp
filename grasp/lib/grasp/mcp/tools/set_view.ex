@@ -20,9 +20,9 @@ defmodule Grasp.MCP.Tools.SetView do
 
   alias Grasp.Diff
   alias Grasp.MCP.Tools
+  alias Grasp.ModuleCard
   alias Grasp.Session
   alias Grasp.Session.Forest
-  alias GraspWeb.CardComponents
 
   @session_field Tools.session_field_description()
 
@@ -85,6 +85,12 @@ defmodule Grasp.MCP.Tools.SetView do
     if Grasp.Index.module_id?(function_id), do: comparable_record(:source, function_id), else: :ok
   end
 
+  defp comparable(:doc, function_id) do
+    if Grasp.Index.module_id?(function_id),
+      do: comparable_record(:doc, function_id),
+      else: {:error, "no doc view for #{function_id}"}
+  end
+
   defp comparable(view, function_id), do: comparable_record(view, function_id)
 
   defp comparable_record(view, function_id) do
@@ -95,7 +101,7 @@ defmodule Grasp.MCP.Tools.SetView do
   end
 
   defp offered(view, %{"kind" => "module", "id" => id} = record) do
-    if view in CardComponents.module_views(record),
+    if view in ModuleCard.views(record),
       do: :ok,
       else: {:error, "no #{view} for #{id}"}
   end

@@ -18,7 +18,7 @@ defmodule GraspWeb.CardComponents do
   A card whose id names a module is a module card: its header wears `module`, the module's
   behaviours and the moduledoc's change, and its body is the moduledoc rendered as sanitized
   Markdown (`GraspWeb.ChatMarkdown`), the attribute's source, or its diff against the base,
-  as `module_views/1` offers them. A moduledoc the branch took off a module it keeps is
+  as `Grasp.ModuleCard.views/1` offers them. A moduledoc the branch took off a module it keeps is
   diffed as its base lines, every one deleted, which is where its base-side threads hang. It
   holds no calls, so it draws no edges. The module part of a function card's title is a
   button opening that card, the module's summary its tooltip. Both kinds of card draw their
@@ -62,6 +62,7 @@ defmodule GraspWeb.CardComponents do
   alias Grasp.Diff
   alias Grasp.Diff.Hunks
   alias Grasp.Index
+  alias Grasp.ModuleCard
   alias Grasp.Session.Forest
   alias GraspWeb.TestReach
 
@@ -698,54 +699,14 @@ defmodule GraspWeb.CardComponents do
     end
   end
 
-  @doc """
-  The views a module card offers for `record`, in the order its toggle lists them: `:doc`
-  for a module whose moduledoc is text, `@moduledoc false` or absent, since the view says
-  which of the three it is; `:source` for any moduledoc the record has lines of; `:diff` when
-  the moduledoc is modified, and when the branch took it off a module it keeps, where the
-  diff is the base lines, every one deleted. A moduledoc that is not a literal has no text to
-  render and is read as source.
-  """
-  @spec module_views(map()) :: [:doc | :source | :diff]
-  def module_views(record) do
-    doc = record["doc"]
-    source? = is_binary(record["source"]) and is_map(record["span"])
-    literal? = is_map(doc) and (is_binary(doc["text"]) or doc["hidden"] == true)
-
-    views =
-      cond do
-        not source? -> [:doc]
-        literal? -> [:doc, :source]
-        true -> [:source]
-      end
-
-    if Diff.diffable?(record) or removed_moduledoc?(record),
-      do: views ++ [:diff],
-      else: views
-  end
-
-  # A module the branch keeps but whose moduledoc it removed has no lines of its own, only
-  # the base's.
-  defp removed_moduledoc?(record) do
-    record["change"] == "removed" and record["removed"] != true and
-      is_binary(record["base_source"]) and not is_binary(record["source"])
-  end
-
-  @doc """
-  The view a module card renders in, of the `views` it offers: the one the card holds when it
-  is offered, and the first offered otherwise, which is how `:auto` reads.
-  """
-  @spec module_view(Forest.view(), [:doc | :source | :diff]) :: :doc | :source | :diff
-  def module_view(view, [first | _rest] = views), do: if(view in views, do: view, else: first)
-
   # A module card is keyed and drawn as a function card is, from the same record fields, so
   # its source and its diff are the lines a function card draws and take the same comments.
   # It holds no calls, so it has no call sites, draws no edges and opens nothing below it.
   defp module_card(assigns) do
     %{index: index, card: card, record: record, comments: comments} = assigns
 
-    views = module_views(record)
-    view = module_view(card.view, views)
+    views = ModuleCard.views(record)
+    view = ModuleCard.view(card.view, views)
     doc = record["doc"]
     diffable? = Diff.diffable?(record)
     {anchored, lost, commented} = anchor_threads(comments, record)
@@ -753,7 +714,7 @@ defmodule GraspWeb.CardComponents do
     # A removed moduledoc's diff is its base lines against nothing, each deleted and numbered
     # from 1 as the old side is, so its threads anchor as a deleted line's do.
     drawn =
-      if removed_moduledoc?(record),
+      if ModuleCard.removed_moduledoc?(record),
         do:
           Map.merge(record, %{
             "calls" => [],
