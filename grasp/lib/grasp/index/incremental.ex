@@ -67,7 +67,9 @@ defmodule Grasp.Index.Incremental do
 
     * A function that moved from one file to another is removed from the file it left only
       when that file is in the changed set too. A move that recompiles only one of the two
-      leaves the record in the other, and the id is briefly held twice.
+      leaves the record in the other, and the id is briefly held twice. A documented module
+      that moved into a rebuilt file from a file this update did not rebuild reads `"added"`:
+      only the rebuilt files' base contents are compared, and they do not hold it.
     * A file that no longer exists drops its definitions, but only if something still
       names it — the compiler reports no events for a deleted file, so a deletion is seen
       through the modules that used to call into it.
@@ -281,7 +283,7 @@ defmodule Grasp.Index.Incremental do
       Logger.debug("grasp: live routes skipped, no indexed functions: #{Enum.join(views, ", ")}")
 
   # Modules come back unclassified whenever the functions are not classified against the
-  # base, and `preserve_modules/3` gives them what the document held.
+  # base, and `preserve_modules/2` gives them what the document held.
   defp classify(records, modules, _rebuilt, nil, _paths, _document), do: {records, modules}
 
   defp classify(records, modules, rebuilt, base_ctx, paths, document) do

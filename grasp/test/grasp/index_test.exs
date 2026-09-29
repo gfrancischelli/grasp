@@ -989,7 +989,21 @@ defmodule Grasp.IndexTest do
       index = module_index([live, removed])
 
       assert {:ok, %{"doc" => %{"text" => "Head."}}} = Index.fetch_module(index, "A")
-      assert Index.modules(index) == [live, removed]
+      assert Index.modules(index) == [live]
+    end
+
+    test "modules/1 leaves removed module records out, and the readers by name still reach them" do
+      live = module_record("A", "Kept.")
+
+      removed =
+        Map.merge(module_record("B", "Gone."), %{"removed" => true, "change" => "removed"})
+
+      index = module_index([live, removed])
+
+      assert Index.modules(index) == [live]
+      assert Index.fetch_module(index, "B") == {:ok, removed}
+      assert Index.fetch_record(index, "B") == {:ok, removed}
+      assert Index.changed_modules(index) == [removed]
     end
 
     test "changed_modules/1 answers the added, modified and removed modules, sorted by name" do
@@ -1025,9 +1039,12 @@ defmodule Grasp.IndexTest do
       index = module_index([module_record("A", words)])
       summary = Index.moduledoc_summary(index, "A")
 
-      assert String.length(summary) <= 300
-      assert String.ends_with?(summary, "word…")
-      assert String.starts_with?(words, String.trim_trailing(summary, "…"))
+      assert summary == String.slice(words, 0, 299) <> "…"
+      assert String.length(summary) == 300
+
+      spaced = String.duplicate("a", 298) <> " bbbb"
+      cut = Index.moduledoc_summary(module_index([module_record("C", spaced)]), "C")
+      assert cut == String.duplicate("a", 298) <> "…"
 
       exact = String.duplicate("a", 300)
       assert Index.moduledoc_summary(module_index([module_record("B", exact)]), "B") == exact

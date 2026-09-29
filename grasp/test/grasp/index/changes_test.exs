@@ -299,6 +299,37 @@ defmodule Grasp.Index.ChangesTest do
       refute Enum.any?(classified, &(&1.name == "GoneQuietly"))
     end
 
+    test "@moduledoc false is a moduledoc: added over none, modified over text" do
+      base = ~S"""
+      defmodule Hidden do
+      end
+
+      defmodule Silenced do
+        @moduledoc "Spoke at the base."
+      end
+      """
+
+      head = ~S"""
+      defmodule Hidden do
+        @moduledoc false
+      end
+
+      defmodule Silenced do
+        @moduledoc false
+      end
+      """
+
+      by_name = by_name(classify_modules(head, %{"lib/m.ex" => base}))
+
+      assert %{change: "added", doc: %{text: nil, hidden: true}} = by_name["Hidden"]
+
+      assert %{
+               change: "modified",
+               doc: %{text: nil, hidden: true},
+               base_doc: %{text: "Spoke at the base.", hidden: false}
+             } = by_name["Silenced"]
+    end
+
     test "a module that moved to another file with the same moduledoc is unchanged" do
       base = ~S"""
       defmodule Moving do

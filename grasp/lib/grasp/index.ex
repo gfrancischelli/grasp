@@ -163,7 +163,7 @@ defmodule Grasp.Index do
       generated_at: document["generated_at"],
       project: document["project"] || %{},
       git: document["git"],
-      modules: document["modules"] || [],
+      modules: Enum.reject(document["modules"] || [], &(is_map(&1) and &1["removed"] == true)),
       modules_by_name: modules_by_name,
       moduledoc_summaries: summaries(modules_by_name),
       entry_points: entry_points,
@@ -305,7 +305,12 @@ defmodule Grasp.Index do
     |> Enum.sort_by(&{&1["span"]["start_line"], &1["id"]})
   end
 
-  @doc "Module records as stored in the document."
+  @doc """
+  The module records of the modules the project defines, in document order and as stored.
+
+  A removed module record describes a module only the base holds, so it is left out here and
+  reached by name through `fetch_module/2`, `fetch_record/2` and `changed_modules/1`.
+  """
   @spec modules(t()) :: [map()]
   def modules(%__MODULE__{} = index), do: index.modules
 
