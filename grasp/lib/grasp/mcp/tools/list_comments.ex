@@ -33,7 +33,7 @@ defmodule Grasp.MCP.Tools.ListComments do
 
     field(:function_id, :string,
       description:
-        "Keep only the threads on this function, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
+        "Keep only the threads on this function, `Module.fun/arity`, or on this module's card, by the module's name; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
     )
 
     field(:include_resolved, :boolean,
@@ -68,7 +68,7 @@ defmodule Grasp.MCP.Tools.ListComments do
   defp function_id(_index, nil), do: nil
 
   defp function_id(index, id) do
-    case Grasp.Index.fetch_function(index, id) do
+    case Grasp.Index.fetch_record(index, id) do
       {:ok, record} -> record["id"]
       :error -> id
     end

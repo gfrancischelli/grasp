@@ -107,6 +107,16 @@ defmodule Grasp.Agent.CommandTest do
     assert prompt =~ "find_paths"
   end
 
+  test "system_prompt/3 has the agent read a moduledoc with get_module and flag one made untrue" do
+    for mode <- ~w(read edit) do
+      prompt = Command.system_prompt("s1", mode, "mix grasp.index")
+
+      assert prompt =~ "get_module"
+      assert prompt =~ "before explaining its functions"
+      assert prompt =~ "a moduledoc the branch made untrue"
+    end
+  end
+
   test "system_prompt/3 sends a question about tests through tests_for and untested_changes" do
     prompt = Command.system_prompt("s1", "read", "mix grasp.index")
 

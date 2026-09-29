@@ -17,6 +17,10 @@ defmodule Grasp.MCP.Tools.AddComment do
 
   `side` is `new` for the branch's code and `old` for the base version of a function the
   branch modified, which is how a comment lands on a line the branch deleted.
+
+  A module's name as the `function_id` writes on that module's card, on a line of its
+  moduledoc: the `new` side numbered as the file is, the `old` side from 1 over the base
+  moduledoc of one the branch modified or removed.
   """
 
   use Anubis.Server.Component, type: :tool
@@ -39,7 +43,7 @@ defmodule Grasp.MCP.Tools.AddComment do
     field(:function_id, :string,
       required: true,
       description:
-        "The function to comment on, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
+        "The function to comment on, `Module.fun/arity`, or a module's name to comment on its moduledoc; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
     )
 
     field(:line, :integer,
@@ -70,7 +74,7 @@ defmodule Grasp.MCP.Tools.AddComment do
     with {:ok, session} <- Tools.check_session(Map.get(params, :session)),
          {:ok, index} <- Tools.index(),
          {:ok, side} <- side(Map.get(params, :side, "new")),
-         {:ok, record} <- Tools.fetch_function(index, function_id),
+         {:ok, record} <- Tools.fetch_record(index, function_id),
          :ok <- Shape.check_line(record, side, line),
          :ok <- check_end_line(record, side, line, end_line),
          {:ok, thread} <- add(session, record, side, line, end_line, body) do

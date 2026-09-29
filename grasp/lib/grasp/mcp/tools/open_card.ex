@@ -3,7 +3,10 @@ defmodule Grasp.MCP.Tools.OpenCard do
   Open one function as a card and focus it. With `parent_card_id` an edge runs from that
   card, and the call it was opened from is marked in the caller, exactly as a click in the
   viewer would; without one the card starts at the left edge. A function already on screen
-  is never drawn twice: the existing card is focused and gains an edge from the new caller.
+  is never drawn twice: the existing card is focused and gains an edge from the caller.
+
+  A module's name opens that module's card, which shows its moduledoc. A module card calls
+  nothing and nothing calls it, so it opens at the left edge, without a `parent_card_id`.
 
   Replies with the whole graph plus `card_id`, the id of the card that is now focused.
   """
@@ -26,7 +29,7 @@ defmodule Grasp.MCP.Tools.OpenCard do
     field(:function_id, :string,
       required: true,
       description:
-        "The function to open, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`"
+        "The function to open, `Module.fun/arity`; a test's id quotes its name, as in `SampleApp.CheckTest.\"test counts\"/1`. A module's name, as in `SampleApp.Greeter`, opens its module card"
     )
 
     field(:parent_card_id, :integer,
@@ -47,7 +50,7 @@ defmodule Grasp.MCP.Tools.OpenCard do
     asked = Map.get(params, :highlight)
 
     with {:ok, index} <- Tools.index(),
-         {:ok, record} <- Tools.fetch_function(index, function_id),
+         {:ok, record} <- Tools.fetch_record(index, function_id),
          {:ok, highlight} <- Cards.validate_highlight(index, record["id"], asked),
          {:ok, forest} <- open(session, index, Map.get(params, :parent_card_id), record) do
       card_id = forest.focus
@@ -66,7 +69,8 @@ defmodule Grasp.MCP.Tools.OpenCard do
   end
 
   defp open(session, index, parent_card_id, record) do
-    with {:ok, parent} <- Tools.fetch_card(session, parent_card_id) do
+    with {:ok, parent} <- Tools.fetch_card(session, parent_card_id),
+         :ok <- Cards.hangs(record, parent.function_id) do
       opened_by = Cards.opened_by(index, parent.function_id, record["id"])
       {:ok, Session.open_child(session, parent_card_id, record["id"], opened_by)}
     end
