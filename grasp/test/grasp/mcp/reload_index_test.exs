@@ -5,8 +5,7 @@ defmodule Grasp.MCP.Tools.ReloadIndexTest do
 
   alias Anubis.Server.Frame
   alias Anubis.Server.Response
-  alias Grasp.Index
-  alias Grasp.IndexStore
+  alias Grasp.{Coverage, CoverageStore, Index, IndexStore}
   alias Grasp.MCP.Tools
 
   defp json!(%Response{content: [%{"type" => "text", "text" => text}]}), do: Jason.decode!(text)
@@ -26,5 +25,32 @@ defmodule Grasp.MCP.Tools.ReloadIndexTest do
     assert body["changed"] > 0
     assert body["base_ref"] == "main"
     assert Map.has_key?(body, "branch") and Map.has_key?(body, "head")
+  end
+
+  test "re-reads a coverage document rewritten since the store last read it" do
+    path = CoverageStore.path()
+    on_exit(fn -> File.rm(path) && CoverageStore.reload() end)
+
+    written = fn generated_at, counts ->
+      IndexStore.get()
+      |> Coverage.build(%{{"SampleApp.Formatter", "shout", 1} => counts}, %{
+        generated_at: generated_at,
+        git_head: nil
+      })
+      |> Coverage.write(path)
+    end
+
+    :ok = written.("2026-09-28T12:00:00Z", %{9 => 1, 10 => 0})
+    :ok = CoverageStore.reload()
+    :ok = written.("2026-09-28T12:05:00Z", %{9 => 1, 10 => 1})
+
+    {:reply, resp, _frame} = Tools.ReloadIndex.execute(%{}, %Frame{})
+    refute resp.isError
+    assert json!(resp)["coverage_generated_at"] == "2026-09-28T12:05:00Z"
+
+    {:reply, resp, _frame} =
+      Tools.Coverage.execute(%{function_id: "SampleApp.Formatter.shout/1"}, %Frame{})
+
+    assert %{"generated_at" => "2026-09-28T12:05:00Z", "missed" => []} = json!(resp)
   end
 end

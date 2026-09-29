@@ -201,7 +201,8 @@ defmodule Grasp.Agent.Command do
   defp disallowed_tools(_read), do: ["--disallowedTools", @read_disallowed_tools]
 
   defp coverage_source("edit"),
-    do: "the user runs mix grasp.cover first, or you start it with run_coverage"
+    do:
+      "the user runs mix grasp.cover first, or you start it with run_coverage; after a mix grasp.cover you run yourself, call reload_index before asking"
 
   defp coverage_source(_read),
     do: "the user runs mix grasp.cover first, or starts a coverage run from the viewer"
