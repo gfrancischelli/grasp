@@ -1309,11 +1309,13 @@ defmodule GraspWeb.CardComponents do
   end
 
   # A card opened before the index was rewritten may show a function the project no longer
-  # defines; its module still being indexed is what separates that from a dependency.
+  # defines; its module still being indexed is what separates that from a dependency. A module
+  # card is only ever opened on a module the index held, so its stub is always stale.
   defp indexed_module?(%Index{} = index, function_id) do
-    case module_of(function_id) do
-      nil -> false
-      module -> Enum.any?(Index.modules(index), &(&1["name"] == module))
+    cond do
+      Index.module_id?(function_id) -> true
+      module = module_of(function_id) -> Enum.any?(Index.modules(index), &(&1["name"] == module))
+      true -> false
     end
   end
 
@@ -1323,8 +1325,6 @@ defmodule GraspWeb.CardComponents do
       nil -> nil
     end
   end
-
-  defp module_of(_function_id), do: nil
 
   # Clustering reads the module part of every id a card can hold, where `module_of/1` reads
   # only the Elixir aliases hexdocs and the index are keyed by: `:erlang.split_binary/2`

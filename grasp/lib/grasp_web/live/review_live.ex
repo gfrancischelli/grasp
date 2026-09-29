@@ -422,8 +422,18 @@ defmodule GraspWeb.ReviewLive do
   def handle_event("toggle_view", %{"card" => card}, socket),
     do: toggle_view(socket, int(card))
 
+  # Only a module card has a rendered moduledoc, so `doc` is refused for a function card, as
+  # the MCP `set_view` refuses it.
   def handle_event("set_view", %{"card" => card, "view" => view}, socket) do
     case {int(card), module_view_param(view)} do
+      {id, :doc} when is_integer(id) ->
+        with function_id when is_binary(function_id) <- function_id(socket, id),
+             true <- Index.module_id?(function_id) do
+          mutate(socket, &Session.set_view(&1, id, :doc))
+        else
+          _function_card -> {:noreply, socket}
+        end
+
       {id, view} when is_integer(id) and view != nil ->
         mutate(socket, &Session.set_view(&1, id, view))
 

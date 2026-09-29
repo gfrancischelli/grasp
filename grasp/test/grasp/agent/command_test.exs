@@ -83,6 +83,13 @@ defmodule Grasp.Agent.CommandTest do
     assert prompt =~ "set_cards"
   end
 
+  test "system_prompt/3 tells the agent a module's name lays out its module card" do
+    prompt = Command.system_prompt("s1", "read", "mix grasp.index")
+
+    assert prompt =~ "A module's name in `function_id`"
+    assert prompt =~ "module card, which takes no `parent_key`"
+  end
+
   test "system_prompt/3 names the session the agent must pass to every comment tool" do
     for mode <- ~w(read edit) do
       prompt = Command.system_prompt("s1", mode, "mix grasp.index")

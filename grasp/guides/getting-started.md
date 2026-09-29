@@ -139,10 +139,9 @@ an edge arriving from each of them.
 ⌘K or `/` opens the palette. Type any part of a name: an exact `Module.fun/arity`
 ranks first, then ids containing what you typed, then a fuzzy match. Modules are listed by
 name beside the functions, marked `module`; of a function and a module that match equally
-well, the function comes first. Arrow
-keys move, Enter opens the card; a module opens its module card (see
-[Reviewing](reviewing.md#module-cards)). In a review against a base ref each result carries its change badge, so a search
-says which hits are part of the branch.
+well, the function comes first. Arrow keys move, Enter opens the card; a module opens its
+module card (see [Reviewing](reviewing.md#module-cards)). In a review against a base ref
+each result carries its change badge, so a search says which hits are part of the branch.
 
 ## The toolbar
 

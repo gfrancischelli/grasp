@@ -131,6 +131,14 @@ defmodule GraspWeb.ModuleCardLiveTest do
       assert has_element?(view, "#card-1 .card__outdated .thread", "a doc worth a line")
     end
 
+    test "a function card refuses the doc view", %{view: view, name: name} do
+      render_click(view, "open_root", %{"id" => @greet})
+      render_click(view, "set_view", %{"card" => "1", "view" => "source"})
+      render_click(view, "set_view", %{"card" => "1", "view" => "doc"})
+
+      assert Grasp.Session.Forest.card(Session.get(name), 1).view == :source
+    end
+
     test "the diff view is offered only for a modified moduledoc", %{view: view} do
       render_click(view, "open_module", %{"module" => "SampleApp.Counter"})
 
