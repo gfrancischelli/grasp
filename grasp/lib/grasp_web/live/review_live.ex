@@ -313,6 +313,11 @@ defmodule GraspWeb.ReviewLive do
      |> put_forest(Session.focus(socket.assigns.name, id))}
   end
 
+  # A press anywhere on the canvas outside the open menu and the controls that toggle it,
+  # which the canvas hook turns into this.
+  def handle_event("close_callers", _params, socket),
+    do: {:noreply, assign(socket, callers_open: nil)}
+
   # Shift+click, which the canvas hook turns into this rather than into a focus: the card is
   # picked out or put back, and nothing else about it changes.
   def handle_event("toggle_select", %{"card" => card}, socket) do
