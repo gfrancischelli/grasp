@@ -572,9 +572,13 @@ a card of it lands past that neighbour.
 
 The pass orders unplaced cards by their section and, inside one, by their depth in the call
 graph — the column algorithm below survives as that ordering and as the keyboard's notion of
-neighbours — so an agent's `set_cards`, which leaves every position empty, comes out
-callers-left of callees in one pass, and "Reset layout" (`Forest.reset_layout/1`) empties
-every position to lay the whole canvas out again.
+neighbours. A pass that finds no card placed at all is not placed card by card: it arranges
+the whole canvas in layered columns, every card given an architectural layer and a column
+floored by it, so an agent's `set_cards`, which leaves every position empty, and **arrange**
+in the toolbar (`Forest.reset_layout/1`, which empties every position) both lay the canvas
+out in one pass. A card opened later joins the column its layer puts it in and stands against
+its module where that module is already down. See
+[the layered layout](2026-09-30-grasp-layered-layout-design.md).
 
 The depth ordering is columns: `Forest.layout/1` computes it. A card nothing
 on screen calls is a source and sits in column 0; every other card sits one column right of
@@ -670,7 +674,7 @@ scale runs from 5% to 250%: far enough out that a canvas of a hundred cards is r
 shape, and no further in than a card is worth reading at. A toolbar floats at the bottom
 centre of the canvas, the way drawing tools place theirs, and carries the sidebar toggle,
 zoom out, a zoom readout that resets to 100% when clicked, zoom in, fit, the signature-mode
-toggle and the module-clusters toggle (both below), "reset layout", the chat toggle and a
+toggle and the module-clusters toggle (both below), **arrange**, the chat toggle and a
 help button (`?`); the chat panel docks above it. That button and the `?` key open the
 keys-and-gestures list (`GraspWeb.Help`), a modal `<dialog>` of every gesture and chord the
 toolbar has no room to show. Nothing in it is session state, so it is rendered once, marked
@@ -733,7 +737,7 @@ displacement, the hook pushes `move_cards` with their ids and the deltas, and
 `Forest.shift_cards/3` adds them to each placed member's position; a card with no position
 yet is not among them, and a press that gathers no card at all begins no drag rather than a
 dead one the release would report. A graph drag decides no membership: the cards travel
-together and each stays in the group it is a member of. "Reset layout"
+together and each stays in the group it is a member of. **Arrange**
 (`Forest.reset_layout/1`) empties every position, and the hook lays the canvas out again on
 the next patch. Dragging a frame's title — with or without Ctrl; a press that does not move
 is the rename click — moves the group as one: the hook pushes `move_group` with the deltas,
@@ -838,9 +842,10 @@ is why the case arises; and against another flow's frame it is `FRAME_PAD` plus 
 module padding plus `GAP_Y`.
 
 The toolbar's `modules` toggle (or the `m` key) turns clusters off: the frames and labels go,
-headers show the full id again, and placement returns to nearest-the-call. Clusters are on by
-default, the state is the browser's like signature mode, and "reset layout" lays the canvas
-out under whichever setting is current.
+headers show the full id again, and a card whose module already stands in its flow is placed
+against that module's cards rather than its frame. Clusters are on by default, the state is
+the browser's like signature mode, and **arrange** lays the canvas out under whichever setting
+is current.
 
 ### Card
 
@@ -1135,7 +1140,7 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
   file read.
 - **Frames overlap when cards are dragged across.** A frame follows its cards wherever they
   go, so two frames can cover the same ground; nothing pushes them apart, and a drop inside
-  both joins the later section. Reset layout untangles them.
+  both joins the later section. Arrange untangles them.
 - **Opening a pull request switches the working tree.** Closed in milestone 7: `mix grasp.pr N`
   reads the pull request in a worktree of its own and the reader's checkout is left alone
   (see [Part 4](#pull-requests-from-worktrees)). `gh` still has to be installed and signed in.
@@ -1149,7 +1154,7 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
   placed. A card that later grows (diff view, all lines, a thread) pushes the cards under it
   down by what it grew, and gives them back when it shrinks as long as they stand where the
   push left them; a card dragged onto another stays where it is. A push moves cards and not
-  frames, so a grown card can reach into another group's frame. Reset layout untangles them.
+  frames, so a grown card can reach into another group's frame. Arrange untangles them.
 - **A session saved before positions loads laid out afresh.** A version 1 file carries
   offsets from an automatic layout that no longer exists; it loads with every position
   empty and is placed again.
@@ -1202,7 +1207,7 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
 
 - **Dragged module frames overlap.** Placement is what holds one cluster clear of the next;
   a reader who drags a card, or a whole cluster by its label, across another module's cards is
-  left with the two frames over one another. "Reset layout" lays them out apart again.
+  left with the two frames over one another. Arrange lays them out apart again.
 - **A module of one card wears a frame.** A cluster is drawn round whatever cards of a module
   a flow holds, one included, so a flow that opens a card each from six modules is six frames.
   Nothing merges a frame with its neighbour and nothing drops one for holding too little.
@@ -1226,11 +1231,11 @@ test-only one: it parses Lumis' HTML on every highlight the cache misses.
   reported.
 - **Dragged frames overlap.** Placement is what keeps the frames clear of one another; a
   reader who drags a card or a group across another frame is left with the overlap, and the
-  later section wins a drop inside both. "Reset layout" lays them out apart again.
+  later section wins a drop inside both. Arrange lays them out apart again.
 - **A section hemmed in on both sides grows round its neighbour.** A card that joins a group
   after another group has been laid out below it takes the room below its group, or else the
   room beside it; when both are taken it drops past the neighbour and its frame closes over
-  that neighbour's. "Reset layout" lays the sections out apart again.
+  that neighbour's. Arrange lays the sections out apart again.
 - **A graph drag follows the drawn edges only.** Alt and drag carries what the reader can see
   joined up, so a hidden call joins nothing, a call site whose callee is not open on the
   canvas reaches no card, and a card nothing joins to travels alone.
@@ -1899,6 +1904,14 @@ request switches the working tree" is closed.
      moduledoc's first paragraph as its tooltip; the Changes group leads a module's rows with
      a changed moduledoc; and the MCP tool `get_module` and `list_changes`' `moduledocs`
      answer the same (see [the module docs design](2026-09-29-grasp-moduledocs-design.md)).
+   - Milestone 12: the layered layout — every card is given an architectural layer (test,
+     html, interfaces, core, private, external) once per index load and a column floored by
+     it, so a flow reads from the markup through the interfaces to the core and the modules it
+     is built from; the toolbar's **arrange** lays the canvas out in those columns, rows
+     ordered against crossings, the cards of one module kept in one block and every module
+     frame clear of the others; a card opened later joins its column and stands against its
+     module where the module is already down (see
+     [the layered layout](2026-09-30-grasp-layered-layout-design.md)).
 7. In-app Grasp: one dev dependency mounted in the host's endpoint, the tracer riding the
    host's code reloader for incremental indexing, pull requests reviewed from worktrees
    (see [Part 4](#part-4--in-app-grasp)).

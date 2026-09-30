@@ -15,9 +15,18 @@
 // this hook has measured it and said where it goes — the browser is the only thing that knows
 // how large a card came out, so placement is the hook's alone. A pass places every such card
 // beside the card it was opened from and pushes the lot in one `place_cards`; the server fills
-// a position only where there is none, so a card already placed is never moved by a pass. The
-// pass that finds no card placed anywhere lays the whole canvas out at once instead, in the
-// layered columns `layout.js` works out from the boxes, the columns and the calls.
+// a position only where there is none, so a card already placed is never moved by a pass.
+//
+// The arrange pass is the other kind: a pass that finds no card rendered at a position and no
+// placement answer still on the wire — the one after the toolbar's `arrange`, which empties
+// every position through `reset_layout`, or the first of a canvas nobody has laid out — lays
+// the whole canvas out at once, in the layered columns `arrange` in `layout.js` works out from
+// the boxes measured here, the `data-column` and `data-module` the server rendered on each
+// node and the line each call leaves its caller at. `layout.js` holds no DOM, so it is tested
+// under `node --test`; this hook measures, hands it the numbers and pushes what it answers. A
+// card opened later is placed by the card-by-card pass, which asks the same module for the two
+// rules it shares with arrange: `snapToColumn` lines the card up with its column's standing
+// cards, and `spotBesideModule` stands it against its module where the module is already down.
 //
 // Positions may be negative: a caller opened to the left of a card at the stage's corner lands
 // left of it. Nothing shifts to make room — the stage is not clipped and the pan reaches

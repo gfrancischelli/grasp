@@ -161,7 +161,8 @@ its shortcut when you hover or tab to it.
   name. See [Reviewing](reviewing.md).
 - **test arrows** (`t`) — show or hide the arrows leaving tests, setups and test helpers,
   which cross the canvas to every function a test exercises.
-- **reset layout** — lay every card out again.
+- **arrange** — lay every card out again, in columns by layer: markup, interfaces, core and
+  the modules the core is built from, left to right. See [Reviewing](reviewing.md).
 - **ask** (⌘I) — open the chat panel. See [The agent](agent.md).
 - **runs** — open the runs panel: the test or coverage run under way, or the last one,
   its output as it streams, `cancel` and `run coverage`. It reads `running…` while a run is
