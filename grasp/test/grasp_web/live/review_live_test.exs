@@ -1144,6 +1144,16 @@ defmodule GraspWeb.ReviewLiveTest do
            )
   end
 
+  test "the toolbar toggles the arrows crossing every frame, with a key", %{view: view} do
+    assert has_element?(
+             view,
+             "#toggle-cross-frame-edges[aria-pressed='true'][phx-update='ignore'][data-key='B']",
+             "frame arrows"
+           )
+
+    assert has_element?(view, "#help dt kbd", "b")
+  end
+
   test "a node names the module its card belongs to", %{view: view, name: name} do
     Session.open_root(name, @greet)
 

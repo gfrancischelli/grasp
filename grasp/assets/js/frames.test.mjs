@@ -1,6 +1,6 @@
 import {test} from "node:test"
 import assert from "node:assert/strict"
-import {flowKey, moduleKey, hiddenByFrame} from "./frames.js"
+import {crossesFrame, flowKey, moduleKey, hiddenByFrame} from "./frames.js"
 
 const card = (group, module) => ({group, module})
 
@@ -46,4 +46,21 @@ test("a module frame is the module inside one flow, not every card of the module
 test("a closed module frame hides nothing while the clusters are undrawn", () => {
   const closed = new Set([moduleKey("1", "A")])
   assert.equal(hiddenByFrame(card("1", "A"), card("1", "B"), closed, false), false)
+})
+
+test("an edge between two flows, or two clusters, crosses a frame", () => {
+  assert.equal(crossesFrame(card("1", "A"), card("2", "A"), false), true)
+  assert.equal(crossesFrame(card("", "A"), card("2", "A"), false), true)
+  assert.equal(crossesFrame(card("1", "A"), card("1", "B"), true), true)
+  assert.equal(crossesFrame(card("1", "A"), card("1", "B"), false), false)
+  assert.equal(crossesFrame(card("1", "A"), card("1", "A"), true), false)
+  assert.equal(crossesFrame(card("", "A"), card("", "A"), true), false)
+})
+
+test("every frame closed hides every edge crossing one and keeps the rest", () => {
+  const none = new Set()
+  assert.equal(hiddenByFrame(card("1", "A"), card("2", "B"), none, true, true), true)
+  assert.equal(hiddenByFrame(card("1", "A"), card("1", "B"), none, true, true), true)
+  assert.equal(hiddenByFrame(card("1", "A"), card("1", "A"), none, true, true), false)
+  assert.equal(hiddenByFrame(card("1", "A"), card("1", "B"), none, false, true), false)
 })

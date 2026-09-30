@@ -1692,6 +1692,18 @@ defmodule GraspWeb.ReviewLive do
           >
             test arrows
           </button>
+          <%!-- The arrows crossing the frames' borders are the hook's too, drawn until the
+          reader hides them, so the button is rendered pressed and kept out of every patch. --%>
+          <button
+            type="button"
+            id="toggle-cross-frame-edges"
+            phx-update="ignore"
+            aria-pressed="true"
+            data-tip="Arrows between frames"
+            data-key="B"
+          >
+            frame arrows
+          </button>
           <button
             type="button"
             id="reset-layout"

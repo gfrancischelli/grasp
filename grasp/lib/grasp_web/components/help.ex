@@ -69,6 +69,8 @@ defmodule GraspWeb.Help do
           <dd>Module frames round the cards.</dd>
           <dt><kbd>t</kbd></dt>
           <dd>The arrows from tests, setups and test helpers.</dd>
+          <dt><kbd>b</kbd></dt>
+          <dd>The arrows crossing a frame's border, between flows or between modules.</dd>
           <dt><kbd>f</kbd></dt>
           <dd>Fit every card on screen.</dd>
           <dt><kbd>⌘0</kbd></dt>

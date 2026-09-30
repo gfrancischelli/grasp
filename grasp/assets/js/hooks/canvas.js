@@ -139,6 +139,9 @@ const Canvas = {
     // with. A frame is open until its toggle is pressed, and the set lives as long as the
     // canvas does, the way the toolbar's toggles do.
     this.closedFrames = new Set()
+    // The toolbar's toggle closes every frame at once, over and above the ones closed by hand,
+    // and opening it again leaves those as they were.
+    this.crossFrameEdges = true
     this.frames = []
     this.lastReveal = null
     this.extent = {width: 0, height: 0}
@@ -192,6 +195,7 @@ const Canvas = {
     this.onToggleSignatures = () => this.toggleSignatures()
     this.onToggleModules = () => this.toggleModules()
     this.onToggleTestEdges = () => this.toggleTestEdges()
+    this.onToggleCrossFrameEdges = () => this.toggleCrossFrameEdges()
     this.onToggleCoverage = () => this.toggleCoverage()
     this.onZoomFit = () => this.fit()
     this.onSpaceRelease = () => this.releaseSpace()
@@ -211,6 +215,7 @@ const Canvas = {
     window.addEventListener("grasp:toggle-signatures", this.onToggleSignatures)
     window.addEventListener("grasp:toggle-modules", this.onToggleModules)
     window.addEventListener("grasp:toggle-test-edges", this.onToggleTestEdges)
+    window.addEventListener("grasp:toggle-cross-frame-edges", this.onToggleCrossFrameEdges)
     window.addEventListener("grasp:toggle-coverage", this.onToggleCoverage)
     window.addEventListener("grasp:zoom-fit", this.onZoomFit)
     // A hold that ends while the page is in the background never delivers its keyup, which
@@ -298,6 +303,7 @@ const Canvas = {
     window.removeEventListener("grasp:toggle-signatures", this.onToggleSignatures)
     window.removeEventListener("grasp:toggle-modules", this.onToggleModules)
     window.removeEventListener("grasp:toggle-test-edges", this.onToggleTestEdges)
+    window.removeEventListener("grasp:toggle-cross-frame-edges", this.onToggleCrossFrameEdges)
     window.removeEventListener("grasp:toggle-coverage", this.onToggleCoverage)
     window.removeEventListener("grasp:zoom-fit", this.onZoomFit)
     window.removeEventListener("blur", this.onSpaceRelease)
@@ -448,7 +454,7 @@ const Canvas = {
       return
     }
     const control = e.target.closest(
-      "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-test-edges, #toggle-coverage",
+      "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-test-edges, #toggle-cross-frame-edges, #toggle-coverage",
     )
     if (!control) return
     // The zoom buttons and the signature toggle are the hook's alone, so nothing should reach
@@ -463,6 +469,7 @@ const Canvas = {
     else if (control.id === "toggle-signatures") this.toggleSignatures()
     else if (control.id === "toggle-modules") this.toggleModules()
     else if (control.id === "toggle-test-edges") this.toggleTestEdges()
+    else if (control.id === "toggle-cross-frame-edges") this.toggleCrossFrameEdges()
     else if (control.id === "toggle-coverage") this.toggleCoverage()
     else this.fit()
   },
@@ -503,6 +510,15 @@ const Canvas = {
     document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges)
     const button = document.getElementById("toggle-test-edges")
     if (button) button.setAttribute("aria-pressed", String(this.testEdges))
+  },
+
+  // The arrows crossing any frame's border, flow or module. The edges are the hook's own, so
+  // hiding them is a redraw without them; no card moves or changes size.
+  toggleCrossFrameEdges() {
+    this.crossFrameEdges = !this.crossFrameEdges
+    const button = document.getElementById("toggle-cross-frame-edges")
+    if (button) button.setAttribute("aria-pressed", String(this.crossFrameEdges))
+    this.draw()
   },
 
   // Coverage mode. The class lives on <body> and the button carries phx-update="ignore" for
@@ -1358,6 +1374,7 @@ const Canvas = {
           {group: toNode.dataset.group || "", module: toNode.dataset.module || ""},
           this.closedFrames,
           this.modules,
+          !this.crossFrameEdges,
         )
       )
         continue
