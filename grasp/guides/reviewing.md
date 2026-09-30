@@ -341,6 +341,10 @@ is theirs, and arrows into the callee, drawn beneath the cards so a line never c
 code. Double-click an arrow to jump to the card at its far end — the
 caller or the callee that is out of sight — which takes focus and pans into view.
 
+Hovering a card marks where it is called from: every call site naming it, in every card that
+calls it, is ringed, and the arrows arriving at it are drawn thicker in the accent colour, so
+the line of the caller a card stands for is found without following the arrow by eye.
+
 A dashed edge is a hop rather than a function call, and its call site is underlined with dots
 instead of dashes. One kind is a hop over HTTP: a link, a form action, an `hx-*` attribute or
 a `~p` sigil the router resolved to the action or LiveView it maps that path to, hovering it

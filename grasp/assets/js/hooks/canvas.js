@@ -71,6 +71,7 @@
 
 import {arrange, besideOpener, spotBesideModule} from "../layout.js"
 import {hiddenByFrame, moduleKey} from "../frames.js"
+import {hoverRule, hoveredCard} from "../hover.js"
 
 const MIN_SCALE = 0.05
 const MAX_SCALE = 2.5
@@ -165,6 +166,14 @@ const Canvas = {
       document.head.appendChild(
         Object.assign(document.createElement("style"), {id: "grasp-canvas-style"}),
       )
+    // The marks on the call sites of the card under the pointer, in a sheet of their own so
+    // the view's rule and the hover's are rewritten apart.
+    this.hoverStyle =
+      document.getElementById("grasp-hover-style") ||
+      document.head.appendChild(
+        Object.assign(document.createElement("style"), {id: "grasp-hover-style"}),
+      )
+    this.hovered = null
     this.applyView()
 
     this.onWheel = (e) => this.wheel(e)
@@ -175,6 +184,8 @@ const Canvas = {
     this.onClickCapture = (e) => this.clickCapture(e)
     this.onDoubleClick = (e) => this.doubleClick(e)
     this.onContextMenu = (e) => this.contextMenu(e)
+    this.onHover = (e) => this.hover(hoveredCard(e.target))
+    this.onHoverEnd = () => this.hover(null)
     this.onKeyDown = (e) => this.spaceDown(e)
     this.onKeyUp = (e) => this.spaceUp(e)
     this.onZoomReset = () => this.resetZoom()
@@ -192,6 +203,8 @@ const Canvas = {
     this.el.addEventListener("click", this.onClickCapture, true)
     this.el.addEventListener("dblclick", this.onDoubleClick)
     this.el.addEventListener("contextmenu", this.onContextMenu)
+    this.el.addEventListener("mouseover", this.onHover)
+    this.el.addEventListener("mouseleave", this.onHoverEnd)
     window.addEventListener("keydown", this.onKeyDown)
     window.addEventListener("keyup", this.onKeyUp)
     window.addEventListener("grasp:zoom-reset", this.onZoomReset)
@@ -277,6 +290,8 @@ const Canvas = {
     this.el.removeEventListener("click", this.onClickCapture, true)
     this.el.removeEventListener("dblclick", this.onDoubleClick)
     this.el.removeEventListener("contextmenu", this.onContextMenu)
+    this.el.removeEventListener("mouseover", this.onHover)
+    this.el.removeEventListener("mouseleave", this.onHoverEnd)
     window.removeEventListener("keydown", this.onKeyDown)
     window.removeEventListener("keyup", this.onKeyUp)
     window.removeEventListener("grasp:zoom-reset", this.onZoomReset)
@@ -297,6 +312,16 @@ const Canvas = {
     this.cardObserver.disconnect()
     if (this.remeasureFrame !== null) cancelAnimationFrame(this.remeasureFrame)
     this.style.remove()
+    this.hoverStyle.remove()
+  },
+
+  // Marks where the card under the pointer is called from — its call sites in the cards that
+  // call it and the edges leaving them — and clears the marks when the pointer leaves it. Only
+  // a change of card rewrites the rule, since `mouseover` fires for every element crossed.
+  hover(id) {
+    if (id === this.hovered) return
+    this.hovered = id
+    this.hoverStyle.textContent = hoverRule(id)
   },
 
   // The translate is rounded to whole screen pixels: a fractional composited offset resamples
