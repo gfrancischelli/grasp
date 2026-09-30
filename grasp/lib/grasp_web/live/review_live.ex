@@ -1800,6 +1800,21 @@ defmodule GraspWeb.ReviewLive do
                   />
                 </form>
                 <span class="flow__count">{card_count(section)}</span>
+                <%!-- The arrows crossing this frame's border are the hook's to draw and to hide,
+                so the toggle is kept out of every patch and the hook writes its state. The key
+                is the one `frames.js` names a flow frame by. --%>
+                <button
+                  type="button"
+                  id={"frame-arrows-#{section.group.id}"}
+                  class="frame__arrows"
+                  phx-update="ignore"
+                  data-frame={"flow:#{section.group.id}"}
+                  aria-pressed="true"
+                  aria-label="Arrows in and out of this group"
+                  title="Arrows in and out of this group"
+                >
+                  ⇄
+                </button>
                 <button
                   type="button"
                   phx-click="dissolve_group"

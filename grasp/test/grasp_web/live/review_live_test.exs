@@ -1129,6 +1129,21 @@ defmodule GraspWeb.ReviewLiveTest do
     refute has_element?(view, "#flow-none[data-grouped]")
   end
 
+  test "a group's header carries the toggle for the arrows crossing its frame", %{
+    view: view,
+    name: name
+  } do
+    Session.open_root(name, @greet)
+    Session.open_child(name, 1, @wrap)
+    Session.group_cards(name, "Greeting", [1, 2])
+
+    assert has_element?(
+             view,
+             "#flow-1 .flow__title #frame-arrows-1.frame__arrows" <>
+               "[data-frame='flow:1'][aria-pressed='true'][phx-update='ignore']"
+           )
+  end
+
   test "a node names the module its card belongs to", %{view: view, name: name} do
     Session.open_root(name, @greet)
 

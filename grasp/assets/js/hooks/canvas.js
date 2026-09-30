@@ -70,6 +70,7 @@
 // hand.
 
 import {arrange, besideOpener, spotBesideModule} from "../layout.js"
+import {hiddenByFrame, moduleKey} from "../frames.js"
 
 const MIN_SCALE = 0.05
 const MAX_SCALE = 2.5
@@ -133,6 +134,10 @@ const Canvas = {
     // exercises, so they are hidden until the reader asks for them.
     this.testEdges = false
     document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges)
+    // The frames whose border the reader closed to arrows, by the keys `frames.js` names them
+    // with. A frame is open until its toggle is pressed, and the set lives as long as the
+    // canvas does, the way the toolbar's toggles do.
+    this.closedFrames = new Set()
     this.frames = []
     this.lastReveal = null
     this.extent = {width: 0, height: 0}
@@ -386,6 +391,15 @@ const Canvas = {
       e.stopPropagation()
       e.preventDefault()
       this.suppressClick = false
+      return
+    }
+    // A frame's arrow toggle, on a flow's header or a module's label. The header's button is
+    // the server's and the label's is drawn by this hook; either names its frame by key.
+    const arrows = e.target.closest(".frame__arrows")
+    if (arrows) {
+      e.stopPropagation()
+      e.preventDefault()
+      this.toggleFrameArrows(arrows.dataset.frame)
       return
     }
     // Shift+click a card picks it out instead of focusing it. A control or a call site keeps
@@ -695,6 +709,8 @@ const Canvas = {
     // A module's label is the handle for the cards of that cluster, the way a frame's header
     // is for a group's. It carries no controls to press, and a press that never moves opens
     // the module's card, as the module part of a card's title does.
+    // Its arrow toggle is the one control a label carries, pressed rather than dragged from.
+    if (e.target.closest(".frame__arrows")) return
     const label = e.target.closest(".module__title")
     if (label) return this.beginModuleDrag(e, label)
     // A frame's header is the handle the whole group is dragged by, with or without Ctrl, the
@@ -1180,11 +1196,37 @@ const Canvas = {
         `<div class="frame frame--module" style="left:${frame.left}px;` +
           `top:${frame.top}px;width:${frame.right - frame.left}px;height:${frame.bottom - frame.top}px"></div>`,
         `<div class="module__title" data-group="${attr(frame.group)}" data-module="${attr(frame.module)}" ` +
-          `style="left:${frame.left + MODULE_PAD}px;top:${frame.top + MODULE_PAD}px">${attr(frame.module)}</div>`,
+          `style="left:${frame.left + MODULE_PAD}px;top:${frame.top + MODULE_PAD}px">${attr(frame.module)}` +
+          this.frameArrowsButton(moduleKey(frame.group, frame.module), frame.module) +
+          `</div>`,
       )
     }
     this.frameLayer.innerHTML = divs.join("")
+    // The flows' toggles are rendered by the server and kept out of its patches, so the state
+    // they show is written here, on every draw, for a header rendered since the last one.
+    for (const button of this.el.querySelectorAll(".flow__title .frame__arrows")) {
+      button.setAttribute("aria-pressed", String(!this.closedFrames.has(button.dataset.frame)))
+    }
     return true
+  },
+
+  // The toggle a module's label carries for the arrows crossing its frame, pressed while they
+  // are drawn.
+  frameArrowsButton(key, name) {
+    const open = !this.closedFrames.has(key)
+    return (
+      ` <button type="button" class="frame__arrows" data-frame="${attr(key)}" aria-pressed="${open}" ` +
+      `aria-label="Arrows in and out of ${attr(name)}" title="Arrows in and out of ${attr(name)}">⇄</button>`
+    )
+  },
+
+  // Opens or closes a frame's border to arrows. Only the edges and the toggles change; no card
+  // moves or changes size, so nothing is measured again.
+  toggleFrameArrows(key) {
+    if (!key) return
+    if (this.closedFrames.has(key)) this.closedFrames.delete(key)
+    else this.closedFrames.add(key)
+    this.draw()
   },
 
   // The layer the frames and their labels are written into. It lives in a phx-update="ignore"
@@ -1280,6 +1322,20 @@ const Canvas = {
       // A card waiting to be placed is drawn at the origin and not shown; an edge to or from
       // it would be a line to a corner nothing is at.
       if (this.unplaced(card) || this.unplaced(callee)) continue
+      // An edge crossing the border of a frame the reader closed is not drawn at all.
+      const fromNode = card.closest(".node")
+      const toNode = callee.closest(".node")
+      if (
+        fromNode &&
+        toNode &&
+        hiddenByFrame(
+          {group: fromNode.dataset.group || "", module: fromNode.dataset.module || ""},
+          {group: toNode.dataset.group || "", module: toNode.dataset.module || ""},
+          this.closedFrames,
+          this.modules,
+        )
+      )
+        continue
       const b = boxOf(callee)
       if (!b.width && !b.height) continue
       drawn.add(pair)

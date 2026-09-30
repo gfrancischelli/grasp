@@ -173,6 +173,11 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
    layer it sits in having no width of its own to wrap a module name against. */
 .frame--module { border-color: color-mix(in srgb, var(--border) 50%, transparent); background: none; }
 .module__title { position: absolute; pointer-events: auto; cursor: grab; font-family: var(--sans); font-size: calc(var(--module-title-size) / var(--zoom, 1)); line-height: 1.2; color: var(--fg-muted); white-space: nowrap; }
+/* A frame's toggle for the arrows crossing its border: quiet beside the title, and struck
+   through while the frame is closed to them. */
+.frame__arrows { margin-inline-start: 0.4em; padding: 0 0.3em; border: 0; background: none; font: inherit; color: var(--fg-muted); cursor: pointer; }
+.frame__arrows:hover { color: var(--fg); }
+.frame__arrows[aria-pressed="false"] { text-decoration: line-through; opacity: 0.6; }
 /* A section is its group's header and nothing else: the cards are on the stage at positions
    of their own, and the canvas hook puts each header over the frame drawn round its group.
    The layer holding the headers covers the stage and lets every pointer through, so a header

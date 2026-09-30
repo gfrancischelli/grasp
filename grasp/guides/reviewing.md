@@ -95,6 +95,11 @@ make a last, unframed section under the framed ones.
   of the selection goes with it. Dropping it anywhere else moves the card and nothing more.
 - A frame's title keeps its size at any zoom, so you can read which group is which from far
   enough out that the cards inside it are specks.
+- **⇄** beside a frame's title, and beside a module's label inside it, hides the arrows
+  crossing that frame's border — every arrow with one end inside it and the other outside —
+  and leaves the arrows between its own cards. Press it again to bring them back. A frame
+  starts open, and the choice lasts until the page is reloaded; a module frame's choice
+  applies while the module clusters are drawn.
 
 A card opened from another — a callee by clicking a call, a caller from the callers menu —
 joins the group of the card it was opened from when it is new to the canvas, so it lands

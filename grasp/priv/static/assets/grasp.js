@@ -461,6 +461,26 @@
     };
   }
 
+  // js/frames.js
+  function flowKey(group) {
+    return group === "" || group == null ? null : `flow:${group}`;
+  }
+  function moduleKey(group, module) {
+    return `module:${group ?? ""}|${module}`;
+  }
+  function hiddenByFrame(from, to, closed, modulesDrawn) {
+    if (closed.size === 0) return false;
+    const fromFlow = flowKey(from.group);
+    const toFlow = flowKey(to.group);
+    if (fromFlow !== toFlow) {
+      if (fromFlow && closed.has(fromFlow) || toFlow && closed.has(toFlow)) return true;
+    }
+    if (!modulesDrawn) return false;
+    const fromModule = moduleKey(from.group, from.module);
+    const toModule = moduleKey(to.group, to.module);
+    return fromModule !== toModule && (closed.has(fromModule) || closed.has(toModule));
+  }
+
   // js/hooks/canvas.js
   var MIN_SCALE = 0.05;
   var MAX_SCALE = 2.5;
@@ -489,6 +509,7 @@
       document.body.classList.toggle("grasp-modules", this.modules);
       this.testEdges = false;
       document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges);
+      this.closedFrames = /* @__PURE__ */ new Set();
       this.frames = [];
       this.lastReveal = null;
       this.extent = { width: 0, height: 0 };
@@ -686,6 +707,13 @@
         e.stopPropagation();
         e.preventDefault();
         this.suppressClick = false;
+        return;
+      }
+      const arrows = e.target.closest(".frame__arrows");
+      if (arrows) {
+        e.stopPropagation();
+        e.preventDefault();
+        this.toggleFrameArrows(arrows.dataset.frame);
         return;
       }
       const card = e.shiftKey && e.target.closest(".card");
@@ -916,6 +944,7 @@
       if (e.shiftKey && e.target.closest(".card")) return e.preventDefault();
       const altCard = e.altKey && e.target.closest(".card");
       if (altCard && !e.target.closest("a")) return this.beginGraphDrag(e, altCard);
+      if (e.target.closest(".frame__arrows")) return;
       const label = e.target.closest(".module__title");
       if (label) return this.beginModuleDrag(e, label);
       const title = e.target.closest(".flow__title");
@@ -1315,11 +1344,28 @@
       for (const frame of moduleFrames) {
         divs.push(
           `<div class="frame frame--module" style="left:${frame.left}px;top:${frame.top}px;width:${frame.right - frame.left}px;height:${frame.bottom - frame.top}px"></div>`,
-          `<div class="module__title" data-group="${attr(frame.group)}" data-module="${attr(frame.module)}" style="left:${frame.left + MODULE_PAD}px;top:${frame.top + MODULE_PAD}px">${attr(frame.module)}</div>`
+          `<div class="module__title" data-group="${attr(frame.group)}" data-module="${attr(frame.module)}" style="left:${frame.left + MODULE_PAD}px;top:${frame.top + MODULE_PAD}px">${attr(frame.module)}` + this.frameArrowsButton(moduleKey(frame.group, frame.module), frame.module) + `</div>`
         );
       }
       this.frameLayer.innerHTML = divs.join("");
+      for (const button of this.el.querySelectorAll(".flow__title .frame__arrows")) {
+        button.setAttribute("aria-pressed", String(!this.closedFrames.has(button.dataset.frame)));
+      }
       return true;
+    },
+    // The toggle a module's label carries for the arrows crossing its frame, pressed while they
+    // are drawn.
+    frameArrowsButton(key, name) {
+      const open = !this.closedFrames.has(key);
+      return ` <button type="button" class="frame__arrows" data-frame="${attr(key)}" aria-pressed="${open}" aria-label="Arrows in and out of ${attr(name)}" title="Arrows in and out of ${attr(name)}">\u21C4</button>`;
+    },
+    // Opens or closes a frame's border to arrows. Only the edges and the toggles change; no card
+    // moves or changes size, so nothing is measured again.
+    toggleFrameArrows(key) {
+      if (!key) return;
+      if (this.closedFrames.has(key)) this.closedFrames.delete(key);
+      else this.closedFrames.add(key);
+      this.draw();
     },
     // The layer the frames and their labels are written into. It lives in a phx-update="ignore"
     // subtree and so normally outlives every patch; were one ever to replace it, a cached node
@@ -1400,6 +1446,15 @@
         const callee = document.getElementById(`card-${to}`);
         if (!callee) continue;
         if (this.unplaced(card) || this.unplaced(callee)) continue;
+        const fromNode = card.closest(".node");
+        const toNode = callee.closest(".node");
+        if (fromNode && toNode && hiddenByFrame(
+          { group: fromNode.dataset.group || "", module: fromNode.dataset.module || "" },
+          { group: toNode.dataset.group || "", module: toNode.dataset.module || "" },
+          this.closedFrames,
+          this.modules
+        ))
+          continue;
         const b = boxOf(callee);
         if (!b.width && !b.height) continue;
         drawn.add(pair);
