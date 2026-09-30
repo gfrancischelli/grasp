@@ -25,8 +25,10 @@
 // node and the line each call leaves its caller at. `layout.js` holds no DOM, so it is tested
 // under `node --test`; this hook measures, hands it the numbers and pushes what it answers. A
 // card opened later is placed by the card-by-card pass, which asks the same module for the two
-// rules it shares with arrange: `snapToColumn` lines the card up with its column's standing
-// cards, and `spotBesideModule` stands it against its module where the module is already down.
+// rules it shares with arrange: `besideOpener` stands the card right of its opener, lined up
+// with its column's standing cards, or left of it where the card's layer comes before the
+// opener's, and `spotBesideModule` stands it against its module where the module is already
+// down.
 //
 // Positions may be negative: a caller opened to the left of a card at the stage's corner lands
 // left of it. Nothing shifts to make room — the stage is not clipped and the pan reaches
@@ -67,7 +69,7 @@
 // and Shift+click picks cards out into the selection ⌘G frames: the two halves of grouping by
 // hand.
 
-import {arrange, snapToColumn, spotBesideModule} from "../layout.js"
+import {arrange, besideOpener, spotBesideModule} from "../layout.js"
 
 const MIN_SCALE = 0.05
 const MAX_SCALE = 2.5
@@ -1617,6 +1619,7 @@ const Canvas = {
           : head + ownHead
       }
       let x, y
+      let leftward = false
       if (opener) {
         // The callee stands off the opener's right edge, level with the call that opened it:
         // the edge the hook draws leaves that line and arrives at the callee's port, so the
@@ -1628,16 +1631,43 @@ const Canvas = {
         // interface joins the core cards already down rather than standing against the
         // interface; the sweep below moves it clear of what stands in that column. A card
         // opened from a card it names is lined up the same way.
+        //
+        // A card of an earlier layer than its opener — the template a controller renders —
+        // belongs in a band left of the opener's, which is where arrange puts it, so it stands
+        // where a caller does instead: a gap left of the opener, still level with the call. The
+        // module and the sweep below treat it as they treat any card opened from another, the
+        // sweep's second column taken one card width further left rather than right.
+        // `besideOpener` in `layout.js` makes the choice.
         const box = boxes.get(opener.node)
         const a = opener.site.getBoundingClientRect()
         const anchored = a.width > 0 || a.height > 0
         const line = anchored
           ? (a.top + a.height / 2 - s.top) / scale - measured.get(opener.node).top
           : PORT_Y
-        x = snapToColumn(box.right + GAP_X, column, standing)
+        const beside = besideOpener({
+          opener: box,
+          openerLayer: opener.node.dataset.layer,
+          layer: node.dataset.layer,
+          width: m.width,
+          column,
+          placed: standing,
+          gapX: GAP_X,
+        })
+        x = beside.x
+        leftward = beside.leftward
         y = box.top + Math.min(Math.max(line, 0), box.bottom - box.top) - PORT_Y
       } else if (nearBox) {
-        x = snapToColumn(nearBox.right + GAP_X, column, standing)
+        const beside = besideOpener({
+          opener: nearBox,
+          openerLayer: near.dataset.layer,
+          layer: node.dataset.layer,
+          width: m.width,
+          column,
+          placed: standing,
+          gapX: GAP_X,
+        })
+        x = beside.x
+        leftward = beside.leftward
         y = nearBox.top
       } else if (calls) {
         // A card opened from its callee is the caller, and a caller reads to the left of what
@@ -1711,7 +1741,8 @@ const Canvas = {
       // every one of these lengths is the section's alone.
       //
       // A callee is swept four ways from the ideal box beside its opener: down and up in the
-      // ideal column, and down and up in the column one card width and GAP_X to the right. The
+      // ideal column, and down and up in the column one card width and GAP_X further from the
+      // opener — to the right, or to the left for a card standing left of its opener. The
       // candidate whose top-left comes to rest nearest the ideal top-left wins, ties going to
       // the ideal column and to downwards, and a candidate that never moved is at distance zero
       // and takes it outright. Upwards is open to a callee because the stage is unbounded both
@@ -1776,7 +1807,7 @@ const Canvas = {
           sweep,
         })
       } else if (opener || nearBox) {
-        const over = m.width + GAP_X
+        const over = leftward ? -(m.width + GAP_X) : m.width + GAP_X
         const next = {...ideal, left: ideal.left + over, right: ideal.right + over}
         let nearest = Infinity
         for (const [from, direction] of [

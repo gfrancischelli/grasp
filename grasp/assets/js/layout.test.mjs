@@ -2,7 +2,7 @@
 // lines given as the hook would measure them.
 import {test} from "node:test"
 import assert from "node:assert/strict"
-import {arrange, snapToColumn, spotBesideModule} from "./layout.js"
+import {arrange, besideOpener, layerRank, snapToColumn, spotBesideModule} from "./layout.js"
 
 const card = (id, column, extra = {}) => ({
   id,
@@ -587,4 +587,49 @@ test("an opened card is judged where the sweep leaves each spot", () => {
     }),
   )
   assert.deepEqual(at(box), {x: 212, y: 290})
+})
+
+test("the layers rank test, html, interfaces, core, private, external, left to right", () => {
+  assert.deepEqual(
+    ["test", "html", "interfaces", "core", "private", "external"].map(layerRank),
+    [0, 1, 2, 3, 4, 5],
+  )
+})
+
+test("a node with no layer ranks as external", () => {
+  assert.equal(layerRank(undefined), 5)
+  assert.equal(layerRank("elsewhere"), 5)
+})
+
+const opened = (extra) => ({
+  opener: {left: 300, right: 420},
+  width: 100,
+  column: 1,
+  placed: [],
+  gapX: 40,
+  ...extra,
+})
+
+test("a card of the opener's layer or a later one stands a gap right of its opener", () => {
+  assert.deepEqual(besideOpener(opened({openerLayer: "core", layer: "core"})), {
+    x: 460,
+    leftward: false,
+  })
+  assert.deepEqual(besideOpener(opened({openerLayer: "interfaces", layer: "core"})), {
+    x: 460,
+    leftward: false,
+  })
+})
+
+test("a card right of its opener joins its column where that column starts further right", () => {
+  const placed = [{column: 1, left: 600, right: 700}]
+  assert.equal(besideOpener(opened({openerLayer: "interfaces", layer: "core", placed})).x, 600)
+})
+
+test("a card of an earlier layer than its opener stands a gap left of it, as a caller does", () => {
+  const placed = [{column: 1, left: 600, right: 700}]
+  assert.deepEqual(besideOpener(opened({openerLayer: "interfaces", layer: "html", placed})), {
+    x: 160,
+    leftward: true,
+  })
 })

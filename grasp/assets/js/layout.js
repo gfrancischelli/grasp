@@ -66,8 +66,8 @@
 //    module, which a module whose block in one column runs lower than its block in the column
 //    before would otherwise reach over.
 //
-// `snapToColumn` and `spotBesideModule` are the other half: the rules a card opened later is
-// placed by, against the cards already standing, which `arrange` never moves.
+// `besideOpener`, `snapToColumn` and `spotBesideModule` are the other half: the rules a card
+// opened later is placed by, against the cards already standing, which `arrange` never moves.
 
 const SAME_MODULE_WEIGHT = 3
 const SWEEPS = ["right", "left", "right", "left"]
@@ -159,8 +159,8 @@ function arrangeSection(section, top, gapX, space, positions) {
     byRoot.get(r).push(c)
   }
 
-  // Each card's opener: the first forward edge in the order given that arrives at it, which is
-  // the call the card was opened from.
+  // Each card's opener: the first forward edge that arrives at it, in the order the edges are
+  // given, which the hook gives in document order.
   const opener = new Map()
   for (const e of forward) if (!opener.has(to(e))) opener.set(to(e), e)
 
@@ -449,6 +449,30 @@ function gatherModules(column) {
 export function snapToColumn(x, column, placed) {
   const lefts = placed.filter((p) => p.column === column).map((p) => p.left)
   return lefts.length === 0 ? x : Math.max(x, Math.min(...lefts))
+}
+
+// The layers in the order their bands stand left to right, as the server renders them on each
+// node's `data-layer`. A name not among them, or none, is `external`, the last.
+const LAYERS = ["test", "html", "interfaces", "core", "private", "external"]
+
+export function layerRank(layer) {
+  const rank = LAYERS.indexOf(layer)
+  return rank === -1 ? LAYERS.length - 1 : rank
+}
+
+// The x a card opened from another starts at, and which side of its opener that is. A card of
+// an earlier layer than its opener — the template a controller renders — belongs in a band
+// left of the opener's, so it stands where a caller does, `gapX` left of the opener's left
+// edge, and `leftward` is true. Any other card stands `gapX` right of the opener's right edge,
+// lined up with its column by `snapToColumn`. `opener` is the opener's box as `{left, right}`,
+// `layer` and `openerLayer` the two cards' layer names, and `placed` the section's standing
+// cards as `snapToColumn` takes them.
+export function besideOpener(input) {
+  const {opener, openerLayer, layer, width, column, placed, gapX} = input
+  if (layerRank(layer) < layerRank(openerLayer)) {
+    return {x: opener.left - width - gapX, leftward: true}
+  }
+  return {x: snapToColumn(opener.right + gapX, column, placed), leftward: false}
 }
 
 // Where a card whose module already stands in its section goes: against that module's cluster,

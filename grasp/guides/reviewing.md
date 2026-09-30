@@ -52,15 +52,17 @@ the markup band, left of the controller.
 
 **arrange** lays the whole canvas out in those columns, group by group. Rows follow the order
 of the calls, then are reordered so edges cross as little as they can. The cards of one module
-are kept together in one block, across neighbouring columns too, and two chains of calls in one
-group that share a module, a schema say, are arranged as one band, so every module frame is one
-rectangle and none holds or touches another module's card or frame. A card sits level with the call that opened it wherever there
-is room, and lets its edge bend where keeping the modules apart has moved it down. A canvas
-nobody has laid out yet, an agent's `set_cards` included, is arranged the same way.
+are kept together in one block, across neighbouring columns too, and two chains of calls in
+one group that share a module, a schema say, are arranged as one band, so every module frame
+is one rectangle and none holds or touches another module's card or frame. A card sits level
+with the call that opened it wherever there is room, and lets its edge bend where keeping the
+modules apart has moved it down. A canvas nobody has laid out yet, an agent's `set_cards`
+included, is arranged the same way.
 
 A card opened afterwards moves nothing already there. It joins the column its layer puts it
-in when cards of that column already stand further right than its opener, and stands against
-its module when that module is already in the group (see
+in when cards of that column already stand further right than its opener, stands left of its
+opener when its layer comes before the opener's, as a template opened from its controller
+does, and stands against its module when that module is already in the group (see
 [Module clusters](#module-clusters)).
 
 ### Groups and frames

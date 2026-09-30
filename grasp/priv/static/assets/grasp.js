@@ -407,6 +407,18 @@
     const lefts = placed.filter((p) => p.column === column).map((p) => p.left);
     return lefts.length === 0 ? x : Math.max(x, Math.min(...lefts));
   }
+  var LAYERS = ["test", "html", "interfaces", "core", "private", "external"];
+  function layerRank(layer) {
+    const rank = LAYERS.indexOf(layer);
+    return rank === -1 ? LAYERS.length - 1 : rank;
+  }
+  function besideOpener(input) {
+    const { opener, openerLayer, layer, width, column, placed, gapX } = input;
+    if (layerRank(layer) < layerRank(openerLayer)) {
+      return { x: opener.left - width - gapX, leftward: true };
+    }
+    return { x: snapToColumn(opener.right + gapX, column, placed), leftward: false };
+  }
   function spotBesideModule(input) {
     const { frame, cards, width, height, ideal, column, placed, gapX, gapY } = input;
     const pad = input.pad ?? 0;
@@ -1593,15 +1605,36 @@
           return other.kind === "module" ? moduleHead + (sameSection(other) ? 0 : head) : head + ownHead;
         };
         let x, y;
+        let leftward = false;
         if (opener) {
           const box2 = boxes.get(opener.node);
           const a = opener.site.getBoundingClientRect();
           const anchored = a.width > 0 || a.height > 0;
           const line = anchored ? (a.top + a.height / 2 - s.top) / scale - measured.get(opener.node).top : PORT_Y;
-          x = snapToColumn(box2.right + GAP_X, column, standing);
+          const beside = besideOpener({
+            opener: box2,
+            openerLayer: opener.node.dataset.layer,
+            layer: node.dataset.layer,
+            width: m.width,
+            column,
+            placed: standing,
+            gapX: GAP_X
+          });
+          x = beside.x;
+          leftward = beside.leftward;
           y = box2.top + Math.min(Math.max(line, 0), box2.bottom - box2.top) - PORT_Y;
         } else if (nearBox) {
-          x = snapToColumn(nearBox.right + GAP_X, column, standing);
+          const beside = besideOpener({
+            opener: nearBox,
+            openerLayer: near.dataset.layer,
+            layer: node.dataset.layer,
+            width: m.width,
+            column,
+            placed: standing,
+            gapX: GAP_X
+          });
+          x = beside.x;
+          leftward = beside.leftward;
           y = nearBox.top;
         } else if (calls) {
           const box2 = boxes.get(document.getElementById(`node-${calls.to}`));
@@ -1672,7 +1705,7 @@
             sweep
           });
         } else if (opener || nearBox) {
-          const over = m.width + GAP_X;
+          const over = leftward ? -(m.width + GAP_X) : m.width + GAP_X;
           const next = { ...ideal, left: ideal.left + over, right: ideal.right + over };
           let nearest = Infinity;
           for (const [from, direction] of [

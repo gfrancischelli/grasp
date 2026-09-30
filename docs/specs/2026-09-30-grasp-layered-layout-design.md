@@ -134,9 +134,16 @@ against the boxes already asked for, so it never races the answer. The pure step
 A card opened from another keeps every rule placement has, with one more: its x is one gap
 right of its opener, or the left edge of the leftmost card of its section already standing in
 its column where that is further right (`snapToColumn` in `layout.js`). The sweep that follows
-moves it clear of what stands there. An opened core card joins the core cards already down instead
-of standing against the interface that opened it. A card opened from a card it names is lined
-up the same way.
+moves it clear of what stands there. An opened core card joins the core cards already down
+instead of standing against the interface that opened it. A card opened from a card it names
+is lined up the same way.
+
+A card whose layer comes before its opener's in the order of the layers — a template opened
+from the controller that renders it, html before interfaces — stands where a caller does
+instead, since arrange puts its band left of the opener's: one gap left of the opener's left
+edge, level with the call line, and the sweep's second column one card width further left
+rather than right (`besideOpener` in `layout.js`, which reads each node's `data-layer`). The
+module-first rule below and the sweep apply to it as to any card opened from another.
 
 A card whose module already stands in its section — a callee, a caller, or a root opened from
 a card it names — is placed against that module before anything else (`spotBesideModule` in
@@ -165,7 +172,8 @@ rule.
   sections and components stacking, y aligned to a call line and clear of the card above, a
   backward edge aligning nothing, the cards of one module as one component, no module frame
   holding another module's card over a seeded batch of canvases, the fallback stacking when
-  the rounds run out, and `snapToColumn` and `spotBesideModule` for a card opened later.
+  the rounds run out, and `layerRank`, `besideOpener`, `snapToColumn` and `spotBesideModule`
+  for a card opened later.
 
 ## Known gaps
 
@@ -177,6 +185,10 @@ rule.
 - Keeping module frames apart moves cards down, and a card moved that way leaves its call line
   and its edge bends.
 - Edges are drawn straight between a call site and a port; nothing routes them round cards.
+- `snapToColumn` compares against the column numbers the server recomputes on every render,
+  while the cards already standing stay where they are, so after a shift of columns within a
+  band a card opened later can snap to the x of a different visual column until the canvas is
+  arranged.
 - Hand positions are lost on arrange, which is its purpose, and are not undoable.
 - `layout.js` is tested under Node; the hook's DOM wiring round it — measuring the boxes,
   reading the call lines, deciding when a pass arranges — has no browser test.
