@@ -403,6 +403,51 @@
     }
     return blocks.flat();
   }
+  function snapToColumn(x, column, placed) {
+    const lefts = placed.filter((p) => p.column === column).map((p) => p.left);
+    return lefts.length === 0 ? x : Math.max(x, Math.min(...lefts));
+  }
+  function spotBesideModule(input) {
+    const { frame, cards, width, height, ideal, column, placed, gapX, gapY } = input;
+    const pad = input.pad ?? 0;
+    const head = input.head ?? 0;
+    const sweep = input.sweep ?? ((box) => box);
+    const home = frame ?? boundingBox(cards);
+    const band = Math.max(home.top, Math.min(ideal.top, home.bottom - height));
+    const settled = [];
+    for (const at of [
+      { x: home.right + gapX, y: band },
+      { x: home.left + pad, y: home.bottom - pad + gapY },
+      { x: home.left + pad, y: home.top + head - gapY - height },
+      { x: home.left - gapX - width, y: band }
+    ]) {
+      const from = { left: at.x, top: at.y, right: at.x + width, bottom: at.y + height };
+      settled.push(sweep(from, "down"), sweep(from, "up"));
+    }
+    const spans = [column, column + 1].map((c) => boundingBox(placed.filter((p) => p.column === c)));
+    const inColumn = (box) => spans.some((s) => s && box.left >= s.left && box.left <= s.right);
+    const preferred = settled.filter(inColumn);
+    const candidates = preferred.length > 0 ? preferred : settled;
+    let best = null;
+    let nearest = Infinity;
+    for (const box of candidates) {
+      const away = Math.hypot(box.left - ideal.left, box.top - ideal.top);
+      if (away < nearest) {
+        nearest = away;
+        best = box;
+      }
+    }
+    return best;
+  }
+  function boundingBox(boxes) {
+    if (boxes.length === 0) return null;
+    return {
+      left: Math.min(...boxes.map((b) => b.left)),
+      top: Math.min(...boxes.map((b) => b.top)),
+      right: Math.max(...boxes.map((b) => b.right)),
+      bottom: Math.max(...boxes.map((b) => b.bottom))
+    };
+  }
 
   // js/hooks/canvas.js
   var MIN_SCALE = 0.05;
@@ -1523,6 +1568,15 @@
         const head = group ? frameHead(headerHeightFor(group), FRAME_TITLE_GAP, FRAME_PAD) : 0;
         const cluster = labelHeight !== null && node.dataset.module ? `${group || ""}|${node.dataset.module}` : null;
         const home = cluster === null ? null : frameBoxes.find((f) => f.cluster === cluster);
+        const column = Number(node.dataset.column) || 0;
+        const inSection = occupied.filter((b) => b.node.dataset.group === group);
+        const standing = inSection.map((b) => ({
+          column: Number(b.node.dataset.column) || 0,
+          left: b.left,
+          right: b.right
+        }));
+        const moduleCards = node.dataset.module ? inSection.filter((b) => b.node.dataset.module === node.dataset.module) : [];
+        const againstModule = home || labelHeight === null && moduleCards.length > 0;
         const foreign = frameBoxes.filter(
           (f) => f.kind === "module" ? f.cluster !== cluster : f.group !== group
         );
@@ -1544,10 +1598,10 @@
           const a = opener.site.getBoundingClientRect();
           const anchored = a.width > 0 || a.height > 0;
           const line = anchored ? (a.top + a.height / 2 - s.top) / scale - measured.get(opener.node).top : PORT_Y;
-          x = box2.right + GAP_X;
+          x = snapToColumn(box2.right + GAP_X, column, standing);
           y = box2.top + Math.min(Math.max(line, 0), box2.bottom - box2.top) - PORT_Y;
         } else if (nearBox) {
-          x = nearBox.right + GAP_X;
+          x = snapToColumn(nearBox.right + GAP_X, column, standing);
           y = nearBox.top;
         } else if (calls) {
           const box2 = boxes.get(document.getElementById(`node-${calls.to}`));
@@ -1602,34 +1656,21 @@
         };
         const ideal = { left: x, top: y, right: x + m.width, bottom: y + m.height, node };
         let box;
-        if (home && (opener || calls || nearBox)) {
-          const band = Math.max(home.top, Math.min(ideal.top, home.bottom - m.height));
-          const spots = [];
-          for (const at of [
-            { x: home.right + GAP_X, y: band },
-            { x: home.left + MODULE_PAD, y: home.bottom - MODULE_PAD + GAP_Y },
-            { x: home.left + MODULE_PAD, y: home.top + moduleHead - GAP_Y - m.height },
-            { x: home.left - GAP_X - m.width, y: band }
-          ]) {
-            const from = {
-              left: at.x,
-              top: at.y,
-              right: at.x + m.width,
-              bottom: at.y + m.height,
-              node
-            };
-            spots.push([from, "down"], [from, "up"]);
-          }
-          let nearest = Infinity;
-          for (const [from, direction] of spots) {
-            const settled = sweep(from, direction);
-            const away = Math.hypot(settled.left - ideal.left, settled.top - ideal.top);
-            if (away < nearest) {
-              nearest = away;
-              box = settled;
-            }
-            if (nearest === 0) break;
-          }
+        if (againstModule && (opener || calls || nearBox)) {
+          box = spotBesideModule({
+            frame: home || null,
+            cards: moduleCards,
+            width: m.width,
+            height: m.height,
+            ideal,
+            column,
+            placed: standing,
+            gapX: GAP_X,
+            gapY: GAP_Y,
+            pad: home ? MODULE_PAD : 0,
+            head: home ? moduleHead : 0,
+            sweep
+          });
         } else if (opener || nearBox) {
           const over = m.width + GAP_X;
           const next = { ...ideal, left: ideal.left + over, right: ideal.right + over };

@@ -65,6 +65,9 @@
 // 7. Frames apart. Cards move down until no module's frame meets a card or the frame of another
 //    module, which a module whose block in one column runs lower than its block in the column
 //    before would otherwise reach over.
+//
+// `snapToColumn` and `spotBesideModule` are the other half: the rules a card opened later is
+// placed by, against the cards already standing, which `arrange` never moves.
 
 const SAME_MODULE_WEIGHT = 3
 const SWEEPS = ["right", "left", "right", "left"]
@@ -437,4 +440,79 @@ function gatherModules(column) {
     }
   }
   return blocks.flat()
+}
+
+// The x a card opened from another stands at: one gap right of its opener, as `x` says, or the
+// left edge of the leftmost card of its section already standing in its column where that is
+// further right, so a card joins the column its layer puts it in rather than standing against
+// whatever opened it. `placed` is the section's standing cards as `{column, left}`.
+export function snapToColumn(x, column, placed) {
+  const lefts = placed.filter((p) => p.column === column).map((p) => p.left)
+  return lefts.length === 0 ? x : Math.max(x, Math.min(...lefts))
+}
+
+// Where a card whose module already stands in its section goes: against that module's cluster,
+// whatever its call says. The cluster is `frame`, the module frame the reader sees, or with the
+// clusters undrawn the box round the module's standing `cards`; `pad` and `head` are the room
+// the frame leaves round its cards below and above, 0 for a box round the cards themselves.
+//
+// There are four spots round the cluster: to its right and to its left, level with `ideal` but
+// kept within the cluster's band so the card stands against it rather than off a corner; and
+// below and above it, in the column its leftmost card starts, one `gapY` from the cards inside,
+// which is what one card of a module owes another. Each is handed to `sweep` going down and
+// going up — the hook's move clear of what stands in the way, answering the box it settles at —
+// and the spots are judged where they settle.
+//
+// A spot whose left edge falls within the span of the section's standing cards of the card's
+// own `column`, or of the column after it, wins over the rest, so the card stays in the column
+// its layer puts it in; `placed` is those cards as `{column, left, right}`. Among the spots that
+// win, or among all of them where none is in either column, the nearest `ideal` takes it, the
+// earlier in the order above on a tie.
+//
+// The answer is the settled box `{left, top, right, bottom}`.
+export function spotBesideModule(input) {
+  const {frame, cards, width, height, ideal, column, placed, gapX, gapY} = input
+  const pad = input.pad ?? 0
+  const head = input.head ?? 0
+  const sweep = input.sweep ?? ((box) => box)
+  const home = frame ?? boundingBox(cards)
+
+  const band = Math.max(home.top, Math.min(ideal.top, home.bottom - height))
+  const settled = []
+  for (const at of [
+    {x: home.right + gapX, y: band},
+    {x: home.left + pad, y: home.bottom - pad + gapY},
+    {x: home.left + pad, y: home.top + head - gapY - height},
+    {x: home.left - gapX - width, y: band},
+  ]) {
+    const from = {left: at.x, top: at.y, right: at.x + width, bottom: at.y + height}
+    settled.push(sweep(from, "down"), sweep(from, "up"))
+  }
+
+  const spans = [column, column + 1].map((c) => boundingBox(placed.filter((p) => p.column === c)))
+  const inColumn = (box) => spans.some((s) => s && box.left >= s.left && box.left <= s.right)
+  const preferred = settled.filter(inColumn)
+  const candidates = preferred.length > 0 ? preferred : settled
+
+  let best = null
+  let nearest = Infinity
+  for (const box of candidates) {
+    const away = Math.hypot(box.left - ideal.left, box.top - ideal.top)
+    if (away < nearest) {
+      nearest = away
+      best = box
+    }
+  }
+  return best
+}
+
+// The box round `boxes`, or null round none.
+function boundingBox(boxes) {
+  if (boxes.length === 0) return null
+  return {
+    left: Math.min(...boxes.map((b) => b.left)),
+    top: Math.min(...boxes.map((b) => b.top)),
+    right: Math.max(...boxes.map((b) => b.right)),
+    bottom: Math.max(...boxes.map((b) => b.bottom)),
+  }
 }

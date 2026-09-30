@@ -2,7 +2,7 @@
 // lines given as the hook would measure them.
 import {test} from "node:test"
 import assert from "node:assert/strict"
-import {arrange} from "./layout.js"
+import {arrange, snapToColumn, spotBesideModule} from "./layout.js"
 
 const card = (id, column, extra = {}) => ({
   id,
@@ -465,4 +465,126 @@ test("frames that do not settle within the rounds allowed are stacked one below 
 
   assertModulesApart(input, at)
   for (const {x, y} of Object.values(at)) assert.ok(Number.isInteger(x) && Number.isInteger(y))
+})
+
+// The rules a card opened later is placed by, against the cards already standing in its
+// section.
+
+test("an opened card takes the left edge of its column where that is further right", () => {
+  const placed = [
+    {column: 1, left: 400, right: 500},
+    {column: 1, left: 300, right: 420},
+    {column: 2, left: 700, right: 800},
+  ]
+  assert.equal(snapToColumn(148, 1, placed), 300)
+})
+
+test("an opened card stays a gap right of its opener where its column starts further left", () => {
+  assert.equal(snapToColumn(548, 1, [{column: 1, left: 300, right: 420}]), 548)
+})
+
+test("an opened card whose column has nothing standing keeps its x", () => {
+  assert.equal(snapToColumn(148, 3, [{column: 1, left: 300, right: 420}]), 148)
+})
+
+const spotInput = (extra) => ({
+  frame: {left: 200, top: 100, right: 400, bottom: 300},
+  cards: [],
+  width: 100,
+  height: 50,
+  gapX: 40,
+  gapY: 10,
+  pad: 12,
+  head: 30,
+  placed: [],
+  ...extra,
+})
+
+const at = (box) => ({x: box.left, y: box.top})
+
+test("with its columns empty an opened card takes the spot by its module nearest its call", () => {
+  // The four spots: right (440, band), below (212, 298), above (212, 70), left (60, band).
+  const right = spotBesideModule(spotInput({column: 2, ideal: {left: 450, top: 150}}))
+  assert.deepEqual(at(right), {x: 440, y: 150})
+  const left = spotBesideModule(spotInput({column: 2, ideal: {left: 40, top: 150}}))
+  assert.deepEqual(at(left), {x: 60, y: 150})
+})
+
+test("an opened card takes a spot in its own column over a nearer one outside it", () => {
+  // The right spot is nearer the call, but the card's column is the one the module stands in.
+  const box = spotBesideModule(
+    spotInput({
+      column: 2,
+      ideal: {left: 440, top: 250},
+      placed: [{column: 2, left: 212, right: 388}],
+    }),
+  )
+  assert.deepEqual(at(box), {x: 212, y: 298})
+})
+
+test("an opened card takes a spot in the next column over a nearer one outside it", () => {
+  // The left spot is nearer the call, but only the right one falls in the column after its own.
+  const box = spotBesideModule(
+    spotInput({
+      column: 2,
+      ideal: {left: 60, top: 150},
+      placed: [
+        {column: 1, left: 0, right: 30},
+        {column: 3, left: 430, right: 560},
+      ],
+    }),
+  )
+  assert.deepEqual(at(box), {x: 440, y: 150})
+})
+
+test("among the spots in its column or the next an opened card takes the nearest its call", () => {
+  // Below and above both start in the card's own column; the call is nearer the top.
+  const box = spotBesideModule(
+    spotInput({
+      column: 2,
+      ideal: {left: 440, top: 60},
+      placed: [{column: 2, left: 212, right: 388}],
+    }),
+  )
+  assert.deepEqual(at(box), {x: 212, y: 70})
+})
+
+test("with the clusters undrawn an opened card stands against its module's cards", () => {
+  // No frame: the cluster is the box round the module's cards, with no pad and no head.
+  const box = spotBesideModule(
+    spotInput({
+      frame: null,
+      cards: [
+        {left: 200, top: 100, right: 300, bottom: 150},
+        {left: 220, top: 160, right: 320, bottom: 240},
+      ],
+      pad: 0,
+      head: 0,
+      column: 2,
+      ideal: {left: 500, top: 150},
+      placed: [{column: 2, left: 200, right: 320}],
+    }),
+  )
+  assert.deepEqual(at(box), {x: 200, y: 250})
+})
+
+test("an opened card is judged where the sweep leaves each spot", () => {
+  // Something stands on the spot below: going down it the card lands far from its call, and
+  // going up it the card lands just short of where it started, which is nearer than the spot
+  // above.
+  const sweep = (box, direction) =>
+    box.top === 298 && direction === "down"
+      ? {...box, top: 900, bottom: 950}
+      : box.top === 298
+        ? {...box, top: 290, bottom: 340}
+        : box
+  const box = spotBesideModule(
+    spotInput({
+      column: 2,
+      ideal: {left: 212, top: 298},
+      placed: [{column: 2, left: 212, right: 388}],
+      sweep,
+    }),
+  )
+  assert.deepEqual(at(box), {x: 212, y: 290})
 })

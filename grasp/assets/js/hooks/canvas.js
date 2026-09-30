@@ -58,7 +58,7 @@
 // and Shift+click picks cards out into the selection ⌘G frames: the two halves of grouping by
 // hand.
 
-import {arrange} from "../layout.js"
+import {arrange, snapToColumn, spotBesideModule} from "../layout.js"
 
 const MIN_SCALE = 0.05
 const MAX_SCALE = 2.5
@@ -1552,6 +1552,20 @@ const Canvas = {
           ? `${group || ""}|${node.dataset.module}`
           : null
       const home = cluster === null ? null : frameBoxes.find((f) => f.cluster === cluster)
+      // The section's standing cards by the column each is rendered in, which is what a card
+      // opened into the section is lined up against, and the cards of its own module among
+      // them, which with the clusters undrawn stand in for the frame round them.
+      const column = Number(node.dataset.column) || 0
+      const inSection = occupied.filter((b) => b.node.dataset.group === group)
+      const standing = inSection.map((b) => ({
+        column: Number(b.node.dataset.column) || 0,
+        left: b.left,
+        right: b.right,
+      }))
+      const moduleCards = node.dataset.module
+        ? inSection.filter((b) => b.node.dataset.module === node.dataset.module)
+        : []
+      const againstModule = home || (labelHeight === null && moduleCards.length > 0)
       // The frames a card is placed clear of: the sections that are not its own, and the
       // clusters that are not its own wherever they stand, since a cluster of the groupless
       // section has no flow frame round it to stand in for it. Its own section's frame and its
@@ -1599,16 +1613,22 @@ const Canvas = {
         // the edge the hook draws leaves that line and arrives at the callee's port, so the
         // two meet without a bend. A call site the browser gives no box — scrolled away, or
         // inside a fold — leaves the card at its own port height.
+        //
+        // Where cards of the callee's column already stand further right than that, the callee
+        // starts at the left edge of the leftmost of them instead, so a core card opened from an
+        // interface joins the core cards already down rather than standing against the
+        // interface; the sweep below moves it clear of what stands in that column. A card
+        // opened from a card it names is lined up the same way.
         const box = boxes.get(opener.node)
         const a = opener.site.getBoundingClientRect()
         const anchored = a.width > 0 || a.height > 0
         const line = anchored
           ? (a.top + a.height / 2 - s.top) / scale - measured.get(opener.node).top
           : PORT_Y
-        x = box.right + GAP_X
+        x = snapToColumn(box.right + GAP_X, column, standing)
         y = box.top + Math.min(Math.max(line, 0), box.bottom - box.top) - PORT_Y
       } else if (nearBox) {
-        x = nearBox.right + GAP_X
+        x = snapToColumn(nearBox.right + GAP_X, column, standing)
         y = nearBox.top
       } else if (calls) {
         // A card opened from its callee is the caller, and a caller reads to the left of what
@@ -1695,16 +1715,20 @@ const Canvas = {
       // both taken — grows round its neighbour when a card of it lands past that neighbour.
       //
       // A callee or caller whose module already stands in the section is swept from four spots
-      // against that cluster's frame instead of from the ideal box — to its right, below it,
-      // above it and to its left — because the cards of one module read as one block and a card
-      // of that module belongs in the block rather than beside the call. The ideal spot still
-      // decides among the four: it is the only thing that says where the call the card was
-      // opened from stands, so of the four ways round the cluster the card takes the one that
-      // leaves it nearest its call. Below and above the frame the card owes the cards inside it
-      // one GAP_Y and nothing more, because it is joining that frame rather than clearing it.
-      // A card whose module has nothing down yet is placed by the ordinary rule, and so is a
-      // root opened from no card. A root opened from a card it names stands against that card's
-      // cluster the way a callee does, the ideal spot being the one beside that card.
+      // against that module instead of from the ideal box — to its right, below it, above it
+      // and to its left — because the cards of one module read as one block and a card of that
+      // module belongs in the block rather than beside the call: the edge bends, the card stays
+      // with its module. The module is its cluster's frame while the clusters are drawn and the
+      // box round its cards while they are not. A spot in the card's own column or the next wins
+      // over the others, so the card keeps to the column its layer puts it in; among those, or
+      // among all four where none of them falls in either column, the ideal spot decides — it
+      // is the only thing that says where the call the card was opened from stands, so the card
+      // takes the spot that leaves it nearest its call. Below and above the module the card owes
+      // the cards inside one GAP_Y and nothing more, because it is joining them rather than
+      // clearing them. `spotBesideModule` in `layout.js` makes the choice, with the sweep here
+      // to settle each spot. A card whose module has nothing down yet is placed by the ordinary
+      // rule, and so is a root opened from no card. A root opened from a card it names stands
+      // against its module the way a callee does, the ideal spot being the one beside that card.
       const obstacles = occupied.concat(foreign)
       const sweep = (start, direction) => {
         const swept = {...start}
@@ -1727,40 +1751,21 @@ const Canvas = {
       }
       const ideal = {left: x, top: y, right: x + m.width, bottom: y + m.height, node}
       let box
-      if (home && (opener || calls || nearBox)) {
-        // Beside the cluster the card keeps the line of its call, clamped into the frame's own
-        // band so that it stands against the cluster rather than off one of its corners. Below
-        // and above, the card is joining the frame rather than clearing it, so it owes the
-        // cards inside one gap and no more: it takes the column the leftmost of them starts,
-        // one GAP_Y under the lowest or over the highest, which is what one card of a cluster
-        // owes another.
-        const band = Math.max(home.top, Math.min(ideal.top, home.bottom - m.height))
-        const spots = []
-        for (const at of [
-          {x: home.right + GAP_X, y: band},
-          {x: home.left + MODULE_PAD, y: home.bottom - MODULE_PAD + GAP_Y},
-          {x: home.left + MODULE_PAD, y: home.top + moduleHead - GAP_Y - m.height},
-          {x: home.left - GAP_X - m.width, y: band},
-        ]) {
-          const from = {
-            left: at.x,
-            top: at.y,
-            right: at.x + m.width,
-            bottom: at.y + m.height,
-            node,
-          }
-          spots.push([from, "down"], [from, "up"])
-        }
-        let nearest = Infinity
-        for (const [from, direction] of spots) {
-          const settled = sweep(from, direction)
-          const away = Math.hypot(settled.left - ideal.left, settled.top - ideal.top)
-          if (away < nearest) {
-            nearest = away
-            box = settled
-          }
-          if (nearest === 0) break
-        }
+      if (againstModule && (opener || calls || nearBox)) {
+        box = spotBesideModule({
+          frame: home || null,
+          cards: moduleCards,
+          width: m.width,
+          height: m.height,
+          ideal,
+          column,
+          placed: standing,
+          gapX: GAP_X,
+          gapY: GAP_Y,
+          pad: home ? MODULE_PAD : 0,
+          head: home ? moduleHead : 0,
+          sweep,
+        })
       } else if (opener || nearBox) {
         const over = m.width + GAP_X
         const next = {...ideal, left: ideal.left + over, right: ideal.right + over}
