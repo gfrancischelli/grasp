@@ -39,6 +39,10 @@ defmodule Grasp.Session.Forest do
   its callers in the column immediately left, so an edge crosses as little as possible. A
   card whose callers all sit further left has no mean and sorts last, by id.
 
+  `columns_of/2` is the column each card is given on the canvas: the same callers-left rule,
+  floored by the card's architectural layer (`Grasp.Layers`), so the markup, the interfaces,
+  the core and the modules the core is built from each start a band of columns of their own.
+
   ## Groups
 
   A card belongs to at most one group, and a group is laid out on its own: `sections/1`
@@ -555,6 +559,27 @@ defmodule Grasp.Session.Forest do
       |> Enum.reduce(columns, fn {ids, index}, columns ->
         Enum.reduce(ids, columns, &Map.put(&2, &1, index))
       end)
+    end)
+  end
+
+  @doc """
+  Every visible card's column within its own section, floored by its layer: `layer_of` answers
+  the `t:Grasp.Layers.layer/0` of a card's function id.
+
+  Inside a section the edges between its cards are taken in the order they were opened, and an
+  edge that closes a cycle is left out. The layers are laid out in `Grasp.Layers.rank/1` order:
+  a layer's floor is one past the last column any card of an earlier layer takes, and 0 for
+  the first layer present, so a layer with no card in the section takes no column. A card
+  stands at the larger of its floor and one past the furthest-right caller of its own layer or
+  an earlier one; a caller of a later layer is laid out after it and moves it no further. A
+  card with no such caller in its section is a source and stands at its floor.
+  """
+  @spec columns_of(t(), (String.t() -> Grasp.Layers.layer())) :: %{id() => non_neg_integer()}
+  def columns_of(%__MODULE__{} = forest, layer_of) when is_function(layer_of, 1) do
+    forest
+    |> sections()
+    |> Enum.reduce(%{}, fn section, columns ->
+      Map.merge(columns, layered_columns(forest, List.flatten(section.columns), layer_of))
     end)
   end
 
@@ -1190,6 +1215,68 @@ defmodule Grasp.Session.Forest do
     |> Enum.sort()
     |> Enum.reduce([], &order(forest, columns, &1, &2))
     |> Enum.reverse()
+  end
+
+  defp layered_columns(forest, ids, layer_of) do
+    members = MapSet.new(ids)
+    rank = Map.new(ids, &{&1, Grasp.Layers.rank(layer_of.(card(forest, &1).function_id))})
+
+    # An edge is kept only when its callee cannot already reach its caller, so the edges kept
+    # are acyclic and the ones left out are each the call that closed a cycle.
+    callers =
+      forest.edges
+      |> Enum.filter(&(MapSet.member?(members, &1.from) and MapSet.member?(members, &1.to)))
+      |> Enum.reduce(%{}, fn %{from: from, to: to}, callers ->
+        if from == to or reaches?(callers, from, to),
+          do: callers,
+          else: Map.update(callers, to, [from], &[from | &1])
+      end)
+
+    ids
+    |> Enum.group_by(&rank[&1])
+    |> Enum.sort()
+    |> Enum.reduce(%{}, fn {layer_rank, layer_ids}, columns ->
+      floor = if columns == %{}, do: 0, else: Enum.max(Map.values(columns)) + 1
+
+      Enum.reduce(layer_ids, columns, fn id, columns ->
+        elem(layered_column(id, callers, rank, layer_rank, floor, columns), 1)
+      end)
+    end)
+  end
+
+  # Whether `to` already reaches `from` through the kept edges, found by walking the callers
+  # back from `from`.
+  defp reaches?(callers, from, to), do: reaches?(callers, [from], to, MapSet.new())
+
+  defp reaches?(_callers, [], _to, _seen), do: false
+
+  defp reaches?(callers, [id | rest], to, seen) do
+    cond do
+      id == to -> true
+      MapSet.member?(seen, id) -> reaches?(callers, rest, to, seen)
+      true -> reaches?(callers, Map.get(callers, id, []) ++ rest, to, MapSet.put(seen, id))
+    end
+  end
+
+  defp layered_column(id, callers, rank, layer_rank, floor, columns) do
+    case Map.fetch(columns, id) do
+      {:ok, column} ->
+        {column, columns}
+
+      :error ->
+        {column, columns} =
+          callers
+          |> Map.get(id, [])
+          |> Enum.filter(&(rank[&1] <= layer_rank))
+          |> Enum.reduce({floor, columns}, fn caller, {column, columns} ->
+            {caller_column, columns} =
+              layered_column(caller, callers, rank, layer_rank, floor, columns)
+
+            {max(column, caller_column + 1), columns}
+          end)
+
+        {column, Map.put(columns, id, column)}
+    end
   end
 
   # There is no untitled group to find: a title is what `group_cards/3` addresses a group by,

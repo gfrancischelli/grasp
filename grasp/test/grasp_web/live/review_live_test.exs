@@ -245,6 +245,29 @@ defmodule GraspWeb.ReviewLiveTest do
     refute has_element?(view, "#card-4")
   end
 
+  test "a node carries its card's layer and its layer-floored column beside its depth", %{
+    view: view,
+    name: name
+  } do
+    Session.open_root(name, @show)
+
+    assert has_element?(view, "#node-1[data-layer='interfaces'][data-column='0'][data-depth='0']")
+
+    view |> element("#card-1 span.call[data-target='#{@greet_alias}']") |> render_click()
+
+    assert has_element?(view, "#node-2[data-layer='core'][data-column='1'][data-depth='1']")
+
+    view |> element("#card-1 span.call[data-target='#{@show_template}']") |> render_click()
+
+    assert has_element?(view, "#node-3[data-layer='html'][data-column='0'][data-depth='1']")
+    assert has_element?(view, "#node-1[data-layer='interfaces'][data-column='1'][data-depth='0']")
+    assert has_element?(view, "#node-2[data-layer='core'][data-column='2'][data-depth='1']")
+
+    view |> element("#card-2 span.call[data-target='#{@wrap}']") |> render_click()
+
+    assert has_element?(view, "#node-4[data-layer='core'][data-column='3']")
+  end
+
   test "a call the graph has not opened carries neither a colour nor a destination", %{
     view: view,
     name: name

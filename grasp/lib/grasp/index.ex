@@ -13,11 +13,13 @@ defmodule Grasp.Index do
 
   Module records are keyed by name at load, beside the document's own list of them, and
   each module's moduledoc summary is read once there, so a card or a sidebar row asking for
-  one never parses the text again. `fetch_record/2` answers a function id or a module name,
-  which is what a card's id is. Every module record answers `"id"` with its name and `"kind"`
-  with `"module"`, and `"doc"` with `nil` and `"behaviours"` with `[]` where the document
-  leaves them out, so an entry holding only a name, a file and a line reads as the record of
-  a module without a moduledoc; an entry with no name is left out.
+  one never parses the text again. Every record's layer (`Grasp.Layers`) is read there too,
+  so a render asks `layer/2` for it rather than classifying the record again.
+  `fetch_record/2` answers a function id or a module name, which is what a card's id is.
+  Every module record answers `"id"` with its name and `"kind"` with `"module"`, and `"doc"`
+  with `nil` and `"behaviours"` with `[]` where the document leaves them out, so an entry
+  holding only a name, a file and a line reads as the record of a module without a
+  moduledoc; an entry with no name is left out.
 
   Every index built carries a `generation` no other index built in the VM carries, so a
   holder of answers taken against one can tell whether it still has that index without
@@ -44,6 +46,7 @@ defmodule Grasp.Index do
             modules: [],
             modules_by_name: %{},
             moduledoc_summaries: %{},
+            layers: %{},
             changed_modules: [],
             entry_points: [],
             functions: %{},
@@ -67,6 +70,7 @@ defmodule Grasp.Index do
           modules: [map()],
           modules_by_name: %{String.t() => module_record()},
           moduledoc_summaries: %{String.t() => String.t()},
+          layers: %{String.t() => Grasp.Layers.layer()},
           changed_modules: [module_record()],
           entry_points: [map()],
           functions: %{String.t() => function_record()},
@@ -194,7 +198,12 @@ defmodule Grasp.Index do
       |> Enum.filter(&(&1["kind"] == "test" and &1["removed"] != true))
       |> Enum.group_by(& &1["module"], & &1["id"])
 
-    index = %{index | tests: test_modules(index), tests_by_module: tests_by_module}
+    index = %{
+      index
+      | tests: test_modules(index),
+        tests_by_module: tests_by_module,
+        layers: Grasp.Layers.layers(index)
+    }
 
     # The branch's changes are known once the records are, and they are few beside the
     # codebase: walking back from each once here answers every render of the review.
@@ -369,6 +378,15 @@ defmodule Grasp.Index do
   """
   @spec moduledoc_summary(t(), String.t()) :: String.t() | nil
   def moduledoc_summary(%__MODULE__{} = index, name), do: Map.get(index.moduledoc_summaries, name)
+
+  @doc """
+  The layer `Grasp.Layers.layer/2` gives the record a card's id names: a function, test or
+  setup by its id, following default-argument arities to the definition, or a module by its
+  name. An id the index does not hold is `:external`. The layers are read once, when the
+  index is built from its document.
+  """
+  @spec layer(t(), String.t()) :: Grasp.Layers.layer()
+  def layer(%__MODULE__{} = index, id), do: Map.get(index.layers, resolve(index, id), :external)
 
   defp summaries(modules_by_name) do
     for {name, %{"doc" => %{"text" => text}}} <- modules_by_name,
