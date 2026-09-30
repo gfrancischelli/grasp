@@ -487,7 +487,8 @@
       this.coverage = false;
       this.modules = true;
       document.body.classList.toggle("grasp-modules", this.modules);
-      this.testEdges = true;
+      this.testEdges = false;
+      document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges);
       this.frames = [];
       this.lastReveal = null;
       this.extent = { width: 0, height: 0 };
@@ -2488,12 +2489,26 @@
   };
   var runs_default = Runs;
 
+  // js/focus.js
+  var RELEASED = "button, summary, [role='button']";
+  function releasePointerFocus(event, doc = document) {
+    if (!event || event.detail === 0) return false;
+    const control = event.target?.closest?.(RELEASED);
+    if (!control || doc.activeElement !== control) return false;
+    control.blur();
+    return true;
+  }
+  function installPointerFocusRelease(doc = document) {
+    doc.addEventListener("click", (event) => releasePointerFocus(event, doc));
+  }
+
   // js/app.js
   var { Socket } = window.Phoenix;
   var { LiveSocket } = window.LiveView;
   var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
   var socketPath = document.documentElement.getAttribute("phx-socket") || "/live";
   var liveSocket = new LiveSocket(socketPath, Socket, { params: { _csrf_token: csrfToken }, hooks: { Palette: palette_default, Keys: keys_default, Canvas: canvas_default, Chat: chat_default, Composer: composer_default, Gutter: gutter_default, Help: help_default, Runs: runs_default } });
+  installPointerFocusRelease();
   liveSocket.connect();
   window.liveSocket = liveSocket;
 })();

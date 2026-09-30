@@ -160,7 +160,7 @@ its shortcut when you hover or tab to it.
 - **modules** (`m`) — frame the cards of each module inside their flow, under the module's
   name. See [Reviewing](reviewing.md).
 - **test arrows** (`t`) — show or hide the arrows leaving tests, setups and test helpers,
-  which cross the canvas to every function a test exercises.
+  which cross the canvas to every function a test exercises. They start hidden.
 - **arrange** — lay every card out again, in columns by layer: markup, interfaces, core and
   the modules the core is built from, left to right. See [Reviewing](reviewing.md).
 - **ask** (⌘I) — open the chat panel. See [The agent](agent.md).

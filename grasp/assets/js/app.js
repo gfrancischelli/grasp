@@ -10,6 +10,7 @@ import Composer from "./hooks/composer"
 import Gutter from "./hooks/gutter"
 import Help from "./hooks/help"
 import Runs from "./hooks/runs"
+import {installPointerFocusRelease} from "./focus"
 
 const {Socket} = window.Phoenix
 const {LiveSocket} = window.LiveView
@@ -20,5 +21,6 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const socketPath = document.documentElement.getAttribute("phx-socket") || "/live"
 const liveSocket = new LiveSocket(socketPath, Socket, {params: {_csrf_token: csrfToken}, hooks: {Palette, Keys, Canvas, Chat, Composer, Gutter, Help, Runs}})
 
+installPointerFocusRelease()
 liveSocket.connect()
 window.liveSocket = liveSocket
