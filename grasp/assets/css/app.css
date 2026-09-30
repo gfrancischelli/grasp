@@ -50,7 +50,7 @@
   --frame-title-size: 18px;
   /* A module's name over its cluster, held the same way and smaller than a frame's: the frame
      it sits inside is the larger division of the two. */
-  --module-title-size: 11px;
+  --module-title-size: 14px;
   --code-leading: 1.45;
   --mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
   --sans: system-ui, sans-serif;
@@ -171,8 +171,8 @@ body.grasp-dragging, body.grasp-dragging .canvas, body.grasp-dragging .card, bod
    is dragged by, so it takes the pointer back from the layer, which lets every other one
    through; it is counter-scaled by --zoom like a flow's title, and stays on one line, the
    layer it sits in having no width of its own to wrap a module name against. */
-.frame--module { border-color: color-mix(in srgb, var(--border) 50%, transparent); background: none; }
-.module__title { position: absolute; pointer-events: auto; cursor: grab; font-family: var(--sans); font-size: calc(var(--module-title-size) / var(--zoom, 1)); line-height: 1.2; color: var(--fg-muted); white-space: nowrap; }
+.frame--module { border-color: color-mix(in srgb, var(--fg-muted) 45%, transparent); background: none; }
+.module__title { position: absolute; pointer-events: auto; cursor: grab; font-family: var(--sans); font-size: calc(var(--module-title-size) / var(--zoom, 1)); line-height: 1.2; font-weight: 600; color: var(--fg); white-space: nowrap; }
 /* A frame's toggle for the arrows crossing its border: quiet beside the title, and struck
    through while the frame is closed to them. */
 .frame__arrows { margin-inline-start: 0.4em; padding: 0 0.3em; border: 0; background: none; font: inherit; color: var(--fg-muted); cursor: pointer; }
