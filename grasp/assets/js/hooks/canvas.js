@@ -1450,11 +1450,14 @@ const Canvas = {
     const labelHeight = this.modules ? this.moduleLabelPx() : null
     const moduleHead =
       labelHeight === null ? 0 : frameHead(labelHeight, MODULE_TITLE_GAP, MODULE_PAD)
-    // A pass that finds no card standing anywhere — nothing rendered at a position and nothing
-    // on the wire — is the one after `reset_layout`, or the first of a canvas nobody has laid
-    // out: the whole canvas is arranged at once, in columns, rather than card by card.
-    if (unplaced.length === nodes.length) {
-      this.arrangeCanvas(unplaced, measured, sites, headerHeightFor, labelHeight, moduleHead)
+    // A pass that finds no card rendered at a position is the one after `reset_layout`, or the
+    // first of a canvas nobody has laid out: the whole canvas is arranged at once, in columns,
+    // rather than card by card. The cards still waiting on an answer are arranged with the rest,
+    // since a card the server refused stays waiting for good and would otherwise keep every
+    // later reset from arranging; and a pass in which every card is waiting has returned above,
+    // so the answer to one arrange is not met by another.
+    if (waiting.length === nodes.length) {
+      this.arrangeCanvas(waiting, measured, sites, headerHeightFor, labelHeight, moduleHead)
       return
     }
     const framesOf = (placed) => {

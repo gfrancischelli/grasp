@@ -136,6 +136,8 @@ test("different modules in a column leave room for their frames, one module does
     {moduleHead: 20, modulePad: 6},
   )
 
+  // While the clusters are drawn a column leaves room for the frames on either side of the gap.
+  assert.equal(at.s1.x, 100 + 40 + 2 * 6)
   assert.equal(at.s1.y, 20)
   assert.equal(at.s2.y, at.s1.y + 50 + 10)
   assert.equal(at.t.y, at.s2.y + 50 + 6 + 10 + 20)
@@ -274,4 +276,158 @@ test("every coordinate is an integer", () => {
     assert.ok(Number.isInteger(y), `y ${y} is not an integer`)
   }
   assert.ok(at.c.y >= at.b.y + 20.7 + 9.9)
+})
+
+// Every rectangle the canvas draws for an arranged section: the frame round each module's
+// cards, as the hook draws it, and every card. A module frame holds no card of another module
+// and meets no other module's frame, and no two cards overlap.
+const assertModulesApart = (input, at) => {
+  const head = input.moduleHead ?? 0
+  const pad = input.modulePad ?? 0
+  for (const {cards} of input.sections) {
+    const box = (c) => ({
+      left: at[c.id].x,
+      top: at[c.id].y,
+      right: at[c.id].x + c.width,
+      bottom: at[c.id].y + c.height,
+    })
+    const hit = (a, b) =>
+      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+    const frames = new Map()
+    for (const c of cards) {
+      if (!c.module) continue
+      const b = box(c)
+      const f = frames.get(c.module) || {
+        left: Infinity,
+        top: Infinity,
+        right: -Infinity,
+        bottom: -Infinity,
+      }
+      frames.set(c.module, {
+        left: Math.min(f.left, b.left - pad),
+        top: Math.min(f.top, b.top - head),
+        right: Math.max(f.right, b.right + pad),
+        bottom: Math.max(f.bottom, b.bottom + pad),
+      })
+    }
+    for (const [module, frame] of frames) {
+      for (const c of cards) {
+        if (c.module === module) continue
+        assert.ok(!hit(frame, box(c)), `card ${c.id} stands inside the frame of ${module}`)
+      }
+      for (const [other, f] of frames) {
+        if (other <= module) continue
+        assert.ok(!hit(frame, f), `the frames of ${module} and ${other} meet`)
+      }
+    }
+    for (const [i, a] of cards.entries()) {
+      for (const b of cards.slice(i + 1)) {
+        assert.ok(!hit(box(a), box(b)), `cards ${a.id} and ${b.id} overlap`)
+      }
+    }
+  }
+}
+
+const framed = (sections) => ({
+  sections,
+  gapX: 48,
+  gapY: 16,
+  sectionGap: 16,
+  moduleHead: 40,
+  modulePad: 12,
+  port: 18,
+})
+
+const tall = (id, column, module, height = 100) => ({id, column, module, width: 200, height})
+
+test("a module that grows down in the next column keeps another module out of its frame", () => {
+  const input = framed([
+    section(
+      [
+        tall("ctl", 0, "Web.Ctl", 300),
+        tall("reg", 1, "Accounts"),
+        tall("mail", 1, "Mailer"),
+        tall("h1", 2, "Accounts"),
+        tall("h2", 2, "Accounts"),
+        tall("h3", 2, "Accounts"),
+      ],
+      [
+        {from: "ctl", to: "reg", line: 40},
+        {from: "ctl", to: "mail", line: 200},
+        {from: "reg", to: "h1", line: 20},
+        {from: "reg", to: "h2", line: 50},
+        {from: "reg", to: "h3", line: 80},
+      ],
+      {head: 60, pad: 28},
+    ),
+  ])
+  const at = arrange(input)
+
+  assertModulesApart(input, at)
+  // What is not in the way keeps its call line.
+  assert.equal(at.reg.y, at.ctl.y + 40 - 18)
+})
+
+test("the cards of one module are one component, so one frame spans nothing else", () => {
+  const input = framed([
+    section(
+      [
+        tall("a", 0, "A"),
+        tall("ra", 1, "Repo"),
+        tall("x", 1, "X"),
+        tall("b", 0, "B"),
+        tall("rb", 1, "Repo"),
+      ],
+      [
+        {from: "a", to: "ra", line: 10},
+        {from: "a", to: "x", line: 60},
+        {from: "b", to: "rb", line: 10},
+      ],
+      {head: 60, pad: 28},
+    ),
+  ])
+  const at = arrange(input)
+
+  assertModulesApart(input, at)
+  assert.deepEqual(columnOrder(at, ["ra", "rb", "x"]), ["ra", "rb", "x"])
+})
+
+test("no module frame holds another module's card on any of a seeded batch of canvases", () => {
+  // A linear congruential generator, so the batch is the same on every run.
+  let seed = 20260930
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    return seed / 2147483648
+  }
+  const pick = (n) => Math.floor(random() * n)
+  const modules = ["A", "B", "C", "D", ""]
+
+  for (let round = 0; round < 300; round++) {
+    const sections = []
+    for (let s = 0; s <= pick(2); s++) {
+      const count = 2 + pick(11)
+      const cards = []
+      for (let i = 0; i < count; i++) {
+        cards.push({
+          id: `s${s}c${i}`,
+          column: pick(4),
+          module: modules[pick(modules.length)],
+          width: 120 + pick(200),
+          height: 40 + pick(260),
+        })
+      }
+      const edges = []
+      for (let e = 0; e < count + pick(count); e++) {
+        const a = cards[pick(count)]
+        const b = cards[pick(count)]
+        if (a === b) continue
+        edges.push({from: a.id, to: b.id, line: random() < 0.2 ? null : pick(a.height)})
+      }
+      sections.push({group: String(s + 1), head: 60, pad: 28, cards, edges})
+    }
+    const input = framed(sections)
+    const at = arrange(input)
+    for (const {x, y} of Object.values(at)) assert.ok(Number.isInteger(x) && Number.isInteger(y))
+    assertModulesApart(input, at)
+  }
 })

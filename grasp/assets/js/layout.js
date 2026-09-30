@@ -34,10 +34,12 @@
 // The steps, section by section:
 //
 // 1. x. Column `c` starts `gapX` right of the widest card of the column before it in the
-//    section, so a column is as wide as its widest card and every component of the section
-//    shares the same columns.
-// 2. Components. The cards joined by edges are one component; each is laid out on its own
-//    and they stack in the order of their first card.
+//    section, and `2 * modulePad` further while module frames are drawn, so a column is as wide
+//    as its widest card, two frames in neighbouring columns stand `gapX` apart, and every
+//    component of the section shares the same columns.
+// 2. Components. The cards joined by edges are one component, and so are the cards of one
+//    module; each component is laid out on its own and they stack in the order of their first
+//    card, so a module's frame never reaches across another component.
 // 3. Call-site order. A depth-first walk from the component's sources — the cards no forward
 //    edge arrives at, in the order given — takes each caller's callees in the order of their
 //    lines, a site with no line after the ones with one. A column starts in the order the walk
@@ -57,6 +59,9 @@
 //    rectangle rather than a staircase; and nothing ever stands higher than the card above it
 //    in its column allows — `gapY` under it, with room for the two module frames between them
 //    when the two are of different modules.
+// 7. Frames apart. Cards move down until no module's frame meets a card or the frame of another
+//    module, which a module whose block in one column runs lower than its block in the column
+//    before would otherwise reach over.
 
 const SAME_MODULE_WEIGHT = 3
 const SWEEPS = ["right", "left", "right", "left"]
@@ -90,14 +95,16 @@ function arrangeSection(section, top, gapX, space, positions) {
   const to = (e) => byId.get(String(e.to))
   const forward = inside.filter((e) => to(e).column > from(e).column)
 
-  // Step 1: a column's left edge from the widest card of every column before it.
+  // Step 1: a column's left edge from the widest card of every column before it. The gap
+  // carries the padding of a module frame on either side of it, so two frames in neighbouring
+  // columns stand `gapX` apart as two cards do where no frames are drawn.
   const columns = [...new Set(cards.map((c) => c.column))].sort((a, b) => a - b)
   const left = new Map()
   let x = 0
   for (const column of columns) {
     left.set(column, x)
     const widest = Math.max(...cards.filter((c) => c.column === column).map((c) => c.width))
-    x += widest + gapX
+    x += widest + gapX + 2 * space.modulePad
   }
 
   // Undirected neighbours, each once, weighted by whether the two share a module.
@@ -111,24 +118,39 @@ function arrangeSection(section, top, gapX, space, positions) {
     neighbours.get(b).set(a, weight)
   }
 
-  // Step 2: components, in the order of their first card.
-  const component = new Map()
-  const components = []
-  for (const start of cards) {
-    if (component.has(start)) continue
-    const members = []
-    const stack = [start]
-    component.set(start, members)
-    while (stack.length > 0) {
-      const c = stack.pop()
-      members.push(c)
-      for (const n of neighbours.get(c).keys()) {
-        if (component.has(n)) continue
-        component.set(n, members)
-        stack.push(n)
-      }
+  // Step 2: components, in the order of their first card. The cards of one module are one
+  // component whether or not an edge joins them, because the hook draws one frame round a
+  // module's cards in a section: a module split over two components would be one frame spanning
+  // whatever stands between them.
+  const root = new Map(cards.map((c) => [c, c]))
+  const find = (c) => {
+    while (root.get(c) !== c) {
+      root.set(c, root.get(root.get(c)))
+      c = root.get(c)
     }
-    components.push(members)
+    return c
+  }
+  const join = (a, b) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) root.set(rb, ra)
+  }
+  for (const [c, joined] of neighbours) for (const n of joined.keys()) join(c, n)
+  const firstOfModule = new Map()
+  for (const c of cards) {
+    if (!c.module) continue
+    if (firstOfModule.has(c.module)) join(firstOfModule.get(c.module), c)
+    else firstOfModule.set(c.module, c)
+  }
+  const byRoot = new Map()
+  const components = []
+  for (const c of cards) {
+    const r = find(c)
+    if (!byRoot.has(r)) {
+      byRoot.set(r, [])
+      components.push(byRoot.get(r))
+    }
+    byRoot.get(r).push(c)
   }
 
   // Each card's opener: the first forward edge in the order given that arrives at it, which is
@@ -202,7 +224,6 @@ function arrangeComponent(members, cards, forward, from, to, neighbours, opener,
   // Step 6: y, column by column, so that every caller a forward edge leaves stands before the
   // callee is placed against its line.
   const placed = new Map()
-  let reach = top
   let previousBlocks = new Map()
   for (const column of columnKeys) {
     const blocks = new Map()
@@ -230,16 +251,107 @@ function arrangeComponent(members, cards, forward, from, to, neighbours, opener,
         }
       }
       const y = Math.ceil(wanted === null ? lowest : Math.max(wanted, lowest))
-      const position = {x: Math.ceil(left.get(column)), y}
-      placed.set(c, position)
-      positions[c.id] = position
+      placed.set(c, {x: Math.ceil(left.get(column)), y})
       if (firstOfBlock && c.module && !blocks.has(c.module)) blocks.set(c.module, y)
-      reach = Math.max(reach, y + c.height + (c.module ? space.modulePad : 0))
       above = c
     }
     previousBlocks = blocks
   }
+
+  // Step 7: every module frame clear of the other modules.
+  keepModulesApart(given, columnKeys.map((column) => order.get(column)), placed, top, space)
+
+  let reach = top
+  for (const c of given) {
+    const position = placed.get(c)
+    positions[c.id] = position
+    reach = Math.max(reach, position.y + c.height + (c.module ? space.modulePad : 0))
+  }
   return reach
+}
+
+// A module's frame is the box round all of its cards in the section, so the steps before this
+// one, which keep each column in order, can still leave one module's frame reaching over
+// another's card: a module whose block in the next column runs lower than its block in this one
+// draws its frame down past whatever stands under that first block. This step moves cards down,
+// and nothing else, until no two of the rectangles the canvas draws meet — the frame round each
+// module's cards, and each card of no module on its own — with `gapY` between them wherever they
+// share a stretch of the x axis.
+//
+// Of two rectangles that meet, the one whose top is lower moves, all of its cards by the same
+// amount, so that its top comes `gapY` under the other's bottom: a module is moved as one block
+// and keeps its own shape. Each column is then stacked again in the order its cards stand
+// in, which carries down whatever the move landed on. A card that nothing is in the way of
+// keeps the line of its call.
+//
+// Every move is strictly downwards and puts the moved rectangle wholly below the one it met, so
+// the pair never meets again unless something else moves the upper one down past it, and the
+// number of rounds is bounded all the same, so the step always ends.
+function keepModulesApart(cards, columns, placed, top, space) {
+  const {gapY, moduleHead, modulePad} = space
+  const rectangles = () => {
+    const list = []
+    const byModule = new Map()
+    for (const c of cards) {
+      const {x, y} = placed.get(c)
+      if (!c.module) {
+        list.push({cards: [c], left: x, top: y, right: x + c.width, bottom: y + c.height})
+        continue
+      }
+      let r = byModule.get(c.module)
+      if (!r) {
+        r = {cards: [], left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity}
+        byModule.set(c.module, r)
+        list.push(r)
+      }
+      r.cards.push(c)
+      r.left = Math.min(r.left, x - modulePad)
+      r.top = Math.min(r.top, y - moduleHead)
+      r.right = Math.max(r.right, x + c.width + modulePad)
+      r.bottom = Math.max(r.bottom, y + c.height + modulePad)
+    }
+    return list
+  }
+  const meet = (a, b) =>
+    a.left < b.right && b.left < a.right && a.top < b.bottom + gapY && b.top < a.bottom + gapY
+
+  const rounds = 4 * cards.length * cards.length + 8
+  for (let round = 0; round < rounds; round++) {
+    const list = rectangles()
+    let clash = null
+    for (let i = 0; i < list.length && !clash; i++) {
+      for (let j = i + 1; j < list.length && !clash; j++) {
+        if (meet(list[i], list[j])) clash = [list[i], list[j]]
+      }
+    }
+    if (!clash) return
+    const [upper, lower] = clash[1].top < clash[0].top ? [clash[1], clash[0]] : clash
+    const by = Math.ceil(upper.bottom + gapY - lower.top)
+    for (const c of lower.cards) placed.get(c).y += by
+    for (const column of columns) restack(column, placed, top, space)
+  }
+}
+
+// One column stacked again top to bottom in the order its cards stand in, each card at least as
+// far under the card above as the y step leaves it.
+function restack(column, placed, top, space) {
+  const standing = column
+    .map((c, i) => ({c, i}))
+    .sort((a, b) => placed.get(a.c).y - placed.get(b.c).y || a.i - b.i)
+    .map(({c}) => c)
+  column.splice(0, column.length, ...standing)
+  let above = null
+  for (const c of column) {
+    const position = placed.get(c)
+    let lowest = top + (c.module ? space.moduleHead : 0)
+    if (above) {
+      lowest = placed.get(above).y + above.height + space.gapY
+      if (above.module && above.module !== c.module) lowest += space.modulePad
+      if (c.module && above.module !== c.module) lowest += space.moduleHead
+    }
+    position.y = Math.max(position.y, Math.ceil(lowest))
+    above = c
+  }
 }
 
 // A call with a line sorts by it; one without sorts after every call that has one.

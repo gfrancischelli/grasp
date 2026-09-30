@@ -148,7 +148,7 @@
     for (const column of columns) {
       left.set(column, x);
       const widest = Math.max(...cards.filter((c) => c.column === column).map((c) => c.width));
-      x += widest + gapX;
+      x += widest + gapX + 2 * space.modulePad;
     }
     const neighbours = new Map(cards.map((c) => [c, /* @__PURE__ */ new Map()]));
     for (const e of inside) {
@@ -159,23 +159,35 @@
       neighbours.get(a).set(b, weight);
       neighbours.get(b).set(a, weight);
     }
-    const component = /* @__PURE__ */ new Map();
-    const components = [];
-    for (const start of cards) {
-      if (component.has(start)) continue;
-      const members = [];
-      const stack = [start];
-      component.set(start, members);
-      while (stack.length > 0) {
-        const c = stack.pop();
-        members.push(c);
-        for (const n of neighbours.get(c).keys()) {
-          if (component.has(n)) continue;
-          component.set(n, members);
-          stack.push(n);
-        }
+    const root = new Map(cards.map((c) => [c, c]));
+    const find = (c) => {
+      while (root.get(c) !== c) {
+        root.set(c, root.get(root.get(c)));
+        c = root.get(c);
       }
-      components.push(members);
+      return c;
+    };
+    const join = (a, b) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) root.set(rb, ra);
+    };
+    for (const [c, joined] of neighbours) for (const n of joined.keys()) join(c, n);
+    const firstOfModule = /* @__PURE__ */ new Map();
+    for (const c of cards) {
+      if (!c.module) continue;
+      if (firstOfModule.has(c.module)) join(firstOfModule.get(c.module), c);
+      else firstOfModule.set(c.module, c);
+    }
+    const byRoot = /* @__PURE__ */ new Map();
+    const components = [];
+    for (const c of cards) {
+      const r = find(c);
+      if (!byRoot.has(r)) {
+        byRoot.set(r, []);
+        components.push(byRoot.get(r));
+      }
+      byRoot.get(r).push(c);
     }
     const opener = /* @__PURE__ */ new Map();
     for (const e of forward) if (!opener.has(to(e))) opener.set(to(e), e);
@@ -232,7 +244,6 @@
       }
     }
     const placed = /* @__PURE__ */ new Map();
-    let reach = top;
     let previousBlocks = /* @__PURE__ */ new Map();
     for (const column of columnKeys) {
       const blocks = /* @__PURE__ */ new Map();
@@ -260,16 +271,78 @@
           }
         }
         const y = Math.ceil(wanted === null ? lowest : Math.max(wanted, lowest));
-        const position = { x: Math.ceil(left.get(column)), y };
-        placed.set(c, position);
-        positions[c.id] = position;
+        placed.set(c, { x: Math.ceil(left.get(column)), y });
         if (firstOfBlock && c.module && !blocks.has(c.module)) blocks.set(c.module, y);
-        reach = Math.max(reach, y + c.height + (c.module ? space.modulePad : 0));
         above = c;
       }
       previousBlocks = blocks;
     }
+    keepModulesApart(given, columnKeys.map((column) => order.get(column)), placed, top, space);
+    let reach = top;
+    for (const c of given) {
+      const position = placed.get(c);
+      positions[c.id] = position;
+      reach = Math.max(reach, position.y + c.height + (c.module ? space.modulePad : 0));
+    }
     return reach;
+  }
+  function keepModulesApart(cards, columns, placed, top, space) {
+    const { gapY, moduleHead, modulePad } = space;
+    const rectangles = () => {
+      const list = [];
+      const byModule = /* @__PURE__ */ new Map();
+      for (const c of cards) {
+        const { x, y } = placed.get(c);
+        if (!c.module) {
+          list.push({ cards: [c], left: x, top: y, right: x + c.width, bottom: y + c.height });
+          continue;
+        }
+        let r = byModule.get(c.module);
+        if (!r) {
+          r = { cards: [], left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+          byModule.set(c.module, r);
+          list.push(r);
+        }
+        r.cards.push(c);
+        r.left = Math.min(r.left, x - modulePad);
+        r.top = Math.min(r.top, y - moduleHead);
+        r.right = Math.max(r.right, x + c.width + modulePad);
+        r.bottom = Math.max(r.bottom, y + c.height + modulePad);
+      }
+      return list;
+    };
+    const meet = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom + gapY && b.top < a.bottom + gapY;
+    const rounds = 4 * cards.length * cards.length + 8;
+    for (let round = 0; round < rounds; round++) {
+      const list = rectangles();
+      let clash = null;
+      for (let i = 0; i < list.length && !clash; i++) {
+        for (let j = i + 1; j < list.length && !clash; j++) {
+          if (meet(list[i], list[j])) clash = [list[i], list[j]];
+        }
+      }
+      if (!clash) return;
+      const [upper, lower] = clash[1].top < clash[0].top ? [clash[1], clash[0]] : clash;
+      const by = Math.ceil(upper.bottom + gapY - lower.top);
+      for (const c of lower.cards) placed.get(c).y += by;
+      for (const column of columns) restack(column, placed, top, space);
+    }
+  }
+  function restack(column, placed, top, space) {
+    const standing = column.map((c, i) => ({ c, i })).sort((a, b) => placed.get(a.c).y - placed.get(b.c).y || a.i - b.i).map(({ c }) => c);
+    column.splice(0, column.length, ...standing);
+    let above = null;
+    for (const c of column) {
+      const position = placed.get(c);
+      let lowest = top + (c.module ? space.moduleHead : 0);
+      if (above) {
+        lowest = placed.get(above).y + above.height + space.gapY;
+        if (above.module && above.module !== c.module) lowest += space.modulePad;
+        if (c.module && above.module !== c.module) lowest += space.moduleHead;
+      }
+      position.y = Math.max(position.y, Math.ceil(lowest));
+      above = c;
+    }
   }
   function lineKey(e) {
     return e.line === null || e.line === void 0 ? Infinity : e.line;
@@ -1370,8 +1443,8 @@
       };
       const labelHeight = this.modules ? this.moduleLabelPx() : null;
       const moduleHead = labelHeight === null ? 0 : frameHead(labelHeight, MODULE_TITLE_GAP, MODULE_PAD);
-      if (unplaced.length === nodes.length) {
-        this.arrangeCanvas(unplaced, measured, sites, headerHeightFor, labelHeight, moduleHead);
+      if (waiting.length === nodes.length) {
+        this.arrangeCanvas(waiting, measured, sites, headerHeightFor, labelHeight, moduleHead);
         return;
       }
       const framesOf = (placed) => {
