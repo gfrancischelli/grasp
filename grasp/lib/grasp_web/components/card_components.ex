@@ -83,6 +83,13 @@ defmodule GraspWeb.CardComponents do
   attr :index, Index, required: true
   attr :card_id, :integer, required: true
   attr :depth, :integer, required: true
+
+  attr :column, :integer,
+    required: true,
+    doc: "the card's layer-floored column within its section, `Forest.columns_of/2`'s"
+
+  attr :layer, :atom, required: true, doc: "the card's `t:Grasp.Layers.layer/0`"
+
   attr :open_calls, :map, required: true
   attr :editor, :string, default: nil
   attr :callers_open, :integer, default: nil
@@ -148,6 +155,8 @@ defmodule GraspWeb.CardComponents do
       id={"node-#{@card.id}"}
       data-card={@card.id}
       data-depth={@depth}
+      data-column={@column}
+      data-layer={@layer}
       data-group={@card.group || ""}
       data-module={@module}
       data-test-side={@test_side? && "true"}

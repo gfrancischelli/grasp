@@ -1484,11 +1484,15 @@ defmodule GraspWeb.ReviewLive do
   defp base_label(_index), do: nil
 
   # Every visible card, flattened out of the sections: the columns are the order a card with
-  # no position is placed in, which the node carries as its depth.
+  # no position is placed in, which the node carries as its depth. Beside it the node carries
+  # its card's layer and the layer-floored column `Forest.columns_of/2` gives it.
   # Each node carries its card's own coverage and results readings rather than the whole held
   # sets, so a document that leaves a card's reading as it stands hands that card the same
   # assigns.
-  defp nodes(sections, forest, coverage, results) do
+  defp nodes(sections, forest, index, coverage, results) do
+    layer_of = &Index.layer(index, &1)
+    columns = Forest.layered_columns_of(forest, sections, layer_of)
+
     Enum.flat_map(sections, fn section ->
       section.columns
       |> Enum.with_index()
@@ -1499,6 +1503,8 @@ defmodule GraspWeb.ReviewLive do
           %{
             id: id,
             depth: depth,
+            column: Map.fetch!(columns, id),
+            layer: layer_of.(function_id),
             coverage: CardCoverage.for_function(coverage, function_id),
             result: CardResults.for_function(results, function_id),
             failure: CardResults.failure(results, function_id)
@@ -1561,7 +1567,7 @@ defmodule GraspWeb.ReviewLive do
         open_calls: open_calls,
         base: base_label(assigns.index),
         sections: sections,
-        nodes: nodes(sections, assigns.forest, assigns.coverage, assigns.results)
+        nodes: nodes(sections, assigns.forest, assigns.index, assigns.coverage, assigns.results)
       )
 
     ~H"""
@@ -1690,9 +1696,9 @@ defmodule GraspWeb.ReviewLive do
             type="button"
             id="reset-layout"
             phx-click="reset_layout"
-            data-tip="Reset layout"
+            data-tip="Arrange the canvas"
           >
-            reset layout
+            arrange
           </button>
           <button
             type="button"
@@ -1814,6 +1820,8 @@ defmodule GraspWeb.ReviewLive do
               index={@index}
               card_id={node.id}
               depth={node.depth}
+              column={node.column}
+              layer={node.layer}
               open_calls={Map.get(@open_calls, node.id, %{})}
               editor={@editor}
               callers_open={@callers_open}

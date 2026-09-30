@@ -7,7 +7,8 @@ and the sessions that keep it all where you put it.
 
 Cards stay where you put them. A new card opens beside the card it was opened from, in the
 clear space nearest the call that opened it, and nothing already on the canvas moves to make
-room for it. `reset layout` in the toolbar lays everything out again.
+room for it. **arrange** in the toolbar lays everything out again (see
+[How cards are laid out](#how-cards-are-laid-out)).
 
 - Drag a card by its header to move it, or hold Ctrl and drag from anywhere on it. Ctrl and
   press over a card is the drag gesture, so the context menu is suppressed there; a plain
@@ -28,10 +29,41 @@ later grows — a diff opened, a thread written — pushes the cards under it do
 as it grew, and the cards those run into after them, and when it shrinks back, the cards
 it pushed return, as long as they are still where the push left them; a card dragged onto
 another stays where it is, and a push moves cards rather than frames, so a grown card can
-reach into another group's frame. `reset layout` untangles them. Each group is laid out
+reach into another group's frame. **arrange** untangles them. Each group is laid out
 below the groups already down and clear of their frames, so a canvas laid out in one go
 reads as a stack of frames a gap apart; dragging a card or a frame across another is free
-to overlap them, and `reset layout` puts them back in their bands.
+to overlap them, and **arrange** puts them back in their bands.
+
+### How cards are laid out
+
+Every card stands in a layer, read from the index: the tests, then the markup (templates,
+LiveViews, components and `...HTML` modules), then the interfaces that receive a call from
+outside (controllers, the router, plugs, workers, servers and anything else under a `...Web`
+namespace), then the core (a context, or any module with no indexed module between it and the
+application's root namespace), then the private modules the core is built from (a context's
+schemas, queries and helpers), and last the functions the index does not hold. Each layer takes
+its own band of columns, left to right in that order, and a layer with no card in a group takes
+none.
+
+Inside a band a card stands one column right of whatever calls it from the same band or an
+earlier one, so a core function calling another stands further right, still in the core. A
+call back into an earlier layer sets no column: the template a controller renders stands in
+the markup band, left of the controller.
+
+**arrange** lays the whole canvas out in those columns, group by group. Rows follow the order
+of the calls, then are reordered so edges cross as little as they can. The cards of one module
+are kept together in one block, across neighbouring columns too, and two chains of calls in
+one group that share a module, a schema say, are arranged as one band, so every module frame
+is one rectangle and none holds or touches another module's card or frame. A card sits level
+with the call that opened it wherever there is room, and lets its edge bend where keeping the
+modules apart has moved it down. A canvas nobody has laid out yet, an agent's `set_cards`
+included, is arranged the same way.
+
+A card opened afterwards moves nothing already there. It joins the column its layer puts it
+in when cards of that column already stand further right than its opener, stands left of its
+opener when its layer comes before the opener's, as a template opened from its controller
+does, and stands against its module when that module is already in the group (see
+[Module clusters](#module-clusters)).
 
 ### Groups and frames
 
@@ -79,7 +111,7 @@ else, so there is nothing to create and nothing to name.
 - **Drag a module's label** to carry every card of that cluster together, the way a frame's
   title carries a whole group. A click on the label, a press that does not move, opens the
   module's card beside the cluster (see [Module cards](#module-cards)).
-- **The cards inside a cluster are yours to arrange.** Nothing snaps, sorts or stacks them —
+- **The cards inside a cluster are yours to move.** Only **arrange** sorts or stacks them —
   put them side by side, one under another or well apart, and the frame closes round wherever
   they stand, as a group's frame does.
 - **modules** in the toolbar, or the `m` key, draws the frames or takes them away. While they
@@ -87,9 +119,11 @@ else, so there is nothing to create and nothing to name.
   module name. Dropping the name narrows a card whose title is its widest line — a stub, or a
   card with a short body; a card whose code is wider than its title keeps its width.
 - **A card lands beside its module.** Open a call to a module that already has cards in that
-  flow and the card is placed against that cluster rather than beside the call, so a module
-  stays in one block as the flow grows. The first card of a module lands beside the call that
-  opened it, like any other.
+  flow and the card is placed against that cluster rather than beside the call, preferring a
+  spot in its own column or the next, so a module stays in one block as the flow grows and
+  the edge bends to reach it. With the frames taken away the card stands against the module's
+  cards the same way. The first card of a module lands beside the call that opened it, like
+  any other.
 - A cluster belongs to one flow, so a module open in two flows is framed once in each. A
   module frame decides nothing about membership: where a card lands is still read from the
   group frames alone.

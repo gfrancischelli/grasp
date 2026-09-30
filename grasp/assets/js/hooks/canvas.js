@@ -17,6 +17,19 @@
 // beside the card it was opened from and pushes the lot in one `place_cards`; the server fills
 // a position only where there is none, so a card already placed is never moved by a pass.
 //
+// The arrange pass is the other kind: a pass that finds no card rendered at a position and no
+// placement answer still on the wire — the one after the toolbar's `arrange`, which empties
+// every position through `reset_layout`, or the first of a canvas nobody has laid out — lays
+// the whole canvas out at once, in the layered columns `arrange` in `layout.js` works out from
+// the boxes measured here, the `data-column` and `data-module` the server rendered on each
+// node and the line each call leaves its caller at. `layout.js` holds no DOM, so it is tested
+// under `node --test`; this hook measures, hands it the numbers and pushes what it answers. A
+// card opened later is placed by the card-by-card pass, which asks the same module for the two
+// rules it shares with arrange: `besideOpener` stands the card right of its opener, lined up
+// with its column's standing cards, or left of it where the card's layer comes before the
+// opener's, and `spotBesideModule` stands it against its module where the module is already
+// down.
+//
 // Positions may be negative: a caller opened to the left of a card at the stage's corner lands
 // left of it. Nothing shifts to make room — the stage is not clipped and the pan reaches
 // wherever the cards are, so negative coordinates are shown by panning to them, and `fit()`
@@ -55,6 +68,8 @@
 // group's frame joins that group — the drop is decided against the rectangles the hook drew —
 // and Shift+click picks cards out into the selection ⌘G frames: the two halves of grouping by
 // hand.
+
+import {arrange, besideOpener, spotBesideModule} from "../layout.js"
 
 const MIN_SCALE = 0.05
 const MAX_SCALE = 2.5
@@ -1339,11 +1354,11 @@ const Canvas = {
   // render that answers carries the positions and drops `data-unplaced` with them.
   //
   // A card is placed against the boxes of the cards that already have a place, its own
-  // included as soon as it has one, and against the frames round the other sections, so a pass
-  // that lays out a whole canvas — the one after `reset_layout`, where nothing is placed —
-  // reads like the one that places a single new card: taken section by section in depth order,
-  // a caller is down before the callee that hangs off it, and each section is a band below the
-  // ones already laid out.
+  // included as soon as it has one, and against the frames round the other sections: taken
+  // section by section in depth order, a caller is down before the callee that hangs off it,
+  // and a section with nothing down yet is a band below the ones already laid out. A pass that
+  // finds nothing placed at all — the one after `reset_layout` — is not a card placed against
+  // others but a whole canvas to lay out, and hands every card to `arrangeCanvas` instead.
   placeCards() {
     this.passes++
     // A card the server has answered about is a card to forget; what stays behind is a card
@@ -1446,6 +1461,23 @@ const Canvas = {
     const labelHeight = this.modules ? this.moduleLabelPx() : null
     const moduleHead =
       labelHeight === null ? 0 : frameHead(labelHeight, MODULE_TITLE_GAP, MODULE_PAD)
+    // A pass that finds no card rendered at a position is the one after `reset_layout`, or the
+    // first of a canvas nobody has laid out: the whole canvas is arranged at once, in columns,
+    // rather than card by card. A card the server refused stays waiting for good, so the cards
+    // already asked about are arranged with the rest where every one of them is a refusal —
+    // otherwise a single refusal would keep every later reset from arranging. A card whose
+    // answer may still be on the wire is another matter: while an arrange's `place_cards` is
+    // travelling every card is still unplaced, and a card opened in that window arranging the
+    // canvas again would push positions the first answer does not agree with. So a pass with an
+    // answer pending places its cards one by one against the boxes already asked for.
+    const pending = waiting.some((node) => {
+      const asked = this.attempted.get(node.dataset.card)
+      return asked && this.passes - asked.pass < 2
+    })
+    if (waiting.length === nodes.length && !pending) {
+      this.arrangeCanvas(waiting, measured, sites, headerHeightFor, labelHeight, moduleHead)
+      return
+    }
     const framesOf = (placed) => {
       const {moduleFrames, extents} = clusterFrames(
         placed.map((b) => ({
@@ -1531,6 +1563,20 @@ const Canvas = {
           ? `${group || ""}|${node.dataset.module}`
           : null
       const home = cluster === null ? null : frameBoxes.find((f) => f.cluster === cluster)
+      // The section's standing cards by the column each is rendered in, which is what a card
+      // opened into the section is lined up against, and the cards of its own module among
+      // them, which with the clusters undrawn stand in for the frame round them.
+      const column = Number(node.dataset.column) || 0
+      const inSection = occupied.filter((b) => b.node.dataset.group === group)
+      const standing = inSection.map((b) => ({
+        column: Number(b.node.dataset.column) || 0,
+        left: b.left,
+        right: b.right,
+      }))
+      const moduleCards = node.dataset.module
+        ? inSection.filter((b) => b.node.dataset.module === node.dataset.module)
+        : []
+      const againstModule = home || (labelHeight === null && moduleCards.length > 0)
       // The frames a card is placed clear of: the sections that are not its own, and the
       // clusters that are not its own wherever they stand, since a cluster of the groupless
       // section has no flow frame round it to stand in for it. Its own section's frame and its
@@ -1573,21 +1619,55 @@ const Canvas = {
           : head + ownHead
       }
       let x, y
+      let leftward = false
       if (opener) {
         // The callee stands off the opener's right edge, level with the call that opened it:
         // the edge the hook draws leaves that line and arrives at the callee's port, so the
         // two meet without a bend. A call site the browser gives no box — scrolled away, or
         // inside a fold — leaves the card at its own port height.
+        //
+        // Where cards of the callee's column already stand further right than that, the callee
+        // starts at the left edge of the leftmost of them instead, so a core card opened from an
+        // interface joins the core cards already down rather than standing against the
+        // interface; the sweep below moves it clear of what stands in that column. A card
+        // opened from a card it names is lined up the same way.
+        //
+        // A card of an earlier layer than its opener — the template a controller renders —
+        // belongs in a band left of the opener's, which is where arrange puts it, so it stands
+        // where a caller does instead: a gap left of the opener, still level with the call. The
+        // module and the sweep below treat it as they treat any card opened from another, the
+        // sweep's second column taken one card width further left rather than right.
+        // `besideOpener` in `layout.js` makes the choice.
         const box = boxes.get(opener.node)
         const a = opener.site.getBoundingClientRect()
         const anchored = a.width > 0 || a.height > 0
         const line = anchored
           ? (a.top + a.height / 2 - s.top) / scale - measured.get(opener.node).top
           : PORT_Y
-        x = box.right + GAP_X
+        const beside = besideOpener({
+          opener: box,
+          openerLayer: opener.node.dataset.layer,
+          layer: node.dataset.layer,
+          width: m.width,
+          column,
+          placed: standing,
+          gapX: GAP_X,
+        })
+        x = beside.x
+        leftward = beside.leftward
         y = box.top + Math.min(Math.max(line, 0), box.bottom - box.top) - PORT_Y
       } else if (nearBox) {
-        x = nearBox.right + GAP_X
+        const beside = besideOpener({
+          opener: nearBox,
+          openerLayer: near.dataset.layer,
+          layer: node.dataset.layer,
+          width: m.width,
+          column,
+          placed: standing,
+          gapX: GAP_X,
+        })
+        x = beside.x
+        leftward = beside.leftward
         y = nearBox.top
       } else if (calls) {
         // A card opened from its callee is the caller, and a caller reads to the left of what
@@ -1661,7 +1741,8 @@ const Canvas = {
       // every one of these lengths is the section's alone.
       //
       // A callee is swept four ways from the ideal box beside its opener: down and up in the
-      // ideal column, and down and up in the column one card width and GAP_X to the right. The
+      // ideal column, and down and up in the column one card width and GAP_X further from the
+      // opener — to the right, or to the left for a card standing left of its opener. The
       // candidate whose top-left comes to rest nearest the ideal top-left wins, ties going to
       // the ideal column and to downwards, and a candidate that never moved is at distance zero
       // and takes it outright. Upwards is open to a callee because the stage is unbounded both
@@ -1674,16 +1755,20 @@ const Canvas = {
       // both taken — grows round its neighbour when a card of it lands past that neighbour.
       //
       // A callee or caller whose module already stands in the section is swept from four spots
-      // against that cluster's frame instead of from the ideal box — to its right, below it,
-      // above it and to its left — because the cards of one module read as one block and a card
-      // of that module belongs in the block rather than beside the call. The ideal spot still
-      // decides among the four: it is the only thing that says where the call the card was
-      // opened from stands, so of the four ways round the cluster the card takes the one that
-      // leaves it nearest its call. Below and above the frame the card owes the cards inside it
-      // one GAP_Y and nothing more, because it is joining that frame rather than clearing it.
-      // A card whose module has nothing down yet is placed by the ordinary rule, and so is a
-      // root opened from no card. A root opened from a card it names stands against that card's
-      // cluster the way a callee does, the ideal spot being the one beside that card.
+      // against that module instead of from the ideal box — to its right, below it, above it
+      // and to its left — because the cards of one module read as one block and a card of that
+      // module belongs in the block rather than beside the call: the edge bends, the card stays
+      // with its module. The module is its cluster's frame while the clusters are drawn and the
+      // box round its cards while they are not. A spot in the card's own column or the next wins
+      // over the others, so the card keeps to the column its layer puts it in; among those, or
+      // among all four where none of them falls in either column, the ideal spot decides — it
+      // is the only thing that says where the call the card was opened from stands, so the card
+      // takes the spot that leaves it nearest its call. Below and above the module the card owes
+      // the cards inside one GAP_Y and nothing more, because it is joining them rather than
+      // clearing them. `spotBesideModule` in `layout.js` makes the choice, with the sweep here
+      // to settle each spot. A card whose module has nothing down yet is placed by the ordinary
+      // rule, and so is a root opened from no card. A root opened from a card it names stands
+      // against its module the way a callee does, the ideal spot being the one beside that card.
       const obstacles = occupied.concat(foreign)
       const sweep = (start, direction) => {
         const swept = {...start}
@@ -1706,42 +1791,23 @@ const Canvas = {
       }
       const ideal = {left: x, top: y, right: x + m.width, bottom: y + m.height, node}
       let box
-      if (home && (opener || calls || nearBox)) {
-        // Beside the cluster the card keeps the line of its call, clamped into the frame's own
-        // band so that it stands against the cluster rather than off one of its corners. Below
-        // and above, the card is joining the frame rather than clearing it, so it owes the
-        // cards inside one gap and no more: it takes the column the leftmost of them starts,
-        // one GAP_Y under the lowest or over the highest, which is what one card of a cluster
-        // owes another.
-        const band = Math.max(home.top, Math.min(ideal.top, home.bottom - m.height))
-        const spots = []
-        for (const at of [
-          {x: home.right + GAP_X, y: band},
-          {x: home.left + MODULE_PAD, y: home.bottom - MODULE_PAD + GAP_Y},
-          {x: home.left + MODULE_PAD, y: home.top + moduleHead - GAP_Y - m.height},
-          {x: home.left - GAP_X - m.width, y: band},
-        ]) {
-          const from = {
-            left: at.x,
-            top: at.y,
-            right: at.x + m.width,
-            bottom: at.y + m.height,
-            node,
-          }
-          spots.push([from, "down"], [from, "up"])
-        }
-        let nearest = Infinity
-        for (const [from, direction] of spots) {
-          const settled = sweep(from, direction)
-          const away = Math.hypot(settled.left - ideal.left, settled.top - ideal.top)
-          if (away < nearest) {
-            nearest = away
-            box = settled
-          }
-          if (nearest === 0) break
-        }
+      if (againstModule && (opener || calls || nearBox)) {
+        box = spotBesideModule({
+          frame: home || null,
+          cards: moduleCards,
+          width: m.width,
+          height: m.height,
+          ideal,
+          column,
+          placed: standing,
+          gapX: GAP_X,
+          gapY: GAP_Y,
+          pad: home ? MODULE_PAD : 0,
+          head: home ? moduleHead : 0,
+          sweep,
+        })
       } else if (opener || nearBox) {
-        const over = m.width + GAP_X
+        const over = leftward ? -(m.width + GAP_X) : m.width + GAP_X
         const next = {...ideal, left: ideal.left + over, right: ideal.right + over}
         let nearest = Infinity
         for (const [from, direction] of [
@@ -1782,6 +1848,91 @@ const Canvas = {
       })
     }
 
+    this.pushEvent("place_cards", {cards: placements})
+  },
+
+  // The whole canvas laid out in layered columns by `arrange`, from what the pass measured: each
+  // section's cards with their columns, modules and boxes, and the calls between them with the
+  // line each leaves its caller at. The sections go in the order the card-by-card loop takes
+  // them, and a section's cards by depth and then by card, so a component's first card — the
+  // one it is stacked by — is its root. A call site the browser gives no box — scrolled away,
+  // or inside a fold — has no line, and its callee stands under the card above it instead.
+  //
+  // Every length is the one the loop reckons with: stage units at scale 1 for the boxes, the
+  // frames' heads and pads as the loop computes them, and GAP_Y between sections, which is what
+  // leaves one section's frame clear of the next by the gap the loop leaves. With the clusters
+  // undrawn there are no module frames to make room for.
+  //
+  // The positions go to the server in one `place_cards`, and each is recorded in `attempted` as
+  // the loop records its own, so the passes that follow before the answer arrives neither ask
+  // again nor mistake the canvas for one still waiting to be arranged.
+  arrangeCanvas(nodes, measured, sites, headerHeightFor, labelHeight, moduleHead) {
+    const s = this.stage.getBoundingClientRect()
+    const {scale} = this.view
+    const sorted = [...nodes].sort(
+      (a, b) =>
+        sortGroup(a) - sortGroup(b) ||
+        Number(a.dataset.depth) - Number(b.dataset.depth) ||
+        Number(a.dataset.card) - Number(b.dataset.card),
+    )
+    const sections = []
+    const byGroup = new Map()
+    for (const node of sorted) {
+      const group = node.dataset.group || ""
+      if (!byGroup.has(group)) {
+        const section = {
+          group,
+          head: group ? frameHead(headerHeightFor(group), FRAME_TITLE_GAP, FRAME_PAD) : 0,
+          pad: group ? FRAME_PAD : 0,
+          cards: [],
+          edges: [],
+        }
+        byGroup.set(group, section)
+        sections.push(section)
+      }
+      const m = measured.get(node)
+      byGroup.get(group).cards.push({
+        id: node.dataset.card,
+        column: Number(node.dataset.column) || 0,
+        module: node.dataset.module || "",
+        width: m.width,
+        height: m.height,
+      })
+    }
+    for (const {site, node, to} of sites) {
+      const callee = document.getElementById(`node-${to}`)
+      const group = node.dataset.group || ""
+      if (!callee || (callee.dataset.group || "") !== group) continue
+      const a = site.getBoundingClientRect()
+      const anchored = a.width > 0 || a.height > 0
+      const line = anchored
+        ? (a.top + a.height / 2 - s.top) / scale - measured.get(node).top
+        : null
+      byGroup.get(group).edges.push({from: node.dataset.card, to, line})
+    }
+
+    const positions = arrange({
+      sections,
+      gapX: GAP_X,
+      gapY: GAP_Y,
+      sectionGap: GAP_Y,
+      moduleHead,
+      modulePad: labelHeight === null ? 0 : MODULE_PAD,
+      port: PORT_Y,
+    })
+
+    const placements = []
+    for (const node of sorted) {
+      const id = node.dataset.card
+      const {x, y} = positions[id]
+      const m = measured.get(node)
+      placements.push({id: Number(id), x, y})
+      this.attempted.set(id, {
+        box: {left: x, top: y, right: x + m.width, bottom: y + m.height},
+        pass: this.passes,
+        warned: false,
+      })
+    }
     this.pushEvent("place_cards", {cards: placements})
   },
 
