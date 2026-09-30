@@ -7,7 +7,7 @@
 //
 //   {sections: [{group, head, pad, cards: [{id, column, module, width, height}],
 //                edges: [{from, to, line}]}],
-//    gapX, gapY, sectionGap, moduleHead, modulePad, port}
+//    gapX, gapY, sectionGap, moduleHead, modulePad, port, settleRounds}
 //
 // and the answer `{id: {x, y}}`, integers in the units the boxes were given in.
 //
@@ -30,6 +30,9 @@
 //   to 0.
 // - `port` is how far below a card's top an edge arrives, so that a callee aligned to a call
 //   line takes the line at its port rather than at its top edge. It defaults to 0.
+// - `settleRounds` bounds the rounds step 7 takes before the pass that holds by construction
+//   settles what is left. It defaults to a bound no real canvas reaches, and a test sets it to
+//   reach that pass.
 //
 // The steps, section by section:
 //
@@ -71,7 +74,7 @@ export function arrange(input) {
   const moduleHead = input.moduleHead ?? 0
   const modulePad = input.modulePad ?? 0
   const port = input.port ?? 0
-  const space = {gapY, moduleHead, modulePad, port}
+  const space = {gapY, moduleHead, modulePad, port, settleRounds: input.settleRounds}
 
   const positions = {}
   // The top of the next section's frame.
@@ -286,7 +289,17 @@ function arrangeComponent(members, cards, forward, from, to, neighbours, opener,
 //
 // Every move is strictly downwards and puts the moved rectangle wholly below the one it met, so
 // the pair never meets again unless something else moves the upper one down past it, and the
-// number of rounds is bounded all the same, so the step always ends.
+// number of rounds is bounded all the same, so the step always ends. `settleRounds` in the input
+// sets the bound, which exists for the tests of what follows it.
+//
+// A clash still standing when the rounds run out is settled by a pass that holds by
+// construction: the rectangles are taken in the order of their tops, and one that meets any
+// rectangle taken before it moves, with all its cards, to `gapY` under the lowest bottom among
+// them, where it meets none of them; nothing taken earlier moves again, so no two meet once the
+// pass is done. Columns need no stacking after it: every card stands inside its rectangle, the
+// rectangles of a column are `gapY` apart, and a module's rectangle already holds the padding
+// and head its frame takes, so two cards of a column stand at least as far apart as the y step
+// leaves them.
 function keepModulesApart(cards, columns, placed, top, space) {
   const {gapY, moduleHead, modulePad} = space
   const rectangles = () => {
@@ -315,20 +328,41 @@ function keepModulesApart(cards, columns, placed, top, space) {
   const meet = (a, b) =>
     a.left < b.right && b.left < a.right && a.top < b.bottom + gapY && b.top < a.bottom + gapY
 
-  const rounds = 4 * cards.length * cards.length + 8
-  for (let round = 0; round < rounds; round++) {
-    const list = rectangles()
-    let clash = null
-    for (let i = 0; i < list.length && !clash; i++) {
-      for (let j = i + 1; j < list.length && !clash; j++) {
-        if (meet(list[i], list[j])) clash = [list[i], list[j]]
+  const clashIn = (list) => {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        if (meet(list[i], list[j])) return [list[i], list[j]]
       }
     }
+    return null
+  }
+  const move = (r, by) => {
+    for (const c of r.cards) placed.get(c).y += by
+    r.top += by
+    r.bottom += by
+  }
+
+  const rounds = space.settleRounds ?? 4 * cards.length * cards.length + 8
+  for (let round = 0; round < rounds; round++) {
+    const clash = clashIn(rectangles())
     if (!clash) return
     const [upper, lower] = clash[1].top < clash[0].top ? [clash[1], clash[0]] : clash
-    const by = Math.ceil(upper.bottom + gapY - lower.top)
-    for (const c of lower.cards) placed.get(c).y += by
+    move(lower, Math.ceil(upper.bottom + gapY - lower.top))
     for (const column of columns) restack(column, placed, top, space)
+  }
+
+  const list = rectangles()
+  if (!clashIn(list)) return
+  const settled = []
+  const byTop = list
+    .map((rectangle, i) => ({rectangle, i}))
+    .sort((a, b) => a.rectangle.top - b.rectangle.top || a.i - b.i)
+  for (const {rectangle} of byTop) {
+    if (settled.some((other) => meet(other, rectangle))) {
+      const floor = Math.max(...settled.map((other) => other.bottom))
+      move(rectangle, Math.ceil(floor + gapY - rectangle.top))
+    }
+    settled.push(rectangle)
   }
 }
 

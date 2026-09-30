@@ -126,7 +126,7 @@
     const moduleHead = input.moduleHead ?? 0;
     const modulePad = input.modulePad ?? 0;
     const port = input.port ?? 0;
-    const space = { gapY, moduleHead, modulePad, port };
+    const space = { gapY, moduleHead, modulePad, port, settleRounds: input.settleRounds };
     const positions = {};
     let top = 0;
     for (const section of sections) {
@@ -289,19 +289,19 @@
   function keepModulesApart(cards, columns, placed, top, space) {
     const { gapY, moduleHead, modulePad } = space;
     const rectangles = () => {
-      const list = [];
+      const list2 = [];
       const byModule = /* @__PURE__ */ new Map();
       for (const c of cards) {
         const { x, y } = placed.get(c);
         if (!c.module) {
-          list.push({ cards: [c], left: x, top: y, right: x + c.width, bottom: y + c.height });
+          list2.push({ cards: [c], left: x, top: y, right: x + c.width, bottom: y + c.height });
           continue;
         }
         let r = byModule.get(c.module);
         if (!r) {
           r = { cards: [], left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
           byModule.set(c.module, r);
-          list.push(r);
+          list2.push(r);
         }
         r.cards.push(c);
         r.left = Math.min(r.left, x - modulePad);
@@ -309,23 +309,40 @@
         r.right = Math.max(r.right, x + c.width + modulePad);
         r.bottom = Math.max(r.bottom, y + c.height + modulePad);
       }
-      return list;
+      return list2;
     };
     const meet = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom + gapY && b.top < a.bottom + gapY;
-    const rounds = 4 * cards.length * cards.length + 8;
-    for (let round = 0; round < rounds; round++) {
-      const list = rectangles();
-      let clash = null;
-      for (let i = 0; i < list.length && !clash; i++) {
-        for (let j = i + 1; j < list.length && !clash; j++) {
-          if (meet(list[i], list[j])) clash = [list[i], list[j]];
+    const clashIn = (list2) => {
+      for (let i = 0; i < list2.length; i++) {
+        for (let j = i + 1; j < list2.length; j++) {
+          if (meet(list2[i], list2[j])) return [list2[i], list2[j]];
         }
       }
+      return null;
+    };
+    const move = (r, by) => {
+      for (const c of r.cards) placed.get(c).y += by;
+      r.top += by;
+      r.bottom += by;
+    };
+    const rounds = space.settleRounds ?? 4 * cards.length * cards.length + 8;
+    for (let round = 0; round < rounds; round++) {
+      const clash = clashIn(rectangles());
       if (!clash) return;
       const [upper, lower] = clash[1].top < clash[0].top ? [clash[1], clash[0]] : clash;
-      const by = Math.ceil(upper.bottom + gapY - lower.top);
-      for (const c of lower.cards) placed.get(c).y += by;
+      move(lower, Math.ceil(upper.bottom + gapY - lower.top));
       for (const column of columns) restack(column, placed, top, space);
+    }
+    const list = rectangles();
+    if (!clashIn(list)) return;
+    const settled = [];
+    const byTop = list.map((rectangle, i) => ({ rectangle, i })).sort((a, b) => a.rectangle.top - b.rectangle.top || a.i - b.i);
+    for (const { rectangle } of byTop) {
+      if (settled.some((other) => meet(other, rectangle))) {
+        const floor = Math.max(...settled.map((other) => other.bottom));
+        move(rectangle, Math.ceil(floor + gapY - rectangle.top));
+      }
+      settled.push(rectangle);
     }
   }
   function restack(column, placed, top, space) {
@@ -1443,7 +1460,11 @@
       };
       const labelHeight = this.modules ? this.moduleLabelPx() : null;
       const moduleHead = labelHeight === null ? 0 : frameHead(labelHeight, MODULE_TITLE_GAP, MODULE_PAD);
-      if (waiting.length === nodes.length) {
+      const pending = waiting.some((node) => {
+        const asked = this.attempted.get(node.dataset.card);
+        return asked && this.passes - asked.pass < 2;
+      });
+      if (waiting.length === nodes.length && !pending) {
         this.arrangeCanvas(waiting, measured, sites, headerHeightFor, labelHeight, moduleHead);
         return;
       }

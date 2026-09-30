@@ -429,5 +429,40 @@ test("no module frame holds another module's card on any of a seeded batch of ca
     const at = arrange(input)
     for (const {x, y} of Object.values(at)) assert.ok(Number.isInteger(x) && Number.isInteger(y))
     assertModulesApart(input, at)
+    // The same canvas with every clash left to the fallback.
+    const unsettled = {...input, settleRounds: 0}
+    assertModulesApart(unsettled, arrange(unsettled))
   }
+})
+
+test("frames that do not settle within the rounds allowed are stacked one below another", () => {
+  // No rounds at all leaves every clash to the fallback, which must hold the frames apart on its
+  // own.
+  const input = {
+    ...framed([
+      section(
+        [
+          tall("ctl", 0, "Web.Ctl", 300),
+          tall("reg", 1, "Accounts"),
+          tall("mail", 1, "Mailer"),
+          tall("h1", 2, "Accounts"),
+          tall("h2", 2, "Accounts"),
+          tall("h3", 2, "Accounts"),
+        ],
+        [
+          {from: "ctl", to: "reg", line: 40},
+          {from: "ctl", to: "mail", line: 200},
+          {from: "reg", to: "h1", line: 20},
+          {from: "reg", to: "h2", line: 50},
+          {from: "reg", to: "h3", line: 80},
+        ],
+        {head: 60, pad: 28},
+      ),
+    ]),
+    settleRounds: 0,
+  }
+  const at = arrange(input)
+
+  assertModulesApart(input, at)
+  for (const {x, y} of Object.values(at)) assert.ok(Number.isInteger(x) && Number.isInteger(y))
 })

@@ -1452,11 +1452,18 @@ const Canvas = {
       labelHeight === null ? 0 : frameHead(labelHeight, MODULE_TITLE_GAP, MODULE_PAD)
     // A pass that finds no card rendered at a position is the one after `reset_layout`, or the
     // first of a canvas nobody has laid out: the whole canvas is arranged at once, in columns,
-    // rather than card by card. The cards still waiting on an answer are arranged with the rest,
-    // since a card the server refused stays waiting for good and would otherwise keep every
-    // later reset from arranging; and a pass in which every card is waiting has returned above,
-    // so the answer to one arrange is not met by another.
-    if (waiting.length === nodes.length) {
+    // rather than card by card. A card the server refused stays waiting for good, so the cards
+    // already asked about are arranged with the rest where every one of them is a refusal —
+    // otherwise a single refusal would keep every later reset from arranging. A card whose
+    // answer may still be on the wire is another matter: while an arrange's `place_cards` is
+    // travelling every card is still unplaced, and a card opened in that window arranging the
+    // canvas again would push positions the first answer does not agree with. So a pass with an
+    // answer pending places its cards one by one against the boxes already asked for.
+    const pending = waiting.some((node) => {
+      const asked = this.attempted.get(node.dataset.card)
+      return asked && this.passes - asked.pass < 2
+    })
+    if (waiting.length === nodes.length && !pending) {
       this.arrangeCanvas(waiting, measured, sites, headerHeightFor, labelHeight, moduleHead)
       return
     }
