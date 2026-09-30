@@ -15,7 +15,9 @@
 // this hook has measured it and said where it goes — the browser is the only thing that knows
 // how large a card came out, so placement is the hook's alone. A pass places every such card
 // beside the card it was opened from and pushes the lot in one `place_cards`; the server fills
-// a position only where there is none, so a card already placed is never moved by a pass.
+// a position only where there is none, so a card already placed is never moved by a pass. The
+// pass that finds no card placed anywhere lays the whole canvas out at once instead, in the
+// layered columns `layout.js` works out from the boxes, the columns and the calls.
 //
 // Positions may be negative: a caller opened to the left of a card at the stage's corner lands
 // left of it. Nothing shifts to make room — the stage is not clipped and the pan reaches
@@ -55,6 +57,8 @@
 // group's frame joins that group — the drop is decided against the rectangles the hook drew —
 // and Shift+click picks cards out into the selection ⌘G frames: the two halves of grouping by
 // hand.
+
+import {arrange} from "../layout.js"
 
 const MIN_SCALE = 0.05
 const MAX_SCALE = 2.5
@@ -1339,11 +1343,11 @@ const Canvas = {
   // render that answers carries the positions and drops `data-unplaced` with them.
   //
   // A card is placed against the boxes of the cards that already have a place, its own
-  // included as soon as it has one, and against the frames round the other sections, so a pass
-  // that lays out a whole canvas — the one after `reset_layout`, where nothing is placed —
-  // reads like the one that places a single new card: taken section by section in depth order,
-  // a caller is down before the callee that hangs off it, and each section is a band below the
-  // ones already laid out.
+  // included as soon as it has one, and against the frames round the other sections: taken
+  // section by section in depth order, a caller is down before the callee that hangs off it,
+  // and a section with nothing down yet is a band below the ones already laid out. A pass that
+  // finds nothing placed at all — the one after `reset_layout` — is not a card placed against
+  // others but a whole canvas to lay out, and hands every card to `arrangeCanvas` instead.
   placeCards() {
     this.passes++
     // A card the server has answered about is a card to forget; what stays behind is a card
@@ -1446,6 +1450,13 @@ const Canvas = {
     const labelHeight = this.modules ? this.moduleLabelPx() : null
     const moduleHead =
       labelHeight === null ? 0 : frameHead(labelHeight, MODULE_TITLE_GAP, MODULE_PAD)
+    // A pass that finds no card standing anywhere — nothing rendered at a position and nothing
+    // on the wire — is the one after `reset_layout`, or the first of a canvas nobody has laid
+    // out: the whole canvas is arranged at once, in columns, rather than card by card.
+    if (unplaced.length === nodes.length) {
+      this.arrangeCanvas(unplaced, measured, sites, headerHeightFor, labelHeight, moduleHead)
+      return
+    }
     const framesOf = (placed) => {
       const {moduleFrames, extents} = clusterFrames(
         placed.map((b) => ({
@@ -1782,6 +1793,91 @@ const Canvas = {
       })
     }
 
+    this.pushEvent("place_cards", {cards: placements})
+  },
+
+  // The whole canvas laid out in layered columns by `arrange`, from what the pass measured: each
+  // section's cards with their columns, modules and boxes, and the calls between them with the
+  // line each leaves its caller at. The sections go in the order the card-by-card loop takes
+  // them, and a section's cards by depth and then by card, so a component's first card — the
+  // one it is stacked by — is its root. A call site the browser gives no box — scrolled away,
+  // or inside a fold — has no line, and its callee stands under the card above it instead.
+  //
+  // Every length is the one the loop reckons with: stage units at scale 1 for the boxes, the
+  // frames' heads and pads as the loop computes them, and GAP_Y between sections, which is what
+  // leaves one section's frame clear of the next by the gap the loop leaves. With the clusters
+  // undrawn there are no module frames to make room for.
+  //
+  // The positions go to the server in one `place_cards`, and each is recorded in `attempted` as
+  // the loop records its own, so the passes that follow before the answer arrives neither ask
+  // again nor mistake the canvas for one still waiting to be arranged.
+  arrangeCanvas(nodes, measured, sites, headerHeightFor, labelHeight, moduleHead) {
+    const s = this.stage.getBoundingClientRect()
+    const {scale} = this.view
+    const sorted = [...nodes].sort(
+      (a, b) =>
+        sortGroup(a) - sortGroup(b) ||
+        Number(a.dataset.depth) - Number(b.dataset.depth) ||
+        Number(a.dataset.card) - Number(b.dataset.card),
+    )
+    const sections = []
+    const byGroup = new Map()
+    for (const node of sorted) {
+      const group = node.dataset.group || ""
+      if (!byGroup.has(group)) {
+        const section = {
+          group,
+          head: group ? frameHead(headerHeightFor(group), FRAME_TITLE_GAP, FRAME_PAD) : 0,
+          pad: group ? FRAME_PAD : 0,
+          cards: [],
+          edges: [],
+        }
+        byGroup.set(group, section)
+        sections.push(section)
+      }
+      const m = measured.get(node)
+      byGroup.get(group).cards.push({
+        id: node.dataset.card,
+        column: Number(node.dataset.column) || 0,
+        module: node.dataset.module || "",
+        width: m.width,
+        height: m.height,
+      })
+    }
+    for (const {site, node, to} of sites) {
+      const callee = document.getElementById(`node-${to}`)
+      const group = node.dataset.group || ""
+      if (!callee || (callee.dataset.group || "") !== group) continue
+      const a = site.getBoundingClientRect()
+      const anchored = a.width > 0 || a.height > 0
+      const line = anchored
+        ? (a.top + a.height / 2 - s.top) / scale - measured.get(node).top
+        : null
+      byGroup.get(group).edges.push({from: node.dataset.card, to, line})
+    }
+
+    const positions = arrange({
+      sections,
+      gapX: GAP_X,
+      gapY: GAP_Y,
+      sectionGap: GAP_Y,
+      moduleHead,
+      modulePad: labelHeight === null ? 0 : MODULE_PAD,
+      port: PORT_Y,
+    })
+
+    const placements = []
+    for (const node of sorted) {
+      const id = node.dataset.card
+      const {x, y} = positions[id]
+      const m = measured.get(node)
+      placements.push({id: Number(id), x, y})
+      this.attempted.set(id, {
+        box: {left: x, top: y, right: x + m.width, bottom: y + m.height},
+        pass: this.passes,
+        warned: false,
+      })
+    }
     this.pushEvent("place_cards", {cards: placements})
   },
 

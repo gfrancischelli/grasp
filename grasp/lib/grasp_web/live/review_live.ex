@@ -1696,9 +1696,9 @@ defmodule GraspWeb.ReviewLive do
             type="button"
             id="reset-layout"
             phx-click="reset_layout"
-            data-tip="Reset layout"
+            data-tip="Arrange the canvas"
           >
-            reset layout
+            arrange
           </button>
           <button
             type="button"

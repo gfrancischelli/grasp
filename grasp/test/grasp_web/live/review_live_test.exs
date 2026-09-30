@@ -733,7 +733,12 @@ defmodule GraspWeb.ReviewLiveTest do
              "#canvas .toolbar #help-toggle[data-tip='Keys and gestures'][data-key='?']"
            )
 
-    assert has_element?(view, "#canvas .toolbar #reset-layout[data-tip='Reset layout']")
+    assert has_element?(
+             view,
+             "#canvas .toolbar #reset-layout[data-tip='Arrange the canvas']",
+             "arrange"
+           )
+
     refute has_element?(view, "#canvas .toolbar #reset-layout[data-key]")
 
     # The tooltip is drawn from data-tip; a title alongside would show a second bubble.
