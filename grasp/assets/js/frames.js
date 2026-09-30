@@ -21,9 +21,19 @@ export function moduleKey(group, module) {
 }
 
 // Whether an edge from the card `from` to the card `to`, each `{group, module}`, crosses the
+// border of any frame at all: its ends stand in two flows, or, while the module frames are
+// drawn, in two clusters.
+export function crossesFrame(from, to, modulesDrawn) {
+  if (flowKey(from.group) !== flowKey(to.group)) return true
+  return modulesDrawn && moduleKey(from.group, from.module) !== moduleKey(to.group, to.module)
+}
+
+// Whether an edge from the card `from` to the card `to`, each `{group, module}`, crosses the
 // border of a frame in `closed` (a Set of keys), counting module frames only when
-// `modulesDrawn`.
-export function hiddenByFrame(from, to, closed, modulesDrawn) {
+// `modulesDrawn`. With `allClosed` every frame is taken as closed, which is the toolbar's
+// toggle for the arrows crossing any frame.
+export function hiddenByFrame(from, to, closed, modulesDrawn, allClosed = false) {
+  if (allClosed) return crossesFrame(from, to, modulesDrawn)
   if (closed.size === 0) return false
   const fromFlow = flowKey(from.group)
   const toFlow = flowKey(to.group)

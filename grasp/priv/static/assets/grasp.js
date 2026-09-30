@@ -104,6 +104,8 @@
           window.dispatchEvent(new CustomEvent("grasp:toggle-modules"));
         } else if (e.key.toLowerCase() === "t") {
           window.dispatchEvent(new CustomEvent("grasp:toggle-test-edges"));
+        } else if (e.key.toLowerCase() === "b") {
+          window.dispatchEvent(new CustomEvent("grasp:toggle-cross-frame-edges"));
         } else if (e.key.toLowerCase() === "f") {
           window.dispatchEvent(new CustomEvent("grasp:zoom-fit"));
         } else if (e.key === "Escape") {
@@ -468,7 +470,12 @@
   function moduleKey(group, module) {
     return `module:${group ?? ""}|${module}`;
   }
-  function hiddenByFrame(from, to, closed, modulesDrawn) {
+  function crossesFrame(from, to, modulesDrawn) {
+    if (flowKey(from.group) !== flowKey(to.group)) return true;
+    return modulesDrawn && moduleKey(from.group, from.module) !== moduleKey(to.group, to.module);
+  }
+  function hiddenByFrame(from, to, closed, modulesDrawn, allClosed = false) {
+    if (allClosed) return crossesFrame(from, to, modulesDrawn);
     if (closed.size === 0) return false;
     const fromFlow = flowKey(from.group);
     const toFlow = flowKey(to.group);
@@ -522,6 +529,7 @@
       this.testEdges = false;
       document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges);
       this.closedFrames = /* @__PURE__ */ new Set();
+      this.crossFrameEdges = true;
       this.frames = [];
       this.lastReveal = null;
       this.extent = { width: 0, height: 0 };
@@ -557,6 +565,7 @@
       this.onToggleSignatures = () => this.toggleSignatures();
       this.onToggleModules = () => this.toggleModules();
       this.onToggleTestEdges = () => this.toggleTestEdges();
+      this.onToggleCrossFrameEdges = () => this.toggleCrossFrameEdges();
       this.onToggleCoverage = () => this.toggleCoverage();
       this.onZoomFit = () => this.fit();
       this.onSpaceRelease = () => this.releaseSpace();
@@ -576,6 +585,7 @@
       window.addEventListener("grasp:toggle-signatures", this.onToggleSignatures);
       window.addEventListener("grasp:toggle-modules", this.onToggleModules);
       window.addEventListener("grasp:toggle-test-edges", this.onToggleTestEdges);
+      window.addEventListener("grasp:toggle-cross-frame-edges", this.onToggleCrossFrameEdges);
       window.addEventListener("grasp:toggle-coverage", this.onToggleCoverage);
       window.addEventListener("grasp:zoom-fit", this.onZoomFit);
       window.addEventListener("blur", this.onSpaceRelease);
@@ -640,6 +650,7 @@
       window.removeEventListener("grasp:toggle-signatures", this.onToggleSignatures);
       window.removeEventListener("grasp:toggle-modules", this.onToggleModules);
       window.removeEventListener("grasp:toggle-test-edges", this.onToggleTestEdges);
+      window.removeEventListener("grasp:toggle-cross-frame-edges", this.onToggleCrossFrameEdges);
       window.removeEventListener("grasp:toggle-coverage", this.onToggleCoverage);
       window.removeEventListener("grasp:zoom-fit", this.onZoomFit);
       window.removeEventListener("blur", this.onSpaceRelease);
@@ -760,7 +771,7 @@
         return;
       }
       const control = e.target.closest(
-        "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-test-edges, #toggle-coverage"
+        "#zoom-in, #zoom-out, #zoom-fit, #zoom-level, #toggle-signatures, #toggle-modules, #toggle-test-edges, #toggle-cross-frame-edges, #toggle-coverage"
       );
       if (!control) return;
       e.stopPropagation();
@@ -772,6 +783,7 @@
       else if (control.id === "toggle-signatures") this.toggleSignatures();
       else if (control.id === "toggle-modules") this.toggleModules();
       else if (control.id === "toggle-test-edges") this.toggleTestEdges();
+      else if (control.id === "toggle-cross-frame-edges") this.toggleCrossFrameEdges();
       else if (control.id === "toggle-coverage") this.toggleCoverage();
       else this.fit();
     },
@@ -807,6 +819,14 @@
       document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges);
       const button = document.getElementById("toggle-test-edges");
       if (button) button.setAttribute("aria-pressed", String(this.testEdges));
+    },
+    // The arrows crossing any frame's border, flow or module. The edges are the hook's own, so
+    // hiding them is a redraw without them; no card moves or changes size.
+    toggleCrossFrameEdges() {
+      this.crossFrameEdges = !this.crossFrameEdges;
+      const button = document.getElementById("toggle-cross-frame-edges");
+      if (button) button.setAttribute("aria-pressed", String(this.crossFrameEdges));
+      this.draw();
     },
     // Coverage mode. The class lives on <body> and the button carries phx-update="ignore" for
     // the reasons signature mode does. A stale card's note shows only in the mode, so a card
@@ -1483,7 +1503,8 @@
           { group: fromNode.dataset.group || "", module: fromNode.dataset.module || "" },
           { group: toNode.dataset.group || "", module: toNode.dataset.module || "" },
           this.closedFrames,
-          this.modules
+          this.modules,
+          !this.crossFrameEdges
         ))
           continue;
         const b = boxOf(callee);

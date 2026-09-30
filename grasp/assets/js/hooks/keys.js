@@ -79,6 +79,9 @@ const Keys = {
       } else if (e.key.toLowerCase() === "t") {
         // The arrows from the test suite's cards are the Canvas hook's, like the module frames.
         window.dispatchEvent(new CustomEvent("grasp:toggle-test-edges"))
+      } else if (e.key.toLowerCase() === "b") {
+        // The arrows crossing the frames' borders are drawn by the Canvas hook as well.
+        window.dispatchEvent(new CustomEvent("grasp:toggle-cross-frame-edges"))
       } else if (e.key.toLowerCase() === "f") {
         // The fit is the Canvas hook's too: it measures the cards the browser has laid out,
         // which the server cannot see.
