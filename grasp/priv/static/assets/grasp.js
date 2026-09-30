@@ -481,6 +481,18 @@
     return fromModule !== toModule && (closed.has(fromModule) || closed.has(toModule));
   }
 
+  // js/hover.js
+  function hoverRule(id) {
+    if (id == null || !/^\d+$/.test(String(id))) return "";
+    const to = String(id);
+    return `.card [data-edge-to="${to}"]{box-shadow:0 0 0 2px var(--accent);background:var(--accent-soft);border-radius:2px}.connectors .edge[data-to="${to}"]{stroke:var(--accent);stroke-width:3}`;
+  }
+  function hoveredCard(target) {
+    const card = target?.closest?.(".card");
+    if (!card || !card.id?.startsWith("card-")) return null;
+    return card.id.slice("card-".length);
+  }
+
   // js/hooks/canvas.js
   var MIN_SCALE = 0.05;
   var MAX_SCALE = 2.5;
@@ -524,6 +536,10 @@
       this.style = document.getElementById("grasp-canvas-style") || document.head.appendChild(
         Object.assign(document.createElement("style"), { id: "grasp-canvas-style" })
       );
+      this.hoverStyle = document.getElementById("grasp-hover-style") || document.head.appendChild(
+        Object.assign(document.createElement("style"), { id: "grasp-hover-style" })
+      );
+      this.hovered = null;
       this.applyView();
       this.onWheel = (e) => this.wheel(e);
       this.onPointerDown = (e) => this.pointerDown(e);
@@ -533,6 +549,8 @@
       this.onClickCapture = (e) => this.clickCapture(e);
       this.onDoubleClick = (e) => this.doubleClick(e);
       this.onContextMenu = (e) => this.contextMenu(e);
+      this.onHover = (e) => this.hover(hoveredCard(e.target));
+      this.onHoverEnd = () => this.hover(null);
       this.onKeyDown = (e) => this.spaceDown(e);
       this.onKeyUp = (e) => this.spaceUp(e);
       this.onZoomReset = () => this.resetZoom();
@@ -550,6 +568,8 @@
       this.el.addEventListener("click", this.onClickCapture, true);
       this.el.addEventListener("dblclick", this.onDoubleClick);
       this.el.addEventListener("contextmenu", this.onContextMenu);
+      this.el.addEventListener("mouseover", this.onHover);
+      this.el.addEventListener("mouseleave", this.onHoverEnd);
       window.addEventListener("keydown", this.onKeyDown);
       window.addEventListener("keyup", this.onKeyUp);
       window.addEventListener("grasp:zoom-reset", this.onZoomReset);
@@ -612,6 +632,8 @@
       this.el.removeEventListener("click", this.onClickCapture, true);
       this.el.removeEventListener("dblclick", this.onDoubleClick);
       this.el.removeEventListener("contextmenu", this.onContextMenu);
+      this.el.removeEventListener("mouseover", this.onHover);
+      this.el.removeEventListener("mouseleave", this.onHoverEnd);
       window.removeEventListener("keydown", this.onKeyDown);
       window.removeEventListener("keyup", this.onKeyUp);
       window.removeEventListener("grasp:zoom-reset", this.onZoomReset);
@@ -632,6 +654,15 @@
       this.cardObserver.disconnect();
       if (this.remeasureFrame !== null) cancelAnimationFrame(this.remeasureFrame);
       this.style.remove();
+      this.hoverStyle.remove();
+    },
+    // Marks where the card under the pointer is called from — its call sites in the cards that
+    // call it and the edges leaving them — and clears the marks when the pointer leaves it. Only
+    // a change of card rewrites the rule, since `mouseover` fires for every element crossed.
+    hover(id) {
+      if (id === this.hovered) return;
+      this.hovered = id;
+      this.hoverStyle.textContent = hoverRule(id);
     },
     // The translate is rounded to whole screen pixels: a fractional composited offset resamples
     // the rasterised card text and blurs it. this.view stays fractional so small deltas accumulate.
