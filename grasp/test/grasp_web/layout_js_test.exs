@@ -1,14 +1,14 @@
 defmodule GraspWeb.LayoutJsTest do
   @moduledoc """
-  Runs the tests of the pure modules under `assets/js` — the canvas's layout step and the
-  focus a clicked button gives back — under Node's own test runner, so `mix test` covers
-  them. Node is not a dependency of the library: without it on the path the test is skipped
+  Runs the tests of the pure modules under `assets/js` — the canvas's layout step, the focus
+  a clicked button gives back and the edges a closed frame hides — under Node's own test
+  runner, so `mix test` covers them. Node is not a dependency of the library: without it on the path the test is skipped
   and says why.
   """
   use ExUnit.Case, async: true
 
   @assets Path.expand("../..", __DIR__)
-  @files ["assets/js/layout.test.mjs", "assets/js/focus.test.mjs"]
+  @files ["assets/js/layout.test.mjs", "assets/js/focus.test.mjs", "assets/js/frames.test.mjs"]
 
   if System.find_executable("node") do
     test "the pure modules pass their node tests" do

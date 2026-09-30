@@ -517,6 +517,22 @@ body.grasp-dragging .module__title {
   color: var(--fg-muted);
   white-space: nowrap;
 }
+.frame__arrows {
+  margin-inline-start: 0.4em;
+  padding: 0 0.3em;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.frame__arrows:hover {
+  color: var(--fg);
+}
+.frame__arrows[aria-pressed=false] {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
 .flows {
   position: absolute;
   inset: 0;
