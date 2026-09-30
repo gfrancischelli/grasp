@@ -218,10 +218,10 @@ defmodule GraspWeb.TestsLiveTest do
       refute has_element?(view, "#node-4[data-test-side]")
     end
 
-    test "have a toolbar toggle and a key, shown until the reader hides them", %{view: view} do
+    test "have a toolbar toggle and a key, hidden until the reader shows them", %{view: view} do
       assert has_element?(
                view,
-               "#toggle-test-edges[aria-pressed='true'][phx-update='ignore'][data-key='T']"
+               "#toggle-test-edges[aria-pressed='false'][phx-update='ignore'][data-key='T']"
              )
 
       assert has_element?(view, "#help dt kbd", "t")

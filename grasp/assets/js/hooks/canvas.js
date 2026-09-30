@@ -129,8 +129,10 @@ const Canvas = {
     // renders pressed.
     this.modules = true
     document.body.classList.toggle("grasp-modules", this.modules)
-    // So are the arrows leaving the test suite's cards.
-    this.testEdges = true
+    // The arrows leaving the test suite's cards cross the canvas to everything a test
+    // exercises, so they are hidden until the reader asks for them.
+    this.testEdges = false
+    document.body.classList.toggle("grasp-hide-test-edges", !this.testEdges)
     this.frames = []
     this.lastReveal = null
     this.extent = {width: 0, height: 0}
