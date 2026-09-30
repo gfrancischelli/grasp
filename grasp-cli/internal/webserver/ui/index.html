@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grasp</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header>
+  <span class="logo">grasp</span>
+  <span id="project"></span>
+  <a id="prlink" class="review-line" target="_blank" rel="noopener"></a>
+  <span class="review-line" id="reviewline"></span>
+  <span class="counts" id="counts"></span>
+  <span class="spacer"></span>
+  <select id="sessionSel" title="session"></select>
+  <button id="undoBtn" title="undo the last canvas change" disabled>undo <kbd>⌘Z</kbd></button>
+  <button id="resetBtn" title="lay the cards out again">reset layout</button>
+  <button id="sigBtn" title="signatures only">signatures <kbd>s</kbd></button>
+  <button id="sendReviewBtn" title="publish the threads to the PR, with final considerations">send review</button>
+  <button id="askBtn">ask <kbd>⌘I</kbd></button>
+  <button id="paletteBtn">search <kbd>⌘K</kbd></button>
+</header>
+<div id="layout">
+  <aside id="sidebar">
+    <input id="filter" placeholder="filter functions…">
+    <h3>Changes</h3>
+    <div id="changes"></div>
+    <h3>Comments</h3>
+    <div id="commentsList"></div>
+    <h3>Related</h3>
+    <div id="related"></div>
+    <h3 id="allModulesHead"><button id="allModulesBtn">show all modules</button></h3>
+    <div id="modules"></div>
+  </aside>
+  <main id="viewport">
+    <div id="world">
+      <svg id="edgesvg"></svg>
+    </div>
+    <div id="hint">Pick a changed function on the left, or press <kbd>⌘K</kbd>.<br><br>
+      Click a call to open the callee beside it · <kbd>callers</kbd> opens who calls it ·
+      drag headers to move cards, the background to pan, <kbd>⌘</kbd>+wheel to zoom ·
+      <kbd>⌘</kbd>+click selects cards (<kbd>shift</kbd>+drag the background draws a box); dragging one selected card moves them all ·
+      <kbd>⌘G</kbd> frames the selection as a group (<kbd>⇧⌘G</kbd> unframes; drag the frame's title to move it, click to rename) ·
+      <kbd>d</kbd> diff · <kbd>h</kbd> fold · <kbd>c</kbd> collapse · <kbd>x</kbd> close ·
+      click a line number to comment · <kbd>⌘I</kbd> asks the agent.</div>
+    <div id="zoomLabel"></div>
+  </main>
+  <aside id="chat" hidden>
+    <div class="chat-head">
+      <b>ask</b>
+      <select id="chatMode" title="what the agent may do">
+        <option value="read">read-only</option>
+        <option value="edit">edit files</option>
+      </select>
+      <select id="chatModel" title="model">
+        <option value="">default</option>
+        <option>haiku</option><option>sonnet</option><option>opus</option><option>fable</option>
+      </select>
+      <span class="spacer"></span>
+      <button id="chatNew" title="start over">new</button>
+      <button id="chatStop" disabled>stop</button>
+      <button id="chatClose">×</button>
+    </div>
+    <div id="transcript"></div>
+    <div class="chat-input">
+      <textarea id="chatText" placeholder="ask about this review… (Enter sends)"></textarea>
+    </div>
+  </aside>
+</div>
+<div id="reviewModal" hidden>
+  <div class="box review-box">
+    <b>send review to GitHub</b>
+    <div id="reviewInfo" class="review-info"></div>
+    <textarea id="reviewBody" placeholder="final considerations (optional) — posted as a top-level review comment"></textarea>
+    <div class="row">
+      <button id="reviewSend">send review</button>
+      <button id="reviewCancel">cancel</button>
+      <span id="reviewStatus" class="review-info"></span>
+    </div>
+  </div>
+</div>
+<div id="palette" hidden>
+  <div class="box">
+    <input id="palInput" placeholder="search functions…">
+    <ul id="palList"></ul>
+  </div>
+</div>
+<script src="/assets/app.js"></script>
+</body>
+</html>
