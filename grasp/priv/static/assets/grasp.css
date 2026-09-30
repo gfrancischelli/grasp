@@ -42,7 +42,7 @@
   --code-size: 13px;
   --far-size: 10px;
   --frame-title-size: 18px;
-  --module-title-size: 11px;
+  --module-title-size: 14px;
   --code-leading: 1.45;
   --mono:
     ui-monospace,
@@ -504,7 +504,7 @@ body.grasp-dragging .module__title {
   background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
 }
 .frame--module {
-  border-color: color-mix(in srgb, var(--border) 50%, transparent);
+  border-color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
   background: none;
 }
 .module__title {
@@ -514,7 +514,8 @@ body.grasp-dragging .module__title {
   font-family: var(--sans);
   font-size: calc(var(--module-title-size) / var(--zoom, 1));
   line-height: 1.2;
-  color: var(--fg-muted);
+  font-weight: 600;
+  color: var(--fg);
   white-space: nowrap;
 }
 .frame__arrows {
