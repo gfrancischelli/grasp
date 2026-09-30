@@ -575,10 +575,18 @@ defmodule Grasp.Session.Forest do
   card with no such caller in its section is a source and stands at its floor.
   """
   @spec columns_of(t(), (String.t() -> Grasp.Layers.layer())) :: %{id() => non_neg_integer()}
-  def columns_of(%__MODULE__{} = forest, layer_of) when is_function(layer_of, 1) do
-    forest
-    |> sections()
-    |> Enum.reduce(%{}, fn section, columns ->
+  def columns_of(%__MODULE__{} = forest, layer_of) when is_function(layer_of, 1),
+    do: layered_columns_of(forest, sections(forest), layer_of)
+
+  @doc """
+  `columns_of/2` over `sections`, which are `sections/1`'s answer for `forest`, for a caller
+  that already holds them and would otherwise lay the sections out a second time.
+  """
+  @spec layered_columns_of(t(), [section()], (String.t() -> Grasp.Layers.layer())) ::
+          %{id() => non_neg_integer()}
+  def layered_columns_of(%__MODULE__{} = forest, sections, layer_of)
+      when is_list(sections) and is_function(layer_of, 1) do
+    Enum.reduce(sections, %{}, fn section, columns ->
       Map.merge(columns, layered_columns(forest, List.flatten(section.columns), layer_of))
     end)
   end

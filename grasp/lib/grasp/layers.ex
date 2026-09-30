@@ -36,7 +36,12 @@ defmodule Grasp.Layers do
   @html_behaviours ~w(Phoenix.LiveView Phoenix.LiveComponent Phoenix.Component)
   @interface_behaviours ~w(Phoenix.Controller Phoenix.Router Plug Oban.Worker GenServer Supervisor Application)
 
-  @doc "The layer `record` stands in, a function, module or test record; `nil` is `:external`."
+  @doc """
+  The layer `record` stands in, a function, module or test record; `nil` is `:external`.
+
+  Each call reads the index's entry points again. A render, or anything else asking for many
+  records, reads the layers `Grasp.Index` holds through `Grasp.Index.layer/2` instead.
+  """
   @spec layer(Index.t(), map() | nil) :: layer()
   def layer(%Index{} = index, record) do
     entry_modules = entry_modules(index)
@@ -51,17 +56,23 @@ defmodule Grasp.Layers do
   def layers(%Index{} = index) do
     entry_modules = entry_modules(index)
 
-    known =
-      Map.new(index.modules_by_name, fn {name, _record} ->
-        {name, module_layer(index, name, entry_modules)}
+    # A module's layer is read once, whether or not the index holds a record of the module,
+    # and every function of it reuses the answer.
+    {layers, _known} =
+      index.functions
+      |> Enum.concat(index.modules_by_name)
+      |> Enum.reduce({%{}, %{}}, fn {key, record}, {layers, known} ->
+        name = if record["kind"] == "module", do: record["name"], else: record["module"]
+
+        known =
+          if Map.has_key?(known, name),
+            do: known,
+            else: Map.put(known, name, module_layer(index, name, entry_modules))
+
+        {Map.put(layers, key, layer(index, record, &Map.fetch!(known, &1))), known}
       end)
 
-    module_layer = fn name ->
-      Map.get_lazy(known, name, fn -> module_layer(index, name, entry_modules) end)
-    end
-
-    Enum.concat(index.functions, index.modules_by_name)
-    |> Map.new(fn {key, record} -> {key, layer(index, record, module_layer)} end)
+    layers
   end
 
   @doc "The layer's place from the outside in: `:test` is 0 and `:external` 5."

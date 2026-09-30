@@ -1491,7 +1491,7 @@ defmodule GraspWeb.ReviewLive do
   # assigns.
   defp nodes(sections, forest, index, coverage, results) do
     layer_of = &Index.layer(index, &1)
-    columns = Forest.columns_of(forest, layer_of)
+    columns = Forest.layered_columns_of(forest, sections, layer_of)
 
     Enum.flat_map(sections, fn section ->
       section.columns

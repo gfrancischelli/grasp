@@ -44,6 +44,11 @@ defmodule Grasp.LayersTest do
       module("AcmeWeb.CoreComponents"),
       module("AcmeWeb.Router", ["Plug"]),
       module("AcmeWeb.Endpoint"),
+      module("Acme.Routes", ["Phoenix.Router"]),
+      module("Acme.Handler", ["Phoenix.Controller"]),
+      module("Acme.Tree", ["Supervisor"]),
+      module("Acme.App", ["Application"]),
+      module("AcmeWeb.Widget", ["Phoenix.LiveComponent"]),
       module("Acme.AccountsTest", [], "test/acme/accounts_test.exs")
     ]
 
@@ -64,6 +69,11 @@ defmodule Grasp.LayersTest do
       function("AcmeWeb.CoreComponents", "button", 1),
       function("AcmeWeb.Router", "call", 2),
       function("AcmeWeb.Endpoint", "init", 1),
+      function("Acme.Routes", "call", 2),
+      function("Acme.Handler", "index", 2),
+      function("Acme.Tree", "init", 1),
+      function("Acme.App", "start", 2),
+      function("AcmeWeb.Widget", "update", 2),
       function("Acme.AccountsTest", "\"test gets\"", 1, "test", "test/acme/accounts_test.exs"),
       function(
         "Acme.AccountsTest",
@@ -115,6 +125,7 @@ defmodule Grasp.LayersTest do
       assert layer_of(index, "AcmeWeb.CoreComponents.button/1") == :html
       assert layer_of(index, "AcmeWeb.ProfileController.avatar/1") == :html
       assert layer_of(index, "AcmeWeb.Dashboard") == :html
+      assert layer_of(index, "AcmeWeb.Widget.update/2") == :html
     end
 
     test "what receives calls from outside the application is interfaces", %{index: index} do
@@ -125,6 +136,10 @@ defmodule Grasp.LayersTest do
       assert layer_of(index, "Acme.Accounts.Cache.handle_call/3") == :interfaces
       assert layer_of(index, "Acme.Api.handle/1") == :interfaces
       assert layer_of(index, "AcmeWeb.UserController") == :interfaces
+      assert layer_of(index, "Acme.Routes.call/2") == :interfaces
+      assert layer_of(index, "Acme.Handler.index/2") == :interfaces
+      assert layer_of(index, "Acme.Tree.init/1") == :interfaces
+      assert layer_of(index, "Acme.App.start/2") == :interfaces
     end
 
     test "a module nothing indexed stands above but the root is core", %{index: index} do
@@ -164,5 +179,9 @@ defmodule Grasp.LayersTest do
     assert Index.layer(index, "AcmeWeb.PageHTML.home/1") == :html
     assert Index.layer(index, "Enum.map/2") == :external
     assert Index.layer(index, "Nowhere") == :external
+
+    for record <- Index.functions(index) ++ Index.modules(index) do
+      assert Index.layer(index, record["id"]) == Layers.layer(index, record)
+    end
   end
 end

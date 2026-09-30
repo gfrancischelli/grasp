@@ -86,6 +86,9 @@ defmodule Grasp.Session.ForestColumnsTest do
     {forest, _group} = Forest.group_cards(forest, "Flow", [p, h, c2])
 
     assert columns(forest) == %{i => 0, c => 1, h => 0, c2 => 1, p => 2}
+
+    assert Forest.layered_columns_of(forest, Forest.sections(forest), &layer_of/1) ==
+             columns(forest)
   end
 
   test "a hidden card has no column, and columns_of/1 keeps the call depth" do
